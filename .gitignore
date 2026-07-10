@@ -1,0 +1,17 @@
+# RStudio / R session state
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+
+# Input data - large (multi-GB rasters/shapefiles) and includes sensitive
+# IDP location data that should not go into version control
+input_data/
+
+# Derived/cached outputs - reproducible from input_data + scripts
+output/
+testing.csv
+
+# OS
+Thumbs.db
+Desktop.ini
