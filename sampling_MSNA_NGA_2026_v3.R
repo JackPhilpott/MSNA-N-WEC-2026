@@ -1086,6 +1086,12 @@ select_pps_clusters <- function(
   
 }
 
+# Fixed seed so the PPS systematic draw (host + IDP) is reproducible on
+# rerun - required for audit trail on a humanitarian assessment. Stage 2
+# household selection sets its own seed independently in
+# 03_household_selection.R.
+set.seed(1234)
+
 host_clusters <- select_pps_clusters(host_sampling$sampling_frame)
 
 host_clusters <- host_clusters %>%
@@ -1145,7 +1151,10 @@ building_data_dir <- file.path(
 # area exhausts memory on a normal machine.
 selected_clusters <- dplyr::bind_rows(host_clusters, idp_clusters)
 
-building_polygons <- load_building_footprints(
+# Character vector of per-GDB-part cache file paths, NOT a combined object -
+# see load_building_footprints() roxygen docs for why (13M+ rows at full
+# scale, geographically disjoint parts, no correctness need to combine).
+building_files <- load_building_footprints(
   gdb_directory = building_data_dir,
   accessible_area = selected_clusters,
   mycrs = mycrs,
@@ -1156,6 +1165,85 @@ building_polygons <- load_building_footprints(
   ),
   rebuild = FALSE
 )
+
+# 02 stage 2 household selection
+source("03_household_selection.R")
+
+# GRID3 ward boundaries: the only Admin-3-equivalent layer with national
+# (NW/NE/NC) coverage - the official COD Admin-3 layer only covers the 3 NE
+# states, so it's used as a secondary reference instead (see
+# 03_household_selection.R roxygen docs).
+nga_wards <- sf::st_read(
+  here(boundaries_dir, "GRID3_NGA_Ward_Boundaries_v1", "grid3_nga_boundary_vaccwards.shp"),
+  quiet = TRUE
+)
+
+# Diagnostic: how much memory is already committed by Stage 1 + supporting
+# data (worldpop raster, admin boundaries, ward boundaries) before Stage 2
+# even starts, and how much the R session itself is holding onto.
+gc_summary <- gc(full = TRUE)
+message("R memory in use (Mb): ", round(sum(gc_summary[, 2]), 1))
+tryCatch({
+  free_mem_kb <- as.numeric(
+    system("wmic OS get FreePhysicalMemory /value", intern = TRUE) |>
+      grep("FreePhysicalMemory=", x = _, value = TRUE) |>
+      sub("FreePhysicalMemory=", "", x = _)
+  )
+  message("System free memory (Mb): ", round(free_mem_kb / 1024, 1))
+}, error = function(e) message("Could not check system free memory: ", e$message))
+
+stage2_households <- select_stage2_households(
+  clusters = selected_clusters,
+  building_files = building_files,
+  wards = nga_wards,
+  admin3 = NGA_shapes_all_cleaned$nga_admin3,
+  mycrs = mycrs,
+  cache_directory = file.path(
+    output_dir,
+    "cache",
+    "stage2"
+  ),
+  rebuild = FALSE
+)
+
+host_surveys <- stage2_households %>% dplyr::filter(pop_type == "host")
+idp_surveys  <- stage2_households %>% dplyr::filter(pop_type == "idp")
+
+sf::st_write(
+  stage2_households,
+  here(output_dir, "stage2_sampling_frame.gpkg"),
+  delete_dsn = TRUE,
+  quiet = TRUE
+)
+
+readr::write_csv(
+  stage2_households %>% sf::st_drop_geometry(),
+  here(output_dir, "stage2_sampling_frame.csv")
+)
+
+readr::write_csv(
+  host_surveys %>% sf::st_drop_geometry(),
+  here(output_dir, "stage2_sampling_frame_host.csv")
+)
+
+readr::write_csv(
+  idp_surveys %>% sf::st_drop_geometry(),
+  here(output_dir, "stage2_sampling_frame_idp.csv")
+)
+
+message("Pipeline complete through Stage 2 household selection.")
+
+# Everything below this point is ad hoc interactive exploration/plotting
+# (some blocks reference objects from older script versions that no longer
+# exist, e.g. clip_admin1) - safe to run line-by-line in RStudio, but not
+# part of the batch pipeline, so a non-interactive Rscript run stops here
+# rather than erroring out on stale exploration code after the real outputs
+# are already saved.
+if(!interactive()) {
+
+  quit(save = "no")
+
+}
 
 # ## ----  7 test impact sampling implementation ----
 # 

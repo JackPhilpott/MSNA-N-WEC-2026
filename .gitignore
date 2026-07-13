@@ -11,6 +11,22 @@ input_data/
 # Derived/cached outputs - reproducible from input_data + scripts
 output/
 testing.csv
+MSNA_NGA_samplingframe_cluster_2026.csv
+Rplots.pdf
+
+# Scratch/diagnostic scripts and their run logs from debugging sessions
+diag_*.R
+diag_*.txt
+temp_stage1_only.R
+*_err.txt
+*_err[0-9]*.txt
+*_log.txt
+*_log[0-9]*.txt
+run_log_*.txt
+
+# Claude Code local settings (machine/user-specific)
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
 
 # OS
 Thumbs.db

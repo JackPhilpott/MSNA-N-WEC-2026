@@ -6,8 +6,9 @@
 #
 # Purpose:
 #   Efficiently loads Google Open Buildings File Geodatabases, cleans and
-#   filters building footprints, and creates an accessible building polygon
-#   sampling frame for Stage 2 household selection.
+#   filters building footprints, converts them to centroid points assigned
+#   to their Stage-1 cluster, and returns a lightweight building sampling
+#   frame for Stage 2 household selection.
 #
 # ==============================================================================
 
@@ -20,42 +21,79 @@
 #' outside the clusters. This keeps memory use low even though the source
 #' GDBs contain tens of millions of country-wide building footprints -
 #' loading a full unfiltered layer this size will exhaust memory on a
-#' typical machine.
+#' typical machine. Processing happens in batches, converting each batch to
+#' centroid points and assigning them to a cluster before moving to the next
+#' batch, since at full survey scale (thousands of clusters) even the
+#' deduplicated set of building POLYGONS is too large to hold as one object -
+#' points assigned to their cluster are far lighter and let non-matching
+#' buildings be dropped immediately instead of carried forward.
 #'
 #' @param gdb_directory Character. Directory containing Google Open Buildings
 #'   File Geodatabases.
 #' @param accessible_area sf polygon object of the SELECTED Stage-1 sampling
-#'   clusters (e.g. \code{bind_rows(host_clusters, idp_clusters)}) - one row
-#'   per cluster/hexagon. Buildings are only needed for Stage 2 household
+#'   clusters (e.g. \code{bind_rows(host_clusters, idp_clusters)}), with a
+#'   \code{uuid_hex_pop} column identifying the physical hexagon (stable
+#'   across repeated PPS draws of the same hexagon) - one row per
+#'   cluster/hexagon draw. Buildings are only needed for Stage 2 household
 #'   selection within these clusters, not across the whole accessible area,
 #'   so passing the full accessible area here would defeat the per-cluster
 #'   query strategy and re-introduce the memory problem this function avoids.
 #' @param mycrs Coordinate reference system used for spatial processing.
 #' @param cache_directory Character. Directory for intermediate and final RDS
 #'   cache files.
+#' @param min_area_m2 Numeric. Minimum footprint area (square metres) for a
+#'   building to be retained. Google Open Buildings frequently detects
+#'   individual non-residential structures within a household compound
+#'   (kitchen blocks, stores, latrines) as separate footprints; this floor
+#'   excludes the smallest of these fragments before Stage 2 household
+#'   sampling. It is a light filter, not full compound clustering - some
+#'   non-residential picks may still occur and are handled by field
+#'   replacement from the Stage 2 reserve list. Default 12.
 #' @param rebuild Logical. If TRUE, rebuild cached outputs.
 #'
-#' @return sf polygon object containing cleaned building footprints with:
-#' \itemize{
-#'   \item building_id
-#'   \item confidence
-#'   \item building_area_m2
-#'   \item geometry
-#' }
+#' @return Character vector of file paths to cached cleaned/cluster-assigned
+#'   building points (each an sf POINT RDS with \code{building_id},
+#'   \code{confidence}, \code{building_area_m2}, \code{uuid_hex_pop},
+#'   \code{geometry}). NOT a single combined object, and not even
+#'   necessarily one file per GDB part - a part small enough to combine
+#'   internally returns one file; a part too large to combine (this
+#'   repeatedly proved to be the actual memory ceiling on this machine,
+#'   independent of how the combine was implemented) returns its
+#'   \code{flush_threshold}-sized chunk files as-is instead. Google Open
+#'   Buildings country-scale tiles also deliberately overlap at their
+#'   boundaries, so a cluster's buildings are not guaranteed to be confined
+#'   to one file either - \code{select_stage2_households()} processes each
+#'   file separately, treating the first file a cluster appears in as
+#'   authoritative for that cluster, and only combines the much smaller
+#'   per-household results at the end.
 #'
 #' @details
-#' Processing workflow, per GDB:
+#' Processing workflow, per GDB, per batch of clusters:
 #'
 #' \enumerate{
-#' \item Identify the building layer and its confidence/area fields.
-#' \item For each selected cluster, query the GDB with the cluster's
+#' \item Identify the building layer and its confidence/area fields (once
+#'   per GDB).
+#' \item For each cluster in the batch, query the GDB with the cluster's
 #'   bounding box (\code{wkt_filter}, spatial-index accelerated) and the
 #'   confidence/area thresholds pushed down as a SQL WHERE clause, so only
 #'   matching rows are ever pulled into R.
-#' \item Combine the per-cluster results, validate geometries, and apply
-#'   an exact intersects filter against the true cluster boundaries (the
-#'   bounding-box query above is a fast rectangular pre-filter).
-#' \item Assign permanent building IDs and cache.
+#' \item Deduplicate against everything seen recently (a rolling window, not
+#'   full history - neighbouring clusters' bounding boxes frequently overlap
+#'   even though the hexagons themselves do not, so the same building can be
+#'   fetched more than once, but clusters far apart in the original sequence
+#'   are geographically distant and would never realistically overlap).
+#' \item Transform CRS and repair invalid geometries.
+#' \item Convert to centroid points, assign permanent building IDs, and
+#'   spatially join to the true hexagon boundary (\code{clusters_for_assignment})
+#'   - a building whose centroid doesn't fall within any selected hexagon is
+#'   dropped here (this is also the exact-boundary filter, replacing the
+#'   bounding-box pre-filter's slack).
+#' \item Discard the batch's intermediate objects before starting the next
+#'   batch, so peak memory is bounded by batch size, not cluster count.
+#' \item Flush accumulated results to disk periodically rather than holding
+#'   the whole part's result in memory for the part's whole processing
+#'   duration, and checkpoint progress after each batch so a killed run
+#'   resumes from where it left off instead of restarting.
 #' }
 #'
 #' @export
@@ -64,6 +102,7 @@ load_building_footprints <- function(
     accessible_area,
     mycrs,
     cache_directory,
+    min_area_m2 = 12,
     rebuild = FALSE
 ) {
 
@@ -86,23 +125,6 @@ load_building_footprints <- function(
     recursive = TRUE,
     showWarnings = FALSE
   )
-
-
-  final_cache <- file.path(
-    cache_directory,
-    "accessible_buildings.rds"
-  )
-
-
-  if(file.exists(final_cache) && !rebuild) {
-
-    message("Loading cached: accessible_buildings")
-
-    return(
-      readRDS(final_cache)
-    )
-
-  }
 
 
   # ---------------------------------------------------------------------------
@@ -128,6 +150,30 @@ load_building_footprints <- function(
     seq_len(nrow(clusters_wgs84)),
     \(i) sf::st_as_text(sf::st_as_sfc(sf::st_bbox(clusters_wgs84[i, ])))
   )
+
+
+  # ---------------------------------------------------------------------------
+  # Deduplicated cluster polygons (one row per physical hexagon, keyed by
+  # uuid_hex_pop) used for per-batch building-to-cluster assignment below.
+  # accessible_area can contain multiple rows for the same hexagon (PPS
+  # systematic sampling can select the same hex more than once); using the
+  # raw un-deduplicated set here would match a building against every one of
+  # those repeated rows and produce duplicate output rows for it.
+  # uuid_hex_pop (the physical hex identity) is used rather than cluster_id
+  # (which is draw-instance-specific) so this stays correct regardless of
+  # how downstream code later merges repeated draws into a single cluster.
+  # ---------------------------------------------------------------------------
+
+  clusters_for_assignment <-
+    clusters_proj %>%
+    dplyr::distinct(
+      uuid_hex_pop,
+      .keep_all = TRUE
+    ) %>%
+    dplyr::select(
+      uuid_hex_pop,
+      geometry
+    )
 
 
   # ---------------------------------------------------------------------------
@@ -219,7 +265,7 @@ load_building_footprints <- function(
         ) |>
         dplyr::filter(
           building_area_m2 <= 1000,
-          building_area_m2 > 0
+          building_area_m2 >= min_area_m2
         )
 
     }
@@ -257,13 +303,26 @@ load_building_footprints <- function(
     if(file.exists(cache_file) && !rebuild) {
 
       message(
-        "Loading cached: ",
+        "Already cached (single file): ",
         gdb_name
       )
 
-      return(
-        readRDS(cache_file)
+      return(cache_file)
+
+    }
+
+
+    chunks_dir <- file.path(cache_directory, paste0(gdb_name, "_chunks"))
+    complete_marker <- file.path(cache_directory, paste0(gdb_name, "_complete.marker"))
+
+    if(file.exists(complete_marker) && !rebuild) {
+
+      message(
+        "Already cached (chunked): ",
+        gdb_name
       )
+
+      return(list.files(chunks_dir, full.names = TRUE))
 
     }
 
@@ -360,7 +419,9 @@ load_building_footprints <- function(
     # Attribute filter, pushed down to GDAL rather than applied in R after
     # loading. area_in_meters already exists on the Google Open Buildings
     # source data, so it's reused directly instead of recomputing st_area()
-    # over the full geometry set.
+    # over the full geometry set. Lower bound excludes small non-residential
+    # fragments (kitchen blocks, stores, latrines) commonly detected as
+    # separate footprints within a household compound.
     # -------------------------------------------------------------------------
 
     where_parts <- paste0('"', confidence_field, '" >= 0.75')
@@ -369,7 +430,7 @@ load_building_footprints <- function(
 
       where_parts <- c(
         where_parts,
-        paste0('"', area_field, '" > 0'),
+        paste0('"', area_field, '" >= ', min_area_m2),
         paste0('"', area_field, '" <= 1000')
       )
 
@@ -382,170 +443,436 @@ load_building_footprints <- function(
 
 
     # -------------------------------------------------------------------------
-    # Query each selected cluster individually
-    # -------------------------------------------------------------------------
-
-    buildings <- purrr::map(
-      cluster_bbox_wkt,
-      \(bbox_wkt) fetch_cluster(
-        gdb_path,
-        building_layer,
-        where_clause,
-        confidence_field,
-        area_field,
-        has_area_field,
-        bbox_wkt
-      )
-    ) |>
-      dplyr::bind_rows()
-
-
-    message(
-      gdb_name, ": ",
-      nrow(buildings),
-      " buildings found across ",
-      length(cluster_bbox_wkt),
-      " selected clusters"
-    )
-
-
-    if(nrow(buildings) == 0) {
-
-      saveRDS(buildings, cache_file)
-
-      return(buildings)
-
-    }
-
-
-    # -------------------------------------------------------------------------
-    # CRS transformation
-    # -------------------------------------------------------------------------
-
-    buildings <- sf::st_transform(
-      buildings,
-      mycrs
-    )
-
-
-    # -------------------------------------------------------------------------
-    # Geometry validation
-    # -------------------------------------------------------------------------
-
-    invalid <- !sf::st_is_valid(buildings)
-
-    if (any(invalid)) {
-      message(sum(invalid), " invalid geometries detected; repairing...")
-      buildings[invalid, ] <- sf::st_make_valid(buildings[invalid, ])
-    }
-
-
-    buildings <- buildings[
-      !sf::st_is_empty(buildings),
-    ]
-
-
-    # -------------------------------------------------------------------------
-    # Exact cluster boundary filtering
+    # Query each selected cluster individually, in batches. Within each
+    # batch: deduplicate, validate, convert to centroid POINTS, and assign
+    # to a cluster - all before moving to the next batch, so nothing but the
+    # lightweight final point result is ever accumulated across batches.
     #
-    # The bounding-box query above is a fast rectangular pre-filter; this
-    # applies the true cluster/hexagon boundary so buildings just outside a
-    # cluster (but inside its bounding box) aren't included. st_filter
-    # keeps original building geometries - much faster than st_intersection().
+    # Selected hexagons are drawn densely from a shared contiguous grid, so
+    # neighbouring clusters' bounding boxes frequently overlap even though
+    # the hexagons themselves do not - the same physical building can then
+    # be fetched once per overlapping cluster (observed rate: ~72% of rows
+    # were duplicates at full 8717-cluster scale). Even after deduplication,
+    # holding the full run's buildings as POLYGONS (with their multi-vertex
+    # geometries) all the way through to a final combine/spatial-join step
+    # is itself too large at this scale (millions of rows across 8717
+    # clusters) - it isn't just the raw pre-dedup volume that's the problem.
+    # Converting to centroid points and assigning each to its cluster
+    # per-batch keeps every accumulated object small: points are far
+    # lighter than polygons, and buildings outside every true hexagon
+    # (inside the loose bounding-box pre-filter, but not the exact hexagon)
+    # are dropped immediately instead of carried forward.
     # -------------------------------------------------------------------------
 
-    buildings <- sf::st_filter(
-      buildings,
-      clusters_proj,
-      .predicate = sf::st_intersects
-    )
-
-
-    message(
-      "After exact cluster boundary filter: ",
-      nrow(buildings)
-    )
-
+    # Batch size is deliberately small: cluster density is uneven (a batch
+    # covering a dense urban stratum can return orders of magnitude more
+    # buildings than a rural one), and the per-batch transform/validate/
+    # centroid/join steps below need to stay cheap even for a worst-case
+    # dense batch, not just on average.
+    batch_size <- 40
 
     # -------------------------------------------------------------------------
-    # Assign permanent building IDs
+    # Resume support. Cluster density is uneven enough that some stretches
+    # of a part are consistently much heavier than others, so a killed run
+    # tends to die in the same region on retry - re-processing everything
+    # before that region from scratch every attempt wastes real time. A
+    # progress file (saved after each completed batch) records everything
+    # needed to pick back up: seen_keys (for cross-batch dedup), id_counter
+    # (for building_id uniqueness), and how many chunks are already flushed
+    # to disk. If present, chunks_dir's existing chunks are kept instead of
+    # wiped, and only the remaining batches are processed.
     # -------------------------------------------------------------------------
 
-    buildings <- buildings |>
-      dplyr::mutate(
-        building_id =
-          paste0(
-            gdb_name,
-            "_",
-            stringr::str_pad(
-              dplyr::row_number(),
-              width = 10,
-              pad = "0"
-            )
-          )
+    progress_file <- file.path(cache_directory, paste0(gdb_name, "_progress.rds"))
+
+    resuming <- file.exists(progress_file)
+
+    if(resuming) {
+
+      progress_state <- readRDS(progress_file)
+
+      seen_keys <- progress_state$seen_keys
+
+      # Trim in case this checkpoint predates the seen_keys windowing fix
+      if(length(seen_keys) > 2000000) {
+        seen_keys <- seen_keys[(length(seen_keys) - 2000000 + 1):length(seen_keys)]
+      }
+
+      id_counter <- progress_state$id_counter
+      flush_counter <- progress_state$flush_counter
+      total_assigned <- progress_state$total_assigned
+      last_completed_batch_end <- progress_state$last_completed_batch_end
+
+      message(
+        gdb_name, ": RESUMING from progress file - ",
+        total_assigned, " buildings already assigned across ",
+        flush_counter, " flushed chunk(s), continuing after cluster ",
+        last_completed_batch_end
       )
 
+    } else {
+
+      seen_keys <- character(0)
+      id_counter <- 0
+      flush_counter <- 0
+      total_assigned <- 0
+      last_completed_batch_end <- 0
+
+      unlink(chunks_dir, recursive = TRUE)
+
+    }
+
+    dir.create(chunks_dir, recursive = TRUE, showWarnings = FALSE)
+
+    buildings_list <- list()
+
+    batch_starts <- seq(1, length(cluster_bbox_wkt), by = batch_size)
+    batch_starts <- batch_starts[batch_starts > last_completed_batch_end]
 
     # -------------------------------------------------------------------------
-    # Save intermediate cache
+    # Even with per-batch and per-row-chunk processing bounded, the ACCUMULATED
+    # buildings_list grows across the whole part (millions of rows by the end)
+    # and stays resident in memory for the entire loop, which combined with a
+    # later dense batch's processing has been enough to exhaust memory on its
+    # own. Flushing the accumulator to disk once it crosses flush_threshold
+    # rows, and reading the flushed chunks back only once at the very end,
+    # keeps in-loop memory bounded regardless of how large the part's total
+    # ends up being.
     # -------------------------------------------------------------------------
 
-    saveRDS(
-      buildings,
-      cache_file
+    # Cluster density varies far more than expected (single 75-cluster
+    # batches have ranged from 0 to 370k+ raw rows), so a fixed flush
+    # threshold this large still leaves room for a dense batch landing on
+    # top of an already-large accumulator to spike memory. A smaller
+    # threshold flushes more often but keeps the worst case far smaller.
+    flush_threshold <- 75000
+
+    flush_buildings <- function() {
+
+      if(length(buildings_list) == 0) {
+        return(invisible(NULL))
+      }
+
+      flush_counter <<- flush_counter + 1
+      total_assigned <<- total_assigned + sum(purrr::map_int(buildings_list, nrow))
+
+      # Retried with a brief backoff rather than failing outright: unlike
+      # the progress checkpoint, this holds actual building data that would
+      # otherwise be lost, but the same transient file-lock issue (observed:
+      # OneDrive/AV briefly locking a just-written file) can affect this
+      # write too.
+      to_save <- dplyr::bind_rows(buildings_list)
+      chunk_path <- file.path(chunks_dir, paste0("chunk_", flush_counter, ".rds"))
+
+      for(attempt in 1:5) {
+
+        result <- tryCatch({
+          saveRDS(to_save, chunk_path)
+          TRUE
+        }, error = function(e) {
+          message("Warning: flush save attempt ", attempt, " failed (", e$message, "), retrying...")
+          Sys.sleep(2)
+          FALSE
+        })
+
+        if(result) break
+
+      }
+
+      buildings_list <<- list()
+
+      gc(full = FALSE)
+
+    }
+
+    save_progress <- function(batch_end) {
+
+      # Written to a temp file and renamed into place rather than saved
+      # directly, and wrapped in tryCatch: a transient lock on the target
+      # path (observed: OneDrive/AV briefly locking a just-written file)
+      # must not crash the whole run over a single skippable checkpoint -
+      # worst case, a failed save just means resuming from one batch
+      # earlier next time, not losing the run.
+
+      tryCatch({
+
+        tmp_file <- paste0(progress_file, ".tmp")
+
+        saveRDS(
+          list(
+            seen_keys = seen_keys,
+            id_counter = id_counter,
+            flush_counter = flush_counter,
+            total_assigned = total_assigned,
+            last_completed_batch_end = batch_end
+          ),
+          tmp_file
+        )
+
+        file.rename(tmp_file, progress_file)
+
+      }, error = function(e) {
+
+        message("Warning: could not save progress checkpoint (", e$message, ") - continuing.")
+
+      })
+
+    }
+
+    # -------------------------------------------------------------------------
+    # Cluster density is uneven enough that even a small (75-cluster) batch
+    # can occasionally return several hundred thousand raw rows if it lands
+    # on a dense urban stratum. Capping the batch by cluster count alone
+    # doesn't bound memory in that case, since the expensive steps
+    # (transform/validate/centroid/join) still run on the whole raw fetch
+    # at once. row_chunk_size further splits each batch's raw fetch by ROW
+    # COUNT before running those steps, so a dense batch's 300k+ rows are
+    # processed 25k at a time instead of all at once.
+    # -------------------------------------------------------------------------
+
+    row_chunk_size <- 10000
+    seen_keys_max <- 2000000
+
+    process_rows <- function(rows) {
+
+      if(nrow(rows) == 0) {
+        return(rows)
+      }
+
+      # ---- deduplicate (within chunk + against everything seen so far) ----
+
+      cc <- sf::st_coordinates(sf::st_centroid(sf::st_geometry(rows)))
+      keys <- paste0(round(cc[, 1], 7), "_", round(cc[, 2], 7))
+
+      keep <- !duplicated(keys) & !(keys %in% seen_keys)
+
+      seen_keys <<- c(seen_keys, keys[keep])
+
+      # Cap to a rolling window rather than unbounded history. seen_keys
+      # only needs to catch duplicates from neighbouring clusters' bounding
+      # boxes overlapping - clusters far apart in the original sequence are
+      # grouped by admin2/stratum and therefore geographically distant, so
+      # they'd never realistically produce an overlapping fetch. Unbounded
+      # growth here was making every resumed attempt start with a larger
+      # baseline memory footprint the further into a part we got, on top of
+      # being reloaded in full from the progress checkpoint each time.
+      if(length(seen_keys) > seen_keys_max) {
+        seen_keys <<- seen_keys[(length(seen_keys) - seen_keys_max + 1):length(seen_keys)]
+      }
+
+      rows <- rows[keep, ]
+
+      if(nrow(rows) == 0) {
+        return(rows)
+      }
+
+      # ---- CRS transform + geometry validation ----
+
+      rows <- sf::st_transform(rows, mycrs)
+
+      invalid <- !sf::st_is_valid(rows)
+
+      if(any(invalid)) {
+        rows[invalid, ] <- sf::st_make_valid(rows[invalid, ])
+      }
+
+      rows <- rows[!sf::st_is_empty(rows), ]
+
+      if(nrow(rows) == 0) {
+        return(rows)
+      }
+
+      # ---- centroid conversion + permanent building IDs ----
+
+      n_rows <- nrow(rows)
+
+      rows <- rows %>%
+        dplyr::mutate(
+          building_id =
+            paste0(
+              gdb_name, "_",
+              stringr::str_pad(id_counter + dplyr::row_number(), width = 10, pad = "0")
+            ),
+          geometry = sf::st_centroid(geometry)
+        ) %>%
+        sf::st_as_sf()
+
+      id_counter <<- id_counter + n_rows
+
+      # ---- assign to cluster (also serves as the exact-hexagon filter -
+      # ---- a point that doesn't fall within any true hexagon is dropped)
+
+      sf::st_join(
+        rows,
+        clusters_for_assignment,
+        join = sf::st_within,
+        left = FALSE
+      ) %>%
+        dplyr::distinct(building_id, .keep_all = TRUE) %>%
+        dplyr::select(
+          building_id,
+          confidence,
+          building_area_m2,
+          uuid_hex_pop,
+          geometry
+        )
+
+    }
+
+
+    for(batch_start in batch_starts) {
+
+      batch_end <- min(batch_start + batch_size - 1, length(cluster_bbox_wkt))
+
+      batch_buildings <- purrr::map(
+        cluster_bbox_wkt[batch_start:batch_end],
+        \(bbox_wkt) fetch_cluster(
+          gdb_path,
+          building_layer,
+          where_clause,
+          confidence_field,
+          area_field,
+          has_area_field,
+          bbox_wkt
+        )
+      ) |>
+        dplyr::bind_rows()
+
+      gc(full = FALSE)
+
+      n_raw <- nrow(batch_buildings)
+
+      message(
+        gdb_name, ": batch ", batch_start, "-", batch_end,
+        " raw fetch: ", n_raw, " rows"
+      )
+
+      # Flush whatever's already accumulated BEFORE processing a large batch,
+      # rather than letting a dense batch land on top of an already-sizeable
+      # accumulator - the combination of the two is what has caused crashes
+      # even when neither alone would have been a problem.
+      if(n_raw > 20000) {
+
+        flush_buildings()
+
+      }
+
+      if(n_raw > 0) {
+
+        row_starts <- seq(1, n_raw, by = row_chunk_size)
+
+        for(row_start in row_starts) {
+
+          row_end <- min(row_start + row_chunk_size - 1, n_raw)
+
+          chunk_result <- process_rows(batch_buildings[row_start:row_end, ])
+
+          if(nrow(chunk_result) > 0) {
+
+            buildings_list[[length(buildings_list) + 1]] <- chunk_result
+
+          }
+
+          rm(chunk_result)
+          gc(full = FALSE)
+
+        }
+
+      }
+
+      rm(batch_buildings)
+      gc(full = FALSE)
+
+      if(sum(purrr::map_int(buildings_list, nrow)) >= flush_threshold) {
+
+        flush_buildings()
+
+      }
+
+      message(
+        gdb_name, ": batch ", batch_start, "-", batch_end,
+        " of ", length(cluster_bbox_wkt), " clusters, ",
+        length(seen_keys), " unique buildings seen, ",
+        total_assigned + sum(purrr::map_int(buildings_list, nrow)),
+        " assigned to a cluster so far (", flush_counter, " chunk(s) flushed to disk)"
+      )
+
+      save_progress(batch_end)
+
+    }
+
+    flush_buildings()
+
+    rm(seen_keys)
+    gc(full = FALSE)
+
+    # No final combine into one cache_file. Even reading the chunk files
+    # back incrementally (one at a time, discarding each after folding it
+    # into a running total) still repeatedly failed to complete for the
+    # largest part (~8.4M rows) - the final assembled object's own size,
+    # not how it was built, was the actual ceiling. The chunk files
+    # (already bounded in size by flush_threshold) are left in place
+    # permanently instead and returned as-is; select_stage2_households()
+    # processes each one separately, the same way it processes each GDB
+    # part, so nothing downstream ever needs this part combined into a
+    # single object either.
+    chunk_files <- list.files(chunks_dir, full.names = TRUE)
+
+    file.create(complete_marker)
+    unlink(progress_file)
+
+    message(
+      gdb_name, ": done - ",
+      length(chunk_files), " chunk file(s) covering ",
+      length(cluster_bbox_wkt), " selected clusters (kept separate, not combined)"
     )
 
-
-    buildings
+    chunk_files
 
   }
 
 
   # ---------------------------------------------------------------------------
-  # Process all GDBs
+  # Process all GDBs. purrr::walk() (not map()) - process_single_gdb() caches
+  # its own result to disk internally, so its return value is discarded here
+  # rather than accumulated across all 3 parts in memory. Accumulating each
+  # completed part's full result (millions of rows) while processing the
+  # next part was itself enough to exhaust memory - the same "accumulate
+  # instead of flush" problem as within a single part, one level up.
   # ---------------------------------------------------------------------------
 
-  building_parts <- purrr::map(
+  # process_single_gdb() returns file paths only (a single cache_file path,
+  # or a vector of chunk file paths) - purrr::map() (not walk()) to collect
+  # them is fine here since these are lightweight path lists, not data.
+  part_cache_files <- purrr::map(
     gdb_files,
     process_single_gdb
-  )
+  ) %>%
+    unlist()
+
+  gc(full = FALSE)
 
 
   # ---------------------------------------------------------------------------
-  # Combine final building frame
+  # Return every cache/chunk file path rather than one combined object.
+  #
+  # At full survey scale the 3 parts together are 13M+ building points -
+  # materializing that as a single in-memory sf object (however it's
+  # assembled, and even per-part rather than across all 3) repeatedly
+  # proved to be the actual memory ceiling on this machine. Google Open
+  # Buildings country-scale tiles deliberately overlap at their boundaries
+  # (confirmed empirically - a hexagon can have buildings appear in more
+  # than one part's file), so select_stage2_households() cannot assume a
+  # cluster's buildings come from exactly one file; it instead treats the
+  # first file a cluster's buildings appear in as authoritative and skips
+  # that cluster in any later file, which resolves the boundary overlap
+  # without ever needing to combine files together.
   # ---------------------------------------------------------------------------
 
-  buildings <- dplyr::bind_rows(
-    building_parts
+  stopifnot(
+    "Not all GDB parts were successfully cached" = length(part_cache_files) > 0 && all(file.exists(part_cache_files))
   )
 
-
-  message(
-    "\nFinal accessible building frame: ",
-    nrow(buildings),
-    " buildings."
-  )
-
-
-  # ---------------------------------------------------------------------------
-  # Final validation
-  # ---------------------------------------------------------------------------
-
-  if(anyDuplicated(buildings$building_id) > 0) {
-
-    stop(
-      "Duplicate building IDs detected."
-    )
-
-  }
-
-
-  saveRDS(
-    buildings,
-    final_cache
-  )
-
-
-  buildings
+  part_cache_files
 
 }
