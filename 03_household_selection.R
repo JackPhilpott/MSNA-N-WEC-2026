@@ -13,6 +13,316 @@
 # ==============================================================================
 
 
+#' Draw primary + reserve households from a cluster's eligible building pool
+#'
+#' Simple random sample without replacement of primary households plus a
+#' reserve/replacement list, ranked in draw order. A cluster with fewer
+#' eligible buildings than the target takes everything available and is
+#' flagged as understaffed. Shared by \code{select_stage2_households()} and
+#' \code{reallocate_zero_building_clusters()} (\code{04_cluster_reallocation.R})
+#' so both draw households the same way.
+#'
+#' @param pool sf object of eligible building points for one cluster.
+#' @param target_hh Integer. Primary household target for this cluster.
+#' @param reserve_n Integer. Maximum reserve households beyond \code{target_hh}.
+draw_cluster <- function(pool, target_hh, reserve_n) {
+
+  n_pool <- nrow(pool)
+
+  if(n_pool == 0) {
+
+    return(NULL)
+
+  }
+
+  pool <- pool[sample.int(n_pool), ]
+
+  n_take <- min(n_pool, target_hh + reserve_n)
+
+  pool <- pool[seq_len(n_take), ]
+
+  n_primary <- min(n_pool, target_hh)
+
+  draw_rank <- seq_len(n_take)
+
+  pool %>%
+    dplyr::mutate(
+      status = ifelse(draw_rank <= n_primary, "primary", "reserve"),
+      interview_number = ifelse(status == "primary", draw_rank, NA_integer_),
+      replacement_rank = ifelse(status == "reserve", draw_rank - n_primary, NA_integer_),
+      households_in_cluster = n_pool,
+      understaffed_cluster = n_pool < target_hh
+    )
+
+}
+
+
+#' Merge repeated PSU draws of the same hexagon into one cluster
+#'
+#' PPS systematic sampling can select the same hexagon more than once,
+#' producing multiple rows in the selected-clusters table that share the
+#' same \code{uuid_hex_pop}. Collapses these into one row per physical
+#' hexagon with a proportionally larger household target, rather than
+#' treating each draw as an independent cluster visit. Shared by
+#' \code{select_stage2_households()} and
+#' \code{reallocate_zero_building_clusters()} (\code{04_cluster_reallocation.R})
+#' so both work from an identical cluster-level table.
+#'
+#' @param clusters sf polygon object, one row per Stage-1 PPS draw (e.g.
+#'   \code{bind_rows(host_clusters, idp_clusters)}).
+#' @param m Integer. Primary households per cluster.
+#'
+#' @return sf polygon object, one row per unique \code{uuid_hex_pop}, with
+#'   \code{target_households}, \code{strata_id}, \code{reallocated} (FALSE),
+#'   \code{original_uuid_hex_pop} (NA), and the location/site provenance
+#'   columns described below (all set to their host/building-footprint
+#'   defaults here - \code{05_idp_site_assignment.R} overrides them for IDP
+#'   clusters) added.
+merge_repeated_psu_draws <- function(clusters, m) {
+
+  clusters_merged <-
+    clusters %>%
+    dplyr::group_by(
+      pop_type,
+      adm2_pcode,
+      uuid_hex_pop
+    ) %>%
+    dplyr::slice_min(
+      cluster_number,
+      n = 1,
+      with_ties = FALSE
+    ) %>%
+    dplyr::ungroup() %>%
+    dplyr::mutate(
+      target_households = m * selection_count,
+      strata_id = paste(pop_type, adm2_pcode, sep = "_"),
+      # Every cluster is "not reallocated" here - only
+      # reallocate_zero_building_clusters() (04_cluster_reallocation.R) ever
+      # sets these, for the small number of zero-building clusters it
+      # substitutes a new hexagon into. Present on every row (not just
+      # reallocated ones) so finalize_households()'s output schema is
+      # identical between a normal Stage 2 run and a reallocation run.
+      reallocated = FALSE,
+      original_uuid_hex_pop = NA_character_,
+      # Location/site provenance - host clusters are always
+      # building-footprint-based. IDP clusters (05_idp_site_assignment.R)
+      # override every one of these with the IOM DTM site actually used,
+      # since IDP Stage 2 no longer queries buildings at all. Present on
+      # every row so the combined host+IDP output has one consistent
+      # schema rather than pop_type-conditional columns.
+      location_source = "building_footprint",
+      households_in_cluster_source = "building_footprint_count",
+      site_radius_m = NA_real_,
+      iom_site_id = NA_character_,
+      iom_site_name = NA_character_,
+      iom_site_type = NA_character_,
+      iom_site_ward = NA_character_,
+      n_other_sites_in_hex = NA_integer_
+    )
+
+  message(
+    nrow(clusters) - nrow(clusters_merged),
+    " repeated PSU draw(s) merged into existing clusters. ",
+    nrow(clusters_merged),
+    " unique clusters remain."
+  )
+
+  clusters_merged
+
+}
+
+
+#' Attach cluster-level design/geospatial attributes and finalize columns
+#'
+#' Shared finishing logic for a set of drawn household rows (still in
+#' \code{mycrs}, one row per household, from \code{draw_cluster()}): joins
+#' cluster-level Stage 1 attributes, computes second-stage selection
+#' probability and design weight, attaches GRID3 ward (primary) and COD
+#' Admin-3 (secondary) attribution, builds \code{survey_id}, and produces
+#' both UTM and WGS84 coordinate columns. Shared by
+#' \code{select_stage2_households()} and
+#' \code{reallocate_zero_building_clusters()} (\code{04_cluster_reallocation.R})
+#' so both produce an identical output schema.
+#'
+#' @param households sf point object of drawn households (in \code{mycrs}),
+#'   carrying \code{cluster_id} for the join.
+#' @param clusters_merged sf/data frame, one row per cluster, carrying
+#'   \code{cluster_id}, \code{pop_type}, \code{strata_id}, \code{region},
+#'   \code{adm1_pcode}, \code{adm1_name}, \code{adm2_pcode}, \code{adm2_name},
+#'   \code{uuid_hex}, \code{uuid}, \code{certainty_stratum},
+#'   \code{selection_type}, \code{selection_count}, \code{psu_probability},
+#'   \code{target_households}, \code{reallocated}, \code{original_uuid_hex_pop},
+#'   \code{location_source}, \code{households_in_cluster_source},
+#'   \code{site_radius_m}, \code{iom_site_id}, \code{iom_site_name},
+#'   \code{iom_site_type}, \code{iom_site_ward}, \code{n_other_sites_in_hex}
+#'   (see \code{merge_repeated_psu_draws()} for the host-side defaults).
+#' @param wards sf polygon object of GRID3 ward boundaries.
+#' @param admin3 sf polygon object of official COD Admin-3 boundaries.
+#' @param mycrs Coordinate reference system used for spatial processing.
+#'
+#' @return sf point object (WGS84), finalized households ready for output.
+finalize_households <- function(households, clusters_merged, wards, admin3, mycrs) {
+
+  households <-
+    households %>%
+    dplyr::left_join(
+      clusters_merged %>%
+        sf::st_drop_geometry() %>%
+        dplyr::select(
+          cluster_id,
+          pop_type,
+          strata_id,
+          region,
+          adm1_pcode,
+          adm1_name,
+          adm2_pcode,
+          adm2_name,
+          uuid_hex,
+          uuid,
+          certainty_stratum,
+          selection_type,
+          selection_count,
+          psu_probability,
+          target_households,
+          reallocated,
+          original_uuid_hex_pop,
+          location_source,
+          households_in_cluster_source,
+          site_radius_m,
+          iom_site_id,
+          iom_site_name,
+          iom_site_type,
+          iom_site_ward,
+          n_other_sites_in_hex
+        ),
+      by = "cluster_id"
+    )
+
+  households <-
+    households %>%
+    dplyr::mutate(
+      ssu_probability = pmin(1, target_households / households_in_cluster),
+      base_weight = 1 / (psu_probability * ssu_probability)
+    )
+
+  wards_proj <-
+    sf::st_transform(wards, mycrs) %>%
+    dplyr::select(
+      adm3_pcode = wardcode,
+      adm3_name = wardname
+    ) %>%
+    dplyr::mutate(
+      admin3_source = "GRID3"
+    )
+
+  households <-
+    sf::st_join(
+      households,
+      wards_proj,
+      join = sf::st_within,
+      left = TRUE
+    )
+
+  admin3_proj <-
+    sf::st_transform(admin3, mycrs) %>%
+    dplyr::select(
+      admin3_cod_pcode = adm3_pcode,
+      admin3_cod_name = adm3_name
+    )
+
+  households <-
+    sf::st_join(
+      households,
+      admin3_proj,
+      join = sf::st_within,
+      left = TRUE
+    )
+
+  households <-
+    households %>%
+    dplyr::mutate(
+      survey_id =
+        dplyr::case_when(
+          status == "primary" ~
+            paste0(cluster_id, "_HH", stringr::str_pad(interview_number, 2, pad = "0")),
+          status == "reserve" ~
+            paste0(cluster_id, "_R", stringr::str_pad(replacement_rank, 2, pad = "0"))
+        )
+    )
+
+  coords_utm <- sf::st_coordinates(households)
+
+  households <-
+    households %>%
+    dplyr::mutate(
+      x_utm = coords_utm[, "X"],
+      y_utm = coords_utm[, "Y"]
+    )
+
+  households_wgs84 <- sf::st_transform(households, 4326)
+
+  coords_wgs84 <- sf::st_coordinates(households_wgs84)
+
+  households_wgs84 <-
+    households_wgs84 %>%
+    dplyr::mutate(
+      longitude = coords_wgs84[, "X"],
+      latitude = coords_wgs84[, "Y"]
+    )
+
+  households_wgs84 %>%
+    dplyr::select(
+      survey_id,
+      cluster_id,
+      status,
+      interview_number,
+      replacement_rank,
+      pop_type,
+      strata_id,
+      region,
+      adm1_pcode,
+      adm1_name,
+      adm2_pcode,
+      adm2_name,
+      adm3_pcode,
+      adm3_name,
+      admin3_source,
+      admin3_cod_pcode,
+      admin3_cod_name,
+      uuid_hex,
+      uuid,
+      building_id,
+      confidence,
+      building_area_m2,
+      latitude,
+      longitude,
+      x_utm,
+      y_utm,
+      households_in_cluster,
+      target_households,
+      selection_count,
+      certainty_stratum,
+      selection_type,
+      psu_probability,
+      ssu_probability,
+      base_weight,
+      understaffed_cluster,
+      reallocated,
+      original_uuid_hex_pop,
+      location_source,
+      households_in_cluster_source,
+      site_radius_m,
+      iom_site_id,
+      iom_site_name,
+      iom_site_type,
+      iom_site_ward,
+      n_other_sites_in_hex,
+      geometry
+    )
+
+}
+
+
 #' Select Stage 2 households from building footprints within selected clusters
 #'
 #' For each selected Stage-1 PSU cluster (hexagon), assigns eligible building
@@ -24,9 +334,13 @@
 #' target, rather than treated as separate cluster visits.
 #'
 #' @param clusters sf polygon object of the SELECTED Stage-1 sampling
-#'   clusters (e.g. \code{bind_rows(host_clusters, idp_clusters)}), one row
-#'   per PPS draw - a hexagon selected more than once appears as multiple
-#'   rows sharing the same \code{uuid_hex_pop} and is merged here.
+#'   clusters - host clusters only (\code{host_clusters}). IDP clusters use
+#'   \code{select_stage2_idp_sites()} (\code{05_idp_site_assignment.R})
+#'   instead: IDP household locations come from the IOM DTM site's own GPS
+#'   point rather than a building footprint draw, so IDP Stage 2 never
+#'   queries Google Open Buildings. One row per PPS draw - a hexagon
+#'   selected more than once appears as multiple rows sharing the same
+#'   \code{uuid_hex_pop} and is merged here.
 #' @param building_files Character vector of file paths to per-GDB-part
 #'   cached building points, as returned by \code{load_building_footprints()}
 #'   - each an sf POINT object already carrying \code{uuid_hex_pop}
@@ -128,73 +442,16 @@ select_stage2_households <- function(
   # ---------------------------------------------------------------------------
   # Merge repeated PSU draws of the same hexagon into a single cluster with a
   # proportionally larger household target, rather than treating each draw
-  # as an independent cluster visit.
+  # as an independent cluster visit (shared helper, defined above).
   # ---------------------------------------------------------------------------
 
-  clusters_merged <-
-    clusters %>%
-    dplyr::group_by(
-      pop_type,
-      adm2_pcode,
-      uuid_hex_pop
-    ) %>%
-    dplyr::slice_min(
-      cluster_number,
-      n = 1,
-      with_ties = FALSE
-    ) %>%
-    dplyr::ungroup() %>%
-    dplyr::mutate(
-      target_households = m * selection_count,
-      strata_id = paste(pop_type, adm2_pcode, sep = "_")
-    )
-
-
-  message(
-    nrow(clusters) - nrow(clusters_merged),
-    " repeated PSU draw(s) merged into existing clusters. ",
-    nrow(clusters_merged),
-    " unique clusters remain."
-  )
+  clusters_merged <- merge_repeated_psu_draws(clusters, m)
 
 
   # ---------------------------------------------------------------------------
   # Per-cluster household draw: primary (SRS without replacement) + reserve,
-  # ranked in draw order. Clusters with fewer eligible buildings than the
-  # target take everything available and are flagged as understaffed.
+  # ranked in draw order, via the shared draw_cluster() defined above.
   # ---------------------------------------------------------------------------
-
-  draw_cluster <- function(pool, target_hh) {
-
-    n_pool <- nrow(pool)
-
-    if(n_pool == 0) {
-
-      return(NULL)
-
-    }
-
-    pool <- pool[sample.int(n_pool), ]
-
-    n_take <- min(n_pool, target_hh + reserve_n)
-
-    pool <- pool[seq_len(n_take), ]
-
-    n_primary <- min(n_pool, target_hh)
-
-    draw_rank <- seq_len(n_take)
-
-    pool %>%
-      dplyr::mutate(
-        status = ifelse(draw_rank <= n_primary, "primary", "reserve"),
-        interview_number = ifelse(status == "primary", draw_rank, NA_integer_),
-        replacement_rank = ifelse(status == "reserve", draw_rank - n_primary, NA_integer_),
-        households_in_cluster = n_pool,
-        understaffed_cluster = n_pool < target_hh
-      )
-
-  }
-
 
   # ---------------------------------------------------------------------------
   # Assign buildings to clusters and draw households ONE PART AT A TIME.
@@ -315,7 +572,7 @@ select_stage2_households <- function(
         ]
 
         chunk_households <-
-          purrr::map2(pools, targets, draw_cluster) %>%
+          purrr::map2(pools, targets, draw_cluster, reserve_n = reserve_n) %>%
           dplyr::bind_rows()
 
         households_list[[length(households_list) + 1]] <- chunk_households
@@ -367,178 +624,13 @@ select_stage2_households <- function(
 
 
   # ---------------------------------------------------------------------------
-  # Attach cluster-level design/geospatial attributes
+  # Attach cluster-level attributes, design weights, admin3/ward attribution,
+  # survey_id and coordinates via the shared finalize_households() (defined
+  # above) - identical logic to what reallocate_zero_building_clusters()
+  # (04_cluster_reallocation.R) uses for the replacement households it draws.
   # ---------------------------------------------------------------------------
 
-  households <-
-    households %>%
-    dplyr::left_join(
-      clusters_merged %>%
-        sf::st_drop_geometry() %>%
-        dplyr::select(
-          cluster_id,
-          pop_type,
-          strata_id,
-          region,
-          adm1_pcode,
-          adm1_name,
-          adm2_pcode,
-          adm2_name,
-          uuid_hex,
-          uuid,
-          certainty_stratum,
-          selection_type,
-          selection_count,
-          psu_probability,
-          target_households
-        ),
-      by = "cluster_id"
-    )
-
-
-  # ---------------------------------------------------------------------------
-  # Second-stage selection probability and base design weight
-  # ---------------------------------------------------------------------------
-
-  households <-
-    households %>%
-    dplyr::mutate(
-      ssu_probability = pmin(1, target_households / households_in_cluster),
-      base_weight = 1 / (psu_probability * ssu_probability)
-    )
-
-
-  # ---------------------------------------------------------------------------
-  # Admin-3/ward attribution.
-  #
-  # GRID3 ward boundaries are the PRIMARY source (adm3_pcode/adm3_name),
-  # since they are the only layer with national NW/NE/NC coverage - the
-  # official COD Admin-3 layer only covers the 3 NE states. The COD layer is
-  # still attached as a secondary reference (admin3_cod_pcode/
-  # admin3_cod_name) where available, since it may be the identifier field
-  # teams are already used to referencing in NE.
-  # ---------------------------------------------------------------------------
-
-  wards_proj <-
-    sf::st_transform(wards, mycrs) %>%
-    dplyr::select(
-      adm3_pcode = wardcode,
-      adm3_name = wardname
-    ) %>%
-    dplyr::mutate(
-      admin3_source = "GRID3"
-    )
-
-  households <-
-    sf::st_join(
-      households,
-      wards_proj,
-      join = sf::st_within,
-      left = TRUE
-    )
-
-  admin3_proj <-
-    sf::st_transform(admin3, mycrs) %>%
-    dplyr::select(
-      admin3_cod_pcode = adm3_pcode,
-      admin3_cod_name = adm3_name
-    )
-
-  households <-
-    sf::st_join(
-      households,
-      admin3_proj,
-      join = sf::st_within,
-      left = TRUE
-    )
-
-
-  # ---------------------------------------------------------------------------
-  # Survey identifier and UTM coordinates (households is still in mycrs here)
-  # ---------------------------------------------------------------------------
-
-  households <-
-    households %>%
-    dplyr::mutate(
-      survey_id =
-        dplyr::case_when(
-          status == "primary" ~
-            paste0(cluster_id, "_HH", stringr::str_pad(interview_number, 2, pad = "0")),
-          status == "reserve" ~
-            paste0(cluster_id, "_R", stringr::str_pad(replacement_rank, 2, pad = "0"))
-        )
-    )
-
-  coords_utm <- sf::st_coordinates(households)
-
-  households <-
-    households %>%
-    dplyr::mutate(
-      x_utm = coords_utm[, "X"],
-      y_utm = coords_utm[, "Y"]
-    )
-
-
-  # ---------------------------------------------------------------------------
-  # WGS84 coordinates
-  # ---------------------------------------------------------------------------
-
-  households_wgs84 <- sf::st_transform(households, 4326)
-
-  coords_wgs84 <- sf::st_coordinates(households_wgs84)
-
-  households_wgs84 <-
-    households_wgs84 %>%
-    dplyr::mutate(
-      longitude = coords_wgs84[, "X"],
-      latitude = coords_wgs84[, "Y"]
-    )
-
-
-  # ---------------------------------------------------------------------------
-  # Final column selection
-  # ---------------------------------------------------------------------------
-
-  households_final <-
-    households_wgs84 %>%
-    dplyr::select(
-      survey_id,
-      cluster_id,
-      status,
-      interview_number,
-      replacement_rank,
-      pop_type,
-      strata_id,
-      region,
-      adm1_pcode,
-      adm1_name,
-      adm2_pcode,
-      adm2_name,
-      adm3_pcode,
-      adm3_name,
-      admin3_source,
-      admin3_cod_pcode,
-      admin3_cod_name,
-      uuid_hex,
-      uuid,
-      building_id,
-      confidence,
-      building_area_m2,
-      latitude,
-      longitude,
-      x_utm,
-      y_utm,
-      households_in_cluster,
-      target_households,
-      selection_count,
-      certainty_stratum,
-      selection_type,
-      psu_probability,
-      ssu_probability,
-      base_weight,
-      understaffed_cluster,
-      geometry
-    )
+  households_final <- finalize_households(households, clusters_merged, wards, admin3, mycrs)
 
 
   # ---------------------------------------------------------------------------

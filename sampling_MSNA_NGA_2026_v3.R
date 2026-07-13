@@ -1145,10 +1145,11 @@ building_data_dir <- file.path(
 )
 
 # Buildings are only needed for Stage 2 household selection within the
-# already-selected Stage-1 clusters, not across the whole 3-region
-# accessible area - the Google Open Buildings GDBs are country-scale
-# (tens of millions of features each) and querying the full accessible
-# area exhausts memory on a normal machine.
+# already-selected Stage-1 HOST clusters - IDP clusters use their IOM DTM
+# site's own GPS point instead (05_idp_site_assignment.R), never querying
+# Google Open Buildings at all. Even scoped to host-only, the GDBs are
+# country-scale (tens of millions of features each) and querying the full
+# accessible area would exhaust memory on a normal machine.
 selected_clusters <- dplyr::bind_rows(host_clusters, idp_clusters)
 
 # Character vector of per-GDB-part cache file paths, NOT a combined object -
@@ -1156,7 +1157,7 @@ selected_clusters <- dplyr::bind_rows(host_clusters, idp_clusters)
 # scale, geographically disjoint parts, no correctness need to combine).
 building_files <- load_building_footprints(
   gdb_directory = building_data_dir,
-  accessible_area = selected_clusters,
+  accessible_area = host_clusters,
   mycrs = mycrs,
   cache_directory = file.path(
     output_dir,
@@ -1192,8 +1193,8 @@ tryCatch({
   message("System free memory (Mb): ", round(free_mem_kb / 1024, 1))
 }, error = function(e) message("Could not check system free memory: ", e$message))
 
-stage2_households <- select_stage2_households(
-  clusters = selected_clusters,
+stage2_households_host <- select_stage2_households(
+  clusters = host_clusters,
   building_files = building_files,
   wards = nga_wards,
   admin3 = NGA_shapes_all_cleaned$nga_admin3,
@@ -1204,6 +1205,88 @@ stage2_households <- select_stage2_households(
     "stage2"
   ),
   rebuild = FALSE
+)
+
+# 03 host zero-building cluster reallocation
+#
+# A selected HOST hexagon with zero eligible buildings can't be visited by
+# a field team - substitute a different hexagon from the same adm2_pcode
+# stratum, drawn with the same PPS-by-population mechanism as the original
+# Stage 1 draw. See 04_cluster_reallocation.R roxygen docs. Understaffed
+# clusters (some buildings, fewer than target) are untouched - this only
+# replaces clusters with NO eligible buildings at all. Host-only: IDP
+# clusters never have a zero-building problem in the first place, since
+# IDP Stage 2 (05_idp_site_assignment.R, below) doesn't use buildings.
+source("04_cluster_reallocation.R")
+
+reallocation <- reallocate_zero_building_clusters(
+  clusters = host_clusters,
+  host_sampling = host_sampling,
+  idp_sampling = idp_sampling,
+  stage2_households = stage2_households_host,
+  building_data_dir = building_data_dir,
+  wards = nga_wards,
+  admin3 = NGA_shapes_all_cleaned$nga_admin3,
+  mycrs = mycrs,
+  cache_directory = file.path(
+    output_dir,
+    "cache",
+    "reallocation"
+  ),
+  rebuild = FALSE
+)
+
+if(nrow(reallocation$unresolved) > 0) {
+
+  message(
+    nrow(reallocation$unresolved),
+    " host zero-building cluster(s) remain unresolved after reallocation - ",
+    "see output/reallocation_unresolved.csv"
+  )
+
+  readr::write_csv(
+    reallocation$unresolved,
+    here(output_dir, "reallocation_unresolved.csv")
+  )
+
+}
+
+stage2_households_host <- dplyr::bind_rows(stage2_households_host, reallocation$new_households)
+
+# 04 IDP site assignment
+#
+# IDP Stage 2 uses the IOM DTM site's own GPS point rather than a building
+# footprint draw - see 05_idp_site_assignment.R roxygen docs for why (every
+# selected IDP hexagon has DTM-reported population by construction, so this
+# never hits a "zero eligible locations" problem the way buildings did).
+source("05_idp_site_assignment.R")
+
+idp_sites <- select_stage2_idp_sites(
+  clusters = idp_clusters,
+  iom_idp_df = iom_idp_df,
+  wards = nga_wards,
+  admin3 = NGA_shapes_all_cleaned$nga_admin3,
+  mycrs = mycrs,
+  cache_directory = file.path(
+    output_dir,
+    "cache",
+    "idp_sites"
+  ),
+  rebuild = FALSE
+)
+
+stage2_households <- dplyr::bind_rows(stage2_households_host, idp_sites$households)
+
+# Authoritative final cluster-hexagon/site table (Stage 1 draws with
+# reallocated host clusters' hexagon, and IDP clusters' site point, swapped
+# in) - the raw Stage 1 selected_clusters object above is now stale for any
+# reallocated or IDP cluster_id and should not be used for mapping/QC going
+# forward; use this instead.
+selected_clusters_final <- dplyr::bind_rows(reallocation$clusters_final, idp_sites$clusters_final)
+
+saveRDS(
+  selected_clusters_final,
+  here(output_dir, "selected_clusters_final.rds")
 )
 
 host_surveys <- stage2_households %>% dplyr::filter(pop_type == "host")
