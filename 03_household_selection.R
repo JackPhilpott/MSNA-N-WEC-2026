@@ -57,6 +57,295 @@ draw_cluster <- function(pool, target_hh, reserve_n) {
 }
 
 
+#' Read an RDS file with retry, guarding against a transient file lock
+#'
+#' Mirrors the retry pattern already used for cache writes elsewhere in
+#' this pipeline (\code{02_building_ingestion.R}'s \code{flush_buildings()}/
+#' \code{save_progress()}), applied to reads here: a OneDrive/AV lock
+#' briefly held on a cache file must not silently produce a short read in
+#' one pass and a full read in another, which is exactly the kind of
+#' inconsistency \code{draw_households_from_files()}' two-pass design
+#' depends on NOT happening.
+safe_read_rds <- function(path, attempts = 5) {
+
+  for(attempt in seq_len(attempts)) {
+
+    result <- tryCatch(readRDS(path), error = function(e) e)
+
+    if(!inherits(result, "error")) {
+      return(result)
+    }
+
+    message("Warning: read attempt ", attempt, " of ", path, " failed (", conditionMessage(result), "), retrying...")
+    Sys.sleep(2)
+
+  }
+
+  stop("Could not read ", path, " after ", attempts, " attempts.")
+
+}
+
+
+#' Determine which building files each cluster's eligible buildings appear in
+#'
+#' Building points arriving from \code{load_building_footprints()} can have
+#' a given cluster's eligible buildings split across more than one cache
+#' file - not just the three national Google Open Buildings source parts
+#' (an intentional, accepted overlap - see
+#' \code{load_building_footprints()} roxygen docs), but also, for
+#' hexagons in very dense areas, across more than one chunk file WITHIN
+#' the same part. This happens because the ingestion-time duplicate
+#' detector (\code{seen_keys} in \code{02_building_ingestion.R}) only
+#' remembers a bounded, rolling window of recently-seen buildings; in a
+#' dense stratum with many nearby selected hexagons, enough buildings can
+#' be processed between two overlapping fetches of the SAME physical
+#' building that the window has already forgotten it, so it gets fetched
+#' and saved a second time under a different chunk. A naive "use the first
+#' file a cluster appears in" rule (which correctly handles the 3-part
+#' overlap case) then arbitrarily locks onto whichever chunk happened to
+#' be processed first for that cluster - which, empirically, is very
+#' often a small, incomplete fragment of the true set (confirmed on a
+#' real cluster: 3,288 true eligible buildings, only 121 in the first
+#' chunk).
+#'
+#' This function does a first, lightweight pass over every file to record
+#' - for every cluster - the INDEX of every file its buildings appear in
+#' at all (existence, not a count), so \code{draw_households_from_files()}
+#' knows exactly which file completes a cluster's pool rather than
+#' assuming the first file is enough. Existence-per-file is a much more
+#' robust signal to rely on across two independent passes than an exact
+#' row count would be: it depends only on whether a file's join against
+#' \code{clusters_lookup} produces any match for a cluster, using the
+#' IDENTICAL deterministic join both times - not on point-level identity
+#' matching (e.g. rounded centroid coordinates), which risks disagreeing
+#' between passes for reasons as subtle as floating-point jitter from an
+#' otherwise-idempotent CRS transform. An earlier count-based version of
+#' this fix hit exactly that failure mode (a small number of clusters
+#' where the two passes' counts disagreed, causing a cluster to be drawn
+#' more than once - duplicate survey IDs); tracking file membership
+#' instead of counts closes that gap.
+#'
+#' @param building_files Character vector of building cache file paths.
+#' @param clusters_lookup Data frame with \code{uuid_hex_pop},
+#'   \code{cluster_id}.
+#'
+#' @return Named list, \code{cluster_id} -> integer vector of indices into
+#'   \code{building_files} where that cluster has at least one eligible
+#'   building.
+compute_cluster_file_membership <- function(building_files, clusters_lookup) {
+
+  message("Pass 1/2: scanning ", length(building_files), " file(s) to determine which file(s) each cluster's buildings appear in...")
+
+  membership <- new.env(parent = emptyenv())
+
+  for(i in seq_along(building_files)) {
+
+    part_buildings <- safe_read_rds(building_files[i])
+
+    if(nrow(part_buildings) == 0) {
+      rm(part_buildings)
+      next
+    }
+
+    present_clusters <-
+      part_buildings %>%
+      sf::st_drop_geometry() %>%
+      dplyr::inner_join(
+        clusters_lookup %>% dplyr::select(uuid_hex_pop, cluster_id),
+        by = "uuid_hex_pop"
+      ) %>%
+      dplyr::distinct(cluster_id) %>%
+      dplyr::pull(cluster_id)
+
+    for(cid in present_clusters) {
+
+      if(exists(cid, envir = membership, inherits = FALSE)) {
+        assign(cid, c(get(cid, envir = membership), i), envir = membership)
+      } else {
+        assign(cid, i, envir = membership)
+      }
+
+    }
+
+    rm(part_buildings, present_clusters)
+    gc(full = FALSE)
+
+  }
+
+  result <- as.list(membership)
+
+  message("Pass 1/2 complete: ", length(result), " cluster(s) have at least one eligible building.")
+
+  result
+
+}
+
+
+#' Draw households from building files, consolidating clusters split across files
+#'
+#' Two-pass replacement for a naive "first file wins" draw. Pass 1
+#' (\code{compute_cluster_file_membership()}) establishes exactly which
+#' file(s) each cluster's eligible buildings appear in. Pass 2 scans every
+#' file again, accumulating each cluster's rows (deduplicated by centroid
+#' location, as a defence against a physical building genuinely being
+#' fetched more than once) in a small per-cluster buffer as they're
+#' encountered, and draws + discards a cluster as soon as the file
+#' currently being processed is the LAST file pass 1 recorded for it - so
+#' at any point only clusters still awaiting a later file (a small
+#' fraction of the total) are held in memory, not the whole dataset. Any
+#' cluster somehow still incomplete after every file has been scanned is
+#' drawn anyway from whatever was found, with a warning - a safety net,
+#' not the expected path.
+#'
+#' @param building_files Character vector of building cache file paths.
+#' @param clusters_lookup Data frame with \code{uuid_hex_pop},
+#'   \code{cluster_id}, \code{target_households}.
+#' @param mycrs Coordinate reference system used for spatial processing.
+#' @param reserve_n Integer. Maximum reserve households beyond target,
+#'   passed through to \code{draw_cluster()}.
+#'
+#' @return sf point object, one row per drawn household (primary +
+#'   reserve), same shape as \code{draw_cluster()}'s output, combined
+#'   across all clusters found in \code{building_files}.
+draw_households_from_files <- function(building_files, clusters_lookup, mycrs, reserve_n) {
+
+  membership <- compute_cluster_file_membership(building_files, clusters_lookup)
+  last_file_lookup <- purrr::map_int(membership, max)
+
+  accumulator <- new.env(parent = emptyenv())
+  households_list <- list()
+
+  finalize_cluster <- function(cluster_id_i) {
+
+    acc <- get(cluster_id_i, envir = accumulator)
+    target_hh <- clusters_lookup$target_households[match(cluster_id_i, clusters_lookup$cluster_id)]
+
+    result <- draw_cluster(acc$rows, target_hh, reserve_n)
+
+    if(!is.null(result)) {
+      households_list[[length(households_list) + 1]] <<- result
+    }
+
+    rm(list = cluster_id_i, envir = accumulator)
+
+  }
+
+  for(i in seq_along(building_files)) {
+
+    bf <- building_files[i]
+
+    message("Pass 2/2: processing (", i, "/", length(building_files), ") ", bf)
+
+    part_buildings <- safe_read_rds(bf) %>% sf::st_transform(mycrs)
+
+    if(nrow(part_buildings) == 0) {
+      rm(part_buildings)
+      next
+    }
+
+    coords <- sf::st_coordinates(part_buildings)
+
+    part_building_points <-
+      part_buildings %>%
+      dplyr::mutate(
+        .centroid_key = paste0(round(coords[, "X"], 1), "_", round(coords[, "Y"], 1))
+      ) %>%
+      dplyr::inner_join(
+        clusters_lookup %>% dplyr::select(uuid_hex_pop, cluster_id),
+        by = "uuid_hex_pop"
+      )
+
+    rm(part_buildings, coords)
+    gc(full = FALSE)
+
+    if(nrow(part_building_points) > 0) {
+
+      part_building_points <- part_building_points %>% dplyr::arrange(cluster_id)
+
+      cluster_rle <- rle(part_building_points$cluster_id)
+      cluster_ids_ordered <- cluster_rle$values
+      cluster_row_ends <- cumsum(cluster_rle$lengths)
+      cluster_row_starts <- c(1L, head(cluster_row_ends, -1) + 1L)
+
+      n_clusters_in_part <- length(cluster_ids_ordered)
+      cluster_chunk_size <- 50
+
+      for(cc_start in seq(1, n_clusters_in_part, by = cluster_chunk_size)) {
+
+        cc_end <- min(cc_start + cluster_chunk_size - 1, n_clusters_in_part)
+        row_start <- cluster_row_starts[cc_start]
+        row_end <- cluster_row_ends[cc_end]
+
+        chunk_points <- part_building_points[row_start:row_end, ]
+
+        for(cid in unique(chunk_points$cluster_id)) {
+
+          new_rows <- chunk_points[chunk_points$cluster_id == cid, ]
+
+          if(exists(cid, envir = accumulator, inherits = FALSE)) {
+
+            existing <- get(cid, envir = accumulator)
+            new_rows <- new_rows[!new_rows$.centroid_key %in% existing$keys, ]
+
+            if(nrow(new_rows) > 0) {
+              assign(
+                cid,
+                list(
+                  rows = dplyr::bind_rows(existing$rows, new_rows),
+                  keys = c(existing$keys, new_rows$.centroid_key)
+                ),
+                envir = accumulator
+              )
+            }
+
+          } else {
+
+            new_rows <- new_rows[!duplicated(new_rows$.centroid_key), ]
+            assign(cid, list(rows = new_rows, keys = new_rows$.centroid_key), envir = accumulator)
+
+          }
+
+          # Finalize once we've just processed this cluster's LAST known
+          # file (per pass 1) - a simple index comparison, not dependent
+          # on the accumulated row count matching anything.
+          if(i >= last_file_lookup[[cid]]) {
+            finalize_cluster(cid)
+          }
+
+        }
+
+        rm(chunk_points)
+
+      }
+
+      rm(cluster_rle, cluster_ids_ordered, cluster_row_ends, cluster_row_starts)
+
+    }
+
+    rm(part_building_points)
+    gc(full = FALSE)
+
+  }
+
+  remaining <- ls(envir = accumulator)
+
+  if(length(remaining) > 0) {
+
+    warning(
+      length(remaining), " cluster(s) still incomplete after scanning every building ",
+      "file (should not normally happen) - drawing from whatever was accumulated: ",
+      paste(remaining, collapse = ", ")
+    )
+
+    for(cid in remaining) finalize_cluster(cid)
+
+  }
+
+  dplyr::bind_rows(households_list)
+
+}
+
+
 #' Merge repeated PSU draws of the same hexagon into one cluster
 #'
 #' PPS systematic sampling can select the same hexagon more than once,
@@ -345,9 +634,10 @@ finalize_households <- function(households, clusters_merged, wards, admin3, mycr
 #'   cached building points, as returned by \code{load_building_footprints()}
 #'   - each an sf POINT object already carrying \code{uuid_hex_pop}
 #'   identifying which physical hexagon each building falls within.
-#'   Processed one file at a time (never combined into a single object -
-#'   see \code{load_building_footprints()} for why) since every selected
-#'   cluster's buildings come from exactly one part.
+#'   Never combined into a single object (see \code{load_building_footprints()}
+#'   for why) - processed via \code{draw_households_from_files()}, which
+#'   correctly consolidates a cluster's eligible buildings even when they
+#'   are split across more than one of these files.
 #' @param wards sf polygon object of GRID3 ward boundaries (fields
 #'   \code{wardcode}, \code{wardname}), used as the PRIMARY Admin-3/ward
 #'   attribution source for every region, since it is the only boundary
@@ -454,19 +744,14 @@ select_stage2_households <- function(
   # ---------------------------------------------------------------------------
 
   # ---------------------------------------------------------------------------
-  # Assign buildings to clusters and draw households ONE PART AT A TIME.
-  #
-  # Buildings arrive from load_building_footprints() as centroid points
-  # already carrying uuid_hex_pop (the physical hexagon identity), so
-  # assignment is a cheap attribute join rather than a spatial join - that
-  # already happened per-batch during ingestion. Processing is done per
-  # part rather than on one combined object because at full survey scale
-  # the 3 parts together are 13M+ rows - repeatedly proved too large to
-  # hold as a single in-memory object regardless of how it was assembled.
-  # Since the GDB parts are geographically disjoint, every cluster's
-  # buildings come from exactly one part, so no cluster's household draw
-  # is ever split across two calls of this loop - only the small
-  # per-household results need combining afterward.
+  # Assign buildings to clusters and draw households via the shared
+  # draw_households_from_files() (defined above) - correctly consolidates
+  # any cluster whose eligible buildings are split across more than one
+  # cache file (both the 3 national source parts, which deliberately
+  # overlap at their edges, and - within a single part - chunks split by
+  # a rolling duplicate-detection window that can lose track of a building
+  # in very dense areas) rather than assuming the first file it appears in
+  # is a complete picture.
   # ---------------------------------------------------------------------------
 
   clusters_lookup <-
@@ -478,132 +763,7 @@ select_stage2_households <- function(
       target_households
     )
 
-  households_list <- list()
-
-  # Google Open Buildings country-scale tiles deliberately overlap at their
-  # boundaries (so features straddling a tile edge aren't missed by either
-  # tile) - confirmed empirically (~7% of hexagons in a test run had
-  # buildings appearing in more than one part). A cluster whose hexagon
-  # falls in that overlap zone would otherwise get drawn independently in
-  # each part it appears in, producing duplicate survey IDs and an
-  # incomplete/inconsistent pool either way. Tracking which cluster_ids
-  # have already been drawn and skipping them in later parts resolves this
-  # without needing to hold multiple parts' pools for the same cluster
-  # simultaneously - the first part a cluster appears in is treated as
-  # authoritative for that cluster.
-  drawn_cluster_ids <- character(0)
-
-  for(bf in building_files) {
-
-    message("Stage 2: processing building file ", bf)
-
-    part_buildings <- readRDS(bf)
-
-    part_building_points <-
-      part_buildings %>%
-      sf::st_transform(mycrs) %>%
-      dplyr::inner_join(
-        # Only cluster_id is attached here (not target_households, looked up
-        # separately below) - carrying target_households through would
-        # collide with the left_join that re-attaches it further down,
-        # producing target_households.x/.y instead of a clean column.
-        clusters_lookup %>% dplyr::select(uuid_hex_pop, cluster_id),
-        by = "uuid_hex_pop"
-      ) %>%
-      dplyr::filter(
-        !cluster_id %in% drawn_cluster_ids
-      )
-
-    rm(part_buildings)
-    gc(full = FALSE)
-
-    message(
-      nrow(part_building_points), " buildings from this part fall within a selected cluster ",
-      "not already drawn from an earlier part."
-    )
-
-    if(nrow(part_building_points) > 0) {
-
-      # Process in cluster-group chunks rather than splitting and drawing
-      # the whole file's worth of buildings at once - a single part/chunk
-      # file can itself be millions of rows (confirmed: this step alone
-      # crashed on a 2.87M-row file), the same "materialize everything
-      # before processing" problem already fixed elsewhere, just one layer
-      # deeper. Sorting once and slicing by row index (not repeated
-      # dplyr::filter() scans) keeps each cluster's rows contiguous and
-      # this cheap even across many chunks.
-      message("Stage 2: sorting ", nrow(part_building_points), " rows by cluster_id...")
-
-      part_building_points <- part_building_points %>% dplyr::arrange(cluster_id)
-
-      gc(full = FALSE)
-      message("Stage 2: sort done, computing cluster boundaries...")
-
-      cluster_rle <- rle(part_building_points$cluster_id)
-      cluster_ids_ordered <- cluster_rle$values
-      cluster_row_ends <- cumsum(cluster_rle$lengths)
-      cluster_row_starts <- c(1L, head(cluster_row_ends, -1) + 1L)
-
-      n_clusters_in_part <- length(cluster_ids_ordered)
-      cluster_chunk_size <- 50
-
-      message(
-        "Stage 2: ", n_clusters_in_part, " clusters in this file, processing in chunks of ",
-        cluster_chunk_size
-      )
-
-      chunk_num <- 0
-
-      for(cc_start in seq(1, n_clusters_in_part, by = cluster_chunk_size)) {
-
-        chunk_num <- chunk_num + 1
-
-        cc_end <- min(cc_start + cluster_chunk_size - 1, n_clusters_in_part)
-
-        row_start <- cluster_row_starts[cc_start]
-        row_end <- cluster_row_ends[cc_end]
-
-        chunk_points <- part_building_points[row_start:row_end, ]
-
-        pools <- split(chunk_points, chunk_points$cluster_id)
-
-        targets <- clusters_lookup$target_households[
-          match(names(pools), clusters_lookup$cluster_id)
-        ]
-
-        chunk_households <-
-          purrr::map2(pools, targets, draw_cluster, reserve_n = reserve_n) %>%
-          dplyr::bind_rows()
-
-        households_list[[length(households_list) + 1]] <- chunk_households
-
-        drawn_cluster_ids <- c(drawn_cluster_ids, names(pools))
-
-        rm(chunk_points, pools, targets, chunk_households)
-        gc(full = FALSE)
-
-        if(chunk_num %% 5 == 0) {
-          message(
-            "Stage 2: cluster chunk ", cc_start, "-", cc_end, " of ", n_clusters_in_part,
-            " done (", sum(purrr::map_int(households_list, nrow)), " households so far this run)"
-          )
-        }
-
-      }
-
-      rm(cluster_rle, cluster_ids_ordered, cluster_row_ends, cluster_row_starts)
-
-    }
-
-    rm(part_building_points)
-    gc(full = FALSE)
-
-  }
-
-  households <- dplyr::bind_rows(households_list)
-
-  rm(households_list)
-  gc(full = FALSE)
+  households <- draw_households_from_files(building_files, clusters_lookup, mycrs, reserve_n)
 
 
   zero_building_clusters <-

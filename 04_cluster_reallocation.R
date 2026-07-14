@@ -497,12 +497,14 @@ reallocate_zero_building_clusters <- function(
 
   # ---------------------------------------------------------------------------
   # Fetch each replacement hexagon's full building pool (not just counts)
-  # and draw households, reusing the same draw_cluster() logic as the main
-  # Stage 2 run. Replacement hexagons are spread across whichever round(s)
-  # resolved them, so their buildings live across the corresponding
-  # round_building_files sets - re-fetch fresh here (small scope: at most a
-  # few hundred hexagons) rather than threading per-round file lists through
-  # the assignment loop above.
+  # and draw households via the shared draw_households_from_files()
+  # (03_household_selection.R) - correctly consolidates a cluster's
+  # eligible buildings even if split across more than one cache file,
+  # rather than assuming the first file is complete. Replacement hexagons
+  # are spread across whichever round(s) resolved them, so their buildings
+  # live across the corresponding round_building_files sets - re-fetch
+  # fresh here (small scope: at most a few hundred hexagons) rather than
+  # threading per-round file lists through the assignment loop above.
   # ---------------------------------------------------------------------------
 
   final_building_files <- load_building_footprints(
@@ -518,49 +520,7 @@ reallocate_zero_building_clusters <- function(
     sf::st_drop_geometry() %>%
     dplyr::select(uuid_hex_pop, cluster_id, target_households)
 
-  new_households_list <- list()
-
-  # Google Open Buildings tiles deliberately overlap at their boundaries
-  # (see 02_building_ingestion.R / 03_household_selection.R) - a
-  # replacement hexagon sitting in an overlap zone would otherwise get
-  # drawn independently from each part file it appears in, producing
-  # duplicate survey_ids. Same "first file wins" fix as
-  # select_stage2_households(): track which cluster_ids have already been
-  # drawn and skip them in any later file.
-  drawn_cluster_ids <- character(0)
-
-  for(bf in final_building_files) {
-
-    part_buildings <- readRDS(bf)
-
-    part_building_points <-
-      part_buildings %>%
-      sf::st_transform(mycrs) %>%
-      dplyr::inner_join(
-        clusters_lookup %>% dplyr::select(uuid_hex_pop, cluster_id),
-        by = "uuid_hex_pop"
-      ) %>%
-      dplyr::filter(
-        !cluster_id %in% drawn_cluster_ids
-      )
-
-    if(nrow(part_building_points) == 0) next
-
-    pools <- split(part_building_points, part_building_points$cluster_id)
-
-    targets <- clusters_lookup$target_households[
-      match(names(pools), clusters_lookup$cluster_id)
-    ]
-
-    new_households_list[[length(new_households_list) + 1]] <-
-      purrr::map2(pools, targets, draw_cluster, reserve_n = reserve_n) %>%
-      dplyr::bind_rows()
-
-    drawn_cluster_ids <- c(drawn_cluster_ids, names(pools))
-
-  }
-
-  new_households_raw <- dplyr::bind_rows(new_households_list)
+  new_households_raw <- draw_households_from_files(final_building_files, clusters_lookup, mycrs, reserve_n)
 
   still_empty <- setdiff(replacement_rows$cluster_id, new_households_raw$cluster_id)
 
