@@ -78,7 +78,7 @@ p_overview2 <- ggplot() +
       nrow(admin1_focus), " states across NW/NE/NC Nigeria | ",
       nrow(idp_sites_focus), " IOM DTM sites"
     ),
-    caption = "Excluded area = 20km buffer along the Niger border, 5km along Chad/Cameroon, plus FACT-assessed inaccessible admin-3 areas (North-East only)"
+    caption = "Excluded area = 20km buffer along the Niger border, 5km along Chad/Cameroon/Benin, plus FACT-assessed inaccessible admin-3 areas (North-East only)"
   ) +
   theme_void(base_size = 12) +
   theme(
