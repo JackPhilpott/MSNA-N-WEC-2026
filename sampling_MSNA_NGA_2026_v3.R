@@ -1193,8 +1193,38 @@ tryCatch({
   message("System free memory (Mb): ", round(free_mem_kb / 1024, 1))
 }, error = function(e) message("Could not check system free memory: ", e$message))
 
-stage2_households_host <- select_stage2_households(
-  clusters = host_clusters,
+# ---------------------------------------------------------------------------
+# Boosted strata: 10 host strata (all in Borno, Yobe, and Kano) where the
+# calculated target sample size (>=96) was not being met by the realized
+# sample once below-target clusters were accounted for - concentrated in
+# North-East LGAs with well-documented conflict-driven displacement, where
+# satellite-derived building footprints likely undercount real households
+# (structures destroyed/abandoned/not rebuilt). See the methodology
+# document's limitations section for the underlying analysis. Raised from
+# the standard m=6 to m=8 households per cluster for these strata only;
+# any that still fall short even at m=8 get supplementary clusters added
+# afterward (below).
+# ---------------------------------------------------------------------------
+boosted_strata_adm2 <- c(
+  "NG008001", # Borno / Abadam
+  "NG008008", # Borno / Dikwa
+  "NG008014", # Borno / Kaga
+  "NG008015", # Borno / Kala/Balge
+  "NG008019", # Borno / Mafa
+  "NG008022", # Borno / Marte
+  "NG008025", # Borno / Ngala
+  "NG008026", # Borno / Nganzai
+  "NG020029", # Kano / Makoda
+  "NG036002"  # Yobe / Bursari
+)
+standard_m <- 6
+boosted_m <- 8
+
+host_clusters_standard <- host_clusters %>% dplyr::filter(!adm2_pcode %in% boosted_strata_adm2)
+host_clusters_boosted  <- host_clusters %>% dplyr::filter(adm2_pcode %in% boosted_strata_adm2)
+
+stage2_households_host_standard <- select_stage2_households(
+  clusters = host_clusters_standard,
   building_files = building_files,
   wards = nga_wards,
   admin3 = NGA_shapes_all_cleaned$nga_admin3,
@@ -1202,8 +1232,24 @@ stage2_households_host <- select_stage2_households(
   cache_directory = file.path(
     output_dir,
     "cache",
-    "stage2"
+    "stage2_standard"
   ),
+  m = standard_m,
+  rebuild = FALSE
+)
+
+stage2_households_host_boosted <- select_stage2_households(
+  clusters = host_clusters_boosted,
+  building_files = building_files,
+  wards = nga_wards,
+  admin3 = NGA_shapes_all_cleaned$nga_admin3,
+  mycrs = mycrs,
+  cache_directory = file.path(
+    output_dir,
+    "cache",
+    "stage2_boosted"
+  ),
+  m = boosted_m,
   rebuild = FALSE
 )
 
@@ -1212,18 +1258,22 @@ stage2_households_host <- select_stage2_households(
 # A selected HOST hexagon with zero eligible buildings can't be visited by
 # a field team - substitute a different hexagon from the same adm2_pcode
 # stratum, drawn with the same PPS-by-population mechanism as the original
-# Stage 1 draw. See 04_cluster_reallocation.R roxygen docs. Understaffed
-# clusters (some buildings, fewer than target) are untouched - this only
-# replaces clusters with NO eligible buildings at all. Host-only: IDP
+# Stage 1 draw. See 04_cluster_reallocation.R roxygen docs. Below-target
+# clusters (some buildings, fewer than target) are untouched here - this
+# only replaces clusters with NO eligible buildings at all. Host-only: IDP
 # clusters never have a zero-building problem in the first place, since
 # IDP Stage 2 (05_idp_site_assignment.R, below) doesn't use buildings.
+# Run separately for the standard (m=6) and boosted (m=8) groups, each
+# excluding the OTHER group's hexagons from its replacement candidate pool
+# via extra_used_hexagons (both groups' cluster tables are otherwise
+# invisible to each other's reallocation call).
 source("04_cluster_reallocation.R")
 
-reallocation <- reallocate_zero_building_clusters(
-  clusters = host_clusters,
+reallocation_standard <- reallocate_zero_building_clusters(
+  clusters = host_clusters_standard,
   host_sampling = host_sampling,
   idp_sampling = idp_sampling,
-  stage2_households = stage2_households_host,
+  stage2_households = stage2_households_host_standard,
   building_data_dir = building_data_dir,
   wards = nga_wards,
   admin3 = NGA_shapes_all_cleaned$nga_admin3,
@@ -1231,27 +1281,191 @@ reallocation <- reallocate_zero_building_clusters(
   cache_directory = file.path(
     output_dir,
     "cache",
-    "reallocation"
+    "reallocation_standard"
   ),
+  m = standard_m,
+  extra_used_hexagons = host_clusters_boosted$uuid_hex_pop,
   rebuild = FALSE
 )
 
-if(nrow(reallocation$unresolved) > 0) {
+reallocation_boosted <- reallocate_zero_building_clusters(
+  clusters = host_clusters_boosted,
+  host_sampling = host_sampling,
+  idp_sampling = idp_sampling,
+  stage2_households = stage2_households_host_boosted,
+  building_data_dir = building_data_dir,
+  wards = nga_wards,
+  admin3 = NGA_shapes_all_cleaned$nga_admin3,
+  mycrs = mycrs,
+  cache_directory = file.path(
+    output_dir,
+    "cache",
+    "reallocation_boosted"
+  ),
+  m = boosted_m,
+  extra_used_hexagons = host_clusters_standard$uuid_hex_pop,
+  rebuild = FALSE
+)
+
+reallocation_unresolved_all <- dplyr::bind_rows(reallocation_standard$unresolved, reallocation_boosted$unresolved)
+
+if(nrow(reallocation_unresolved_all) > 0) {
 
   message(
-    nrow(reallocation$unresolved),
+    nrow(reallocation_unresolved_all),
     " host zero-building cluster(s) remain unresolved after reallocation - ",
     "see output/reallocation_unresolved.csv"
   )
 
   readr::write_csv(
-    reallocation$unresolved,
+    reallocation_unresolved_all,
     here(output_dir, "reallocation_unresolved.csv")
   )
 
 }
 
-stage2_households_host <- dplyr::bind_rows(stage2_households_host, reallocation$new_households)
+stage2_households_host <- dplyr::bind_rows(
+  stage2_households_host_standard, reallocation_standard$new_households,
+  stage2_households_host_boosted, reallocation_boosted$new_households
+)
+
+clusters_final_host <- dplyr::bind_rows(reallocation_standard$clusters_final, reallocation_boosted$clusters_final)
+
+# ---------------------------------------------------------------------------
+# Supplementary clusters: even at m=8, a boosted stratum's already-selected
+# clusters may not have enough spare building capacity between them to
+# close the gap between the stratum's target and its realized sample (see
+# methodology document limitations section) - add brand-new clusters,
+# drawn via the same PPS mechanism as every other cluster in this design,
+# to close any remaining shortfall. Only strata in boosted_strata_adm2 are
+# checked - this mechanism is not applied stratum-wide.
+# ---------------------------------------------------------------------------
+
+boosted_shortfalls <-
+  clusters_final_host %>%
+  sf::st_drop_geometry() %>%
+  dplyr::filter(adm2_pcode %in% boosted_strata_adm2) %>%
+  dplyr::distinct(cluster_id, pop_type, adm2_pcode, target_households) %>%
+  dplyr::group_by(pop_type, adm2_pcode) %>%
+  dplyr::summarise(target_total = sum(target_households), .groups = "drop") %>%
+  dplyr::left_join(
+    stage2_households_host %>%
+      sf::st_drop_geometry() %>%
+      dplyr::filter(status == "primary", adm2_pcode %in% boosted_strata_adm2) %>%
+      dplyr::count(pop_type, adm2_pcode, name = "achieved_total"),
+    by = c("pop_type", "adm2_pcode")
+  ) %>%
+  dplyr::mutate(
+    achieved_total = dplyr::coalesce(achieved_total, 0L),
+    households_needed = target_total - achieved_total
+  ) %>%
+  dplyr::filter(households_needed > 0) %>%
+  dplyr::select(pop_type, adm2_pcode, households_needed)
+
+if(nrow(boosted_shortfalls) > 0) {
+
+  message(
+    nrow(boosted_shortfalls), " boosted stratum/strata still short of target even at m=",
+    boosted_m, " - adding supplementary clusters: ",
+    paste(paste0(boosted_shortfalls$adm2_pcode, " (need ", boosted_shortfalls$households_needed, ")"), collapse = "; ")
+  )
+
+  supplementary <- add_supplementary_clusters(
+    shortfalls = boosted_shortfalls,
+    already_used_hexagons = clusters_final_host$uuid_hex_pop,
+    host_sampling = host_sampling,
+    building_data_dir = building_data_dir,
+    wards = nga_wards,
+    admin3 = NGA_shapes_all_cleaned$nga_admin3,
+    mycrs = mycrs,
+    cache_directory = file.path(
+      output_dir,
+      "cache",
+      "supplementary"
+    ),
+    m = boosted_m,
+    rebuild = FALSE
+  )
+
+  if(!is.null(supplementary$new_clusters)) {
+
+    clusters_final_host <- dplyr::bind_rows(clusters_final_host, supplementary$new_clusters)
+    stage2_households_host <- dplyr::bind_rows(stage2_households_host, supplementary$new_households)
+
+  }
+
+  if(nrow(supplementary$unresolved) > 0) {
+
+    readr::write_csv(
+      supplementary$unresolved,
+      here(output_dir, "supplementary_clusters_unresolved.csv")
+    )
+
+  }
+
+} else {
+
+  message("All boosted strata reached target at m=", boosted_m, " - no supplementary clusters needed.")
+
+}
+
+# ---------------------------------------------------------------------------
+# Recompute psu_probability for any stratum that received supplementary
+# clusters. Adding a cluster increases that stratum's EFFECTIVE Stage-1
+# draw count beyond its originally-calculated target ("clusters" below,
+# already present on every clusters_final_host row - a stratum-level
+# constant carried through unchanged from host_sampling$sampling_frame) -
+# so every hexagon's selection probability in that stratum, both
+# already-selected clusters AND the new supplementary one(s), needs to
+# reflect the new total draw count, using the identical formula
+# build_sampling_plan() used originally. Already-finalized household rows
+# (joined against the OLD psu_probability inside their own
+# finalize_households() call, before supplementary clusters existed) are
+# corrected in place, along with base_weight, which depends on it.
+# ssu_probability is untouched - it's Stage 2's within-cluster fraction,
+# independent of Stage 1 selection probability.
+# ---------------------------------------------------------------------------
+
+if(nrow(boosted_shortfalls) > 0 && !is.null(supplementary$new_clusters)) {
+
+  n_supplementary_by_stratum <-
+    supplementary$new_clusters %>%
+    sf::st_drop_geometry() %>%
+    dplyr::count(pop_type, adm2_pcode, name = "n_supplementary")
+
+  clusters_final_host <-
+    clusters_final_host %>%
+    dplyr::left_join(n_supplementary_by_stratum, by = c("pop_type", "adm2_pcode")) %>%
+    dplyr::mutate(
+      psu_probability = dplyr::case_when(
+        is.na(n_supplementary) ~ psu_probability,
+        certainty_stratum ~ 1,
+        TRUE ~ pmin(1, (clusters + n_supplementary) * MOS / total_MOS)
+      )
+    ) %>%
+    dplyr::select(-n_supplementary)
+
+  updated_psu <-
+    clusters_final_host %>%
+    sf::st_drop_geometry() %>%
+    dplyr::filter(adm2_pcode %in% boosted_shortfalls$adm2_pcode) %>%
+    dplyr::distinct(cluster_id, psu_probability)
+
+  stage2_households_host <-
+    stage2_households_host %>%
+    dplyr::left_join(updated_psu, by = "cluster_id", suffix = c("", "_updated")) %>%
+    dplyr::mutate(
+      psu_probability = dplyr::coalesce(psu_probability_updated, psu_probability),
+      base_weight = 1 / (psu_probability * ssu_probability)
+    ) %>%
+    dplyr::select(-psu_probability_updated)
+
+  message(
+    "psu_probability and base_weight recalculated for ",
+    nrow(n_supplementary_by_stratum), " stratum/strata that received supplementary clusters."
+  )
+
+}
 
 # 04 IDP site assignment
 #
@@ -1282,7 +1496,7 @@ stage2_households <- dplyr::bind_rows(stage2_households_host, idp_sites$househol
 # in) - the raw Stage 1 selected_clusters object above is now stale for any
 # reallocated or IDP cluster_id and should not be used for mapping/QC going
 # forward; use this instead.
-selected_clusters_final <- dplyr::bind_rows(reallocation$clusters_final, idp_sites$clusters_final)
+selected_clusters_final <- dplyr::bind_rows(clusters_final_host, idp_sites$clusters_final)
 
 saveRDS(
   selected_clusters_final,

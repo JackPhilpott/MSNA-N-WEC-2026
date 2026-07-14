@@ -41,6 +41,15 @@
 #'   \code{select_stage2_households()}.
 #' @param m Integer. Primary households per cluster (must match the value
 #'   used for \code{select_stage2_households()}).
+#' @param extra_used_hexagons Character vector of additional
+#'   \code{uuid_hex_pop} values to treat as already occupied, beyond
+#'   whatever is in \code{clusters}. Needed when \code{clusters} is only a
+#'   SUBSET of the full selected sample (e.g. one m-value group of a
+#'   stratum split across two \code{select_stage2_households()} runs at
+#'   different \code{m}) - without this, a replacement hexagon could
+#'   collide with a hexagon already used by a different subset that this
+#'   call can't otherwise see. Default empty (no effect on a call covering
+#'   the full sample, as before).
 #'
 #' @return List with \code{zero_building_clusters} (all of them, with
 #'   \code{certainty_stratum} flag), \code{pps_targets} (the reallocatable
@@ -52,7 +61,8 @@ diagnose_zero_building_clusters <- function(
     host_sampling,
     idp_sampling,
     stage2_households,
-    m = 6
+    m = 6,
+    extra_used_hexagons = character(0)
 ) {
 
   clusters_merged <- merge_repeated_psu_draws(clusters, m)
@@ -96,7 +106,7 @@ diagnose_zero_building_clusters <- function(
     ) %>%
     sf::st_drop_geometry()
 
-  already_used <- clusters_merged$uuid_hex_pop
+  already_used <- union(clusters_merged$uuid_hex_pop, extra_used_hexagons)
 
   pool_sizes <-
     pps_targets %>%
@@ -182,6 +192,10 @@ diagnose_zero_building_clusters <- function(
 #'   stratum, as a multiple of that stratum's number of zero-building
 #'   clusters. Default 5.
 #' @param rebuild Logical. If TRUE, rebuild cached building queries.
+#' @param extra_used_hexagons Character vector of additional
+#'   \code{uuid_hex_pop} values to treat as already occupied, beyond
+#'   whatever is in \code{clusters} - see
+#'   \code{diagnose_zero_building_clusters()}. Default empty.
 #'
 #' @return List:
 #' \describe{
@@ -214,7 +228,8 @@ reallocate_zero_building_clusters <- function(
     reserve_n = m,
     seed = 4321,
     candidate_multiplier = 5,
-    rebuild = FALSE
+    rebuild = FALSE,
+    extra_used_hexagons = character(0)
 ) {
 
   stopifnot(
@@ -233,7 +248,8 @@ reallocate_zero_building_clusters <- function(
     host_sampling = host_sampling,
     idp_sampling = idp_sampling,
     stage2_households = stage2_households,
-    m = m
+    m = m,
+    extra_used_hexagons = extra_used_hexagons
   )
 
   unresolved <-
@@ -263,7 +279,7 @@ reallocate_zero_building_clusters <- function(
       idp_sampling$sampling_frame
     )
 
-  already_used <- clusters_merged$uuid_hex_pop
+  already_used <- union(clusters_merged$uuid_hex_pop, extra_used_hexagons)
 
   strata_keys <-
     pps_targets %>%
@@ -472,6 +488,7 @@ reallocate_zero_building_clusters <- function(
         strata_id = paste(pop_type, adm2_pcode, sep = "_"),
         reallocated = TRUE,
         original_uuid_hex_pop = original$uuid_hex_pop[1],
+        supplementary_cluster = FALSE,
         # Still building-footprint-based (just a different hexagon) - same
         # defaults merge_repeated_psu_draws() sets for every host cluster.
         # replacement_hex comes straight from host_sampling$sampling_frame,
@@ -569,6 +586,297 @@ reallocate_zero_building_clusters <- function(
 
   list(
     clusters_final = clusters_final,
+    new_households = new_households,
+    unresolved = unresolved
+  )
+
+}
+
+
+#' Add brand-new clusters to close a stratum's residual sample-size shortfall
+#'
+#' Unlike \code{reallocate_zero_building_clusters()} (which SUBSTITUTES a
+#' different hexagon for one specific zero-building cluster's slot, keeping
+#' the same \code{cluster_id} and target), this ADDS entirely new
+#' \code{cluster_id}s on top of an already-finalized cluster set. It exists
+#' for strata where raising \code{m} (see \code{merge_repeated_psu_draws()})
+#' alone was not enough to close the gap between a stratum's calculated
+#' target sample size and its realized (achieved) sample after all
+#' below-target clusters are accounted for - typically because too many of
+#' that stratum's already-selected clusters are themselves building-
+#' constrained for a per-cluster increase to make up the difference. Draws
+#' PPS-weighted candidate hexagons from the stratum's remaining unselected
+#' pool (identical mechanism to Stage 1 and to
+#' \code{reallocate_zero_building_clusters()}), checks each for eligible
+#' buildings, and keeps adding clusters - in weighted PPS order - until the
+#' stratum's household shortfall is closed or the candidate pool is
+#' exhausted. Host-only (no equivalent need has arisen for IDP strata,
+#' which don't depend on buildings in the first place).
+#'
+#' @param shortfalls Data frame: \code{pop_type}, \code{adm2_pcode},
+#'   \code{households_needed} (positive integer - how many MORE primary
+#'   households this stratum still needs).
+#' @param already_used_hexagons Character vector of every \code{uuid_hex_pop}
+#'   already occupied by any cluster in the final frame (all groups,
+#'   including already-reallocated replacements) - never re-selected as a
+#'   supplementary cluster.
+#' @param host_sampling List returned by \code{build_sampling_plan()} for
+#'   the host hex grid.
+#' @param building_data_dir,wards,admin3,mycrs,cache_directory Same as
+#'   \code{reallocate_zero_building_clusters()}.
+#' @param m Integer. Primary household target for each new supplementary
+#'   cluster.
+#' @param reserve_n Integer. Default equal to \code{m}.
+#' @param seed Integer or NULL. Default 8642 (distinct from Stage 1's 1234
+#'   and reallocation's 4321).
+#' @param candidate_multiplier Numeric. Round batch size per stratum, as a
+#'   multiple of a rough clusters-needed estimate (\code{households_needed
+#'   / m}). Default 4.
+#' @param rebuild Logical. If TRUE, rebuild cached building queries.
+#'
+#' @return List:
+#' \describe{
+#'   \item{new_clusters}{sf object, one row per newly added cluster
+#'     (\code{supplementary_cluster = TRUE}), or \code{NULL} if none were
+#'     added.}
+#'   \item{new_households}{sf object of finalized household rows for the
+#'     new clusters (same schema as \code{select_stage2_households()}'s
+#'     output) - bind onto the existing Stage 2 output. \code{NULL} if
+#'     \code{new_clusters} is \code{NULL}.}
+#'   \item{unresolved}{Data frame of strata (\code{strata_key},
+#'     \code{households_still_needed}) whose shortfall could not be fully
+#'     closed - candidate pool exhausted before the target was reached.}
+#' }
+#'
+#' @export
+add_supplementary_clusters <- function(
+    shortfalls,
+    already_used_hexagons,
+    host_sampling,
+    building_data_dir,
+    wards,
+    admin3,
+    mycrs,
+    cache_directory,
+    m,
+    reserve_n = m,
+    seed = 8642,
+    candidate_multiplier = 4,
+    rebuild = FALSE
+) {
+
+  dir.create(cache_directory, recursive = TRUE, showWarnings = FALSE)
+
+  if(!is.null(seed)) set.seed(seed)
+
+  strata_keys <- paste(shortfalls$pop_type, shortfalls$adm2_pcode, sep = "_")
+
+  strata_pools <- purrr::pmap(shortfalls, function(pop_type, adm2_pcode, households_needed) {
+
+    pool <-
+      host_sampling$sampling_frame %>%
+      dplyr::filter(
+        pop_type == !!pop_type,
+        adm2_pcode == !!adm2_pcode,
+        MOS > 0,
+        !uuid_hex_pop %in% already_used_hexagons
+      )
+
+    if(nrow(pool) == 0) return(pool)
+
+    pool[sample.int(nrow(pool), size = nrow(pool), prob = pool$MOS), ]
+
+  })
+
+  names(strata_pools) <- strata_keys
+
+  remaining_need <- setNames(shortfalls$households_needed, strata_keys)
+  tried_pointer <- setNames(rep(0L, length(strata_keys)), strata_keys)
+  supp_counter <- setNames(rep(0L, length(strata_keys)), strata_keys)
+  new_cluster_rows <- list()
+
+  max_rounds <- 3
+
+  for(round_i in seq_len(max_rounds)) {
+
+    active_strata <- names(remaining_need)[remaining_need > 0]
+    if(length(active_strata) == 0) break
+
+    round_batches <- purrr::map(active_strata, function(sk) {
+
+      pool <- strata_pools[[sk]]
+      pool_n <- nrow(pool)
+      start <- tried_pointer[[sk]] + 1L
+
+      if(start > pool_n) return(pool[0, ])
+
+      est_clusters_needed <- ceiling(remaining_need[[sk]] / m)
+
+      # Final round: everything left in the pool, since there's no next
+      # round to save any back for.
+      batch_size <- if(round_i < max_rounds) {
+        min(candidate_multiplier * est_clusters_needed, pool_n - start + 1L)
+      } else {
+        pool_n - start + 1L
+      }
+
+      end <- start + batch_size - 1L
+      tried_pointer[[sk]] <<- end
+
+      pool[start:end, ]
+
+    })
+
+    names(round_batches) <- active_strata
+
+    candidate_batch <- dplyr::bind_rows(round_batches)
+
+    if(nrow(candidate_batch) == 0) {
+      message("Supplementary clusters round ", round_i, ": no untried candidates remain in any short stratum.")
+      break
+    }
+
+    message(
+      "Supplementary clusters round ", round_i, ": checking ", nrow(candidate_batch),
+      " candidate hexagon(s) across ", length(active_strata), " stratum/strata."
+    )
+
+    round_cache_dir <- file.path(cache_directory, paste0("round_", round_i, "_buildings"))
+
+    round_building_files <- load_building_footprints(
+      gdb_directory = building_data_dir,
+      accessible_area = candidate_batch,
+      mycrs = mycrs,
+      cache_directory = round_cache_dir,
+      rebuild = rebuild
+    )
+
+    hex_building_counts <-
+      purrr::map(round_building_files, function(bf) {
+        readRDS(bf) %>%
+          sf::st_drop_geometry() %>%
+          dplyr::count(uuid_hex_pop, name = "n_buildings")
+      }) %>%
+      dplyr::bind_rows() %>%
+      dplyr::group_by(uuid_hex_pop) %>%
+      dplyr::summarise(n_buildings = sum(n_buildings), .groups = "drop")
+
+    # Walk each stratum's round batch in PPS-rank order, greedily adding
+    # eligible hexagons as new clusters until that stratum's shortfall is
+    # closed. A candidate's contribution is capped at its own building
+    # count, matching how draw_cluster() would actually draw it (a
+    # supplementary cluster can itself come up below-target).
+    for(sk in active_strata) {
+
+      if(remaining_need[[sk]] <= 0) next
+
+      batch_i <-
+        round_batches[[sk]] %>%
+        dplyr::left_join(hex_building_counts, by = "uuid_hex_pop") %>%
+        dplyr::mutate(n_buildings = dplyr::coalesce(n_buildings, 0L)) %>%
+        dplyr::filter(n_buildings > 0)
+
+      if(nrow(batch_i) == 0) next
+
+      for(k in seq_len(nrow(batch_i))) {
+
+        if(remaining_need[[sk]] <= 0) break
+
+        supp_counter[[sk]] <- supp_counter[[sk]] + 1L
+        hex_row <- batch_i[k, ]
+        new_id <- paste0(hex_row$pop_type, "_", hex_row$adm2_pcode, "_supp", supp_counter[[sk]])
+        contributed <- min(m, hex_row$n_buildings)
+        remaining_need[[sk]] <- remaining_need[[sk]] - contributed
+
+        new_cluster_rows[[new_id]] <-
+          hex_row %>%
+          dplyr::select(-n_buildings) %>%
+          dplyr::mutate(
+            cluster_id = new_id,
+            target_households = m,
+            selection_count = 1L,
+            strata_id = paste(pop_type, adm2_pcode, sep = "_"),
+            reallocated = FALSE,
+            original_uuid_hex_pop = NA_character_,
+            supplementary_cluster = TRUE,
+            location_source = "building_footprint",
+            households_in_cluster_source = "building_footprint_count",
+            site_radius_m = NA_real_,
+            iom_site_id = NA_character_,
+            iom_site_name = NA_character_,
+            iom_site_type = NA_character_,
+            iom_site_ward = NA_character_,
+            n_other_sites_in_hex = NA_integer_
+          )
+
+      }
+
+    }
+
+    message(
+      "Supplementary clusters round ", round_i, ": ", length(new_cluster_rows),
+      " new cluster(s) added so far; remaining need: ",
+      paste(paste0(names(remaining_need), "=", pmax(0, remaining_need)), collapse = ", ")
+    )
+
+  }
+
+  unresolved <-
+    tibble::tibble(
+      strata_key = names(remaining_need)[remaining_need > 0],
+      households_still_needed = remaining_need[remaining_need > 0]
+    )
+
+  if(nrow(unresolved) > 0) {
+
+    warning(
+      nrow(unresolved), " stratum/strata could not fully close their shortfall via ",
+      "supplementary clusters - candidate pool exhausted: ",
+      paste(paste0(unresolved$strata_key, " (still need ", unresolved$households_still_needed, ")"), collapse = "; ")
+    )
+
+  }
+
+  if(length(new_cluster_rows) == 0) {
+
+    message("No supplementary clusters were added.")
+
+    return(list(new_clusters = NULL, new_households = NULL, unresolved = unresolved))
+
+  }
+
+  new_clusters <- dplyr::bind_rows(new_cluster_rows) %>% sf::st_as_sf()
+
+  final_building_files <- load_building_footprints(
+    gdb_directory = building_data_dir,
+    accessible_area = new_clusters,
+    mycrs = mycrs,
+    cache_directory = file.path(cache_directory, "final_buildings"),
+    rebuild = rebuild
+  )
+
+  clusters_lookup <-
+    new_clusters %>%
+    sf::st_drop_geometry() %>%
+    dplyr::select(uuid_hex_pop, cluster_id, target_households)
+
+  new_households_raw <- draw_households_from_files(final_building_files, clusters_lookup, mycrs, reserve_n)
+
+  new_households <- finalize_households(new_households_raw, new_clusters, wards, admin3, mycrs)
+
+  if(anyDuplicated(new_households$survey_id) > 0) {
+
+    stop("Duplicate survey IDs detected in supplementary cluster addition.")
+
+  }
+
+  message(
+    nrow(new_clusters), " supplementary cluster(s) added across ",
+    length(unique(new_clusters$strata_id)), " stratum/strata."
+  )
+
+  list(
+    new_clusters = new_clusters,
     new_households = new_households,
     unresolved = unresolved
   )

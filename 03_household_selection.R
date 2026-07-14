@@ -393,6 +393,13 @@ merge_repeated_psu_draws <- function(clusters, m) {
       # identical between a normal Stage 2 run and a reallocation run.
       reallocated = FALSE,
       original_uuid_hex_pop = NA_character_,
+      # Set on every row for the same reason as reallocated/
+      # original_uuid_hex_pop above - only add_supplementary_clusters()
+      # (04_cluster_reallocation.R) ever sets this TRUE, for the small
+      # number of brand-new clusters it adds (not substitutes) to a
+      # stratum whose realized sample fell short of its target even after
+      # raising m.
+      supplementary_cluster = FALSE,
       # Location/site provenance - host clusters are always
       # building-footprint-based. IDP clusters (05_idp_site_assignment.R)
       # override every one of these with the IOM DTM site actually used,
@@ -441,6 +448,7 @@ merge_repeated_psu_draws <- function(clusters, m) {
 #'   \code{uuid_hex}, \code{uuid}, \code{certainty_stratum},
 #'   \code{selection_type}, \code{selection_count}, \code{psu_probability},
 #'   \code{target_households}, \code{reallocated}, \code{original_uuid_hex_pop},
+#'   \code{supplementary_cluster},
 #'   \code{location_source}, \code{households_in_cluster_source},
 #'   \code{site_radius_m}, \code{iom_site_id}, \code{iom_site_name},
 #'   \code{iom_site_type}, \code{iom_site_ward}, \code{n_other_sites_in_hex}
@@ -475,6 +483,7 @@ finalize_households <- function(households, clusters_merged, wards, admin3, mycr
           target_households,
           reallocated,
           original_uuid_hex_pop,
+          supplementary_cluster,
           location_source,
           households_in_cluster_source,
           site_radius_m,
@@ -598,6 +607,7 @@ finalize_households <- function(households, clusters_merged, wards, admin3, mycr
       below_target_cluster,
       reallocated,
       original_uuid_hex_pop,
+      supplementary_cluster,
       location_source,
       households_in_cluster_source,
       site_radius_m,
