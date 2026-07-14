@@ -42,18 +42,27 @@ admin1_focus_union <- sf::st_union(sf::st_make_valid(admin1_focus))
 
 worldpop_focus <- terra::crop(worldpop_pop, terra::vect(admin1_focus))
 worldpop_focus <- terra::mask(worldpop_focus, terra::vect(admin1_focus))
+# Also mask out the excluded zone itself (border buffer + FACT inaccessible
+# admin-3s) - accessible_area already = admin1 minus restricted, so this
+# leaves population showing only within the actual sampling universe rather
+# than bleeding through under the grey excluded-area overlay.
+worldpop_focus <- terra::mask(worldpop_focus, terra::vect(sf::st_make_valid(accessible_area)))
 
 restricted_focus <- sf::st_intersection(sf::st_make_valid(restricted), admin1_focus_union) %>%
   sf::st_make_valid()
 
-# IDP sites are clipped out of the excluded zone (border buffer + FACT
-# inaccessible admin-3s) the same way the host population raster is masked -
-# a site inside the excluded zone should not appear as part of the assessed
-# population any more than an excluded host grid cell does.
+accessible_area_focus <- sf::st_intersection(sf::st_make_valid(accessible_area), admin1_focus_union) %>%
+  sf::st_make_valid()
+
+# IDP sites are kept only if they fall INSIDE the accessible area - a
+# positive inclusion test against accessible_area_focus, matching how the
+# host population raster is now masked, rather than a "disjoint from the
+# excluded zone" test (which would incorrectly keep a site that's outside
+# the excluded zone but also outside the accessible area entirely).
 idp_sites_focus <- iom_idp_df %>%
   dplyr::filter(!is.na(individuals), individuals > 0) %>%
-  sf::st_transform(sf::st_crs(restricted_focus)) %>%
-  sf::st_filter(restricted_focus, .predicate = sf::st_disjoint)
+  sf::st_transform(sf::st_crs(accessible_area_focus)) %>%
+  sf::st_filter(accessible_area_focus, .predicate = sf::st_within)
 
 p_overview2 <- ggplot() +
   tidyterra::geom_spatraster(data = worldpop_focus, maxcell = 3e6) +
