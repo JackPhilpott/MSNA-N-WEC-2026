@@ -35,8 +35,6 @@ households_all <- sf::st_read("output/stage2_sampling_frame.gpkg", quiet = TRUE)
 # already produced)
 # ---------------------------------------------------------------------------
 
-if(!file.exists("output/methodology_map_overview_v2.png")) {
-
 admin1_focus <- NGA_shapes_all_cleaned$nga_admin1 %>%
   dplyr::filter(adm1_pcode %in% admin1_focus_areas)
 
@@ -48,8 +46,14 @@ worldpop_focus <- terra::mask(worldpop_focus, terra::vect(admin1_focus))
 restricted_focus <- sf::st_intersection(sf::st_make_valid(restricted), admin1_focus_union) %>%
   sf::st_make_valid()
 
+# IDP sites are clipped out of the excluded zone (border buffer + FACT
+# inaccessible admin-3s) the same way the host population raster is masked -
+# a site inside the excluded zone should not appear as part of the assessed
+# population any more than an excluded host grid cell does.
 idp_sites_focus <- iom_idp_df %>%
-  dplyr::filter(!is.na(individuals), individuals > 0)
+  dplyr::filter(!is.na(individuals), individuals > 0) %>%
+  sf::st_transform(sf::st_crs(restricted_focus)) %>%
+  sf::st_filter(restricted_focus, .predicate = sf::st_disjoint)
 
 p_overview2 <- ggplot() +
   tidyterra::geom_spatraster(data = worldpop_focus, maxcell = 3e6) +
@@ -59,7 +63,12 @@ p_overview2 <- ggplot() +
     trans = "log1p",
     name = "Host population\nper grid cell"
   ) +
-  geom_sf(data = restricted_focus, fill = "grey25", color = NA, alpha = 0.65) +
+  geom_sf(data = restricted_focus, aes(color = "Excluded from sampling\nuniverse (border buffer +\ninaccessible admin-3s)"), fill = "grey25", alpha = 0.65, linewidth = 0.3) +
+  scale_color_manual(
+    values = c("Excluded from sampling\nuniverse (border buffer +\ninaccessible admin-3s)" = "grey25"),
+    name = NULL,
+    guide = guide_legend(override.aes = list(fill = "grey25", alpha = 0.65, linewidth = 0))
+  ) +
   geom_sf(data = admin1_focus, fill = NA, color = "grey15", linewidth = 0.3) +
   geom_sf(data = idp_sites_focus, aes(size = individuals), color = "#1B6FA8", alpha = 0.8, shape = 16) +
   scale_size_continuous(range = c(0.4, 5), name = "IDP site\npopulation") +
@@ -69,7 +78,7 @@ p_overview2 <- ggplot() +
       nrow(admin1_focus), " states across NW/NE/NC Nigeria | ",
       nrow(idp_sites_focus), " IOM DTM sites"
     ),
-    caption = "Grey = excluded from the sampling universe (international border buffer + FACT-assessed inaccessible admin-3 areas)"
+    caption = "Excluded area = 20km buffer along the Niger border, 5km along Chad/Cameroon, plus FACT-assessed inaccessible admin-3 areas (North-East only)"
   ) +
   theme_void(base_size = 12) +
   theme(
@@ -81,10 +90,6 @@ p_overview2 <- ggplot() +
 
 ggsave("output/methodology_map_overview_v2.png", p_overview2, width = 10, height = 9, dpi = 130, bg = "white")
 cat("Saved overview v2 map\n")
-
-} else {
-  cat("Overview v2 map already exists - skipping re-render.\n")
-}
 
 # ---------------------------------------------------------------------------
 # Shared: fetch fresh building POLYGONS for a single cluster (mirrors
@@ -149,7 +154,7 @@ fetch_cluster_buildings <- function(hex_row) {
 # plus a new close-up.
 # ---------------------------------------------------------------------------
 
-host_example_id <- "host_NG020013_17"
+host_example_id <- "host_NG023010_1"
 
 hh <- households_all %>% dplyr::filter(cluster_id == host_example_id)
 
