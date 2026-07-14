@@ -1201,9 +1201,13 @@ tryCatch({
 # satellite-derived building footprints likely undercount real households
 # (structures destroyed/abandoned/not rebuilt). See the methodology
 # document's limitations section for the underlying analysis. Raised from
-# the standard m=6 to m=8 households per cluster for these strata only;
-# any that still fall short even at m=8 get supplementary clusters added
-# afterward (below).
+# the standard m=6 to m=7 households per cluster for these strata only -
+# chosen over m=8 as the smaller increase that still comfortably closes
+# the realized-MoE shortfall (tested both; m=7 gives ~8.5-8.7% realized
+# MoE across all 10 LGAs, close to m=8's ~6.2-8.3%, for roughly a third
+# of the additional field burden - 316 vs 1,098 extra interviews above
+# the original m=6 baseline). Any stratum still short even at m=7 gets
+# supplementary clusters added afterward (below).
 # ---------------------------------------------------------------------------
 boosted_strata_adm2 <- c(
   "NG008001", # Borno / Abadam
@@ -1218,7 +1222,7 @@ boosted_strata_adm2 <- c(
   "NG036002"  # Yobe / Bursari
 )
 standard_m <- 6
-boosted_m <- 8
+boosted_m <- 7
 
 host_clusters_standard <- host_clusters %>% dplyr::filter(!adm2_pcode %in% boosted_strata_adm2)
 host_clusters_boosted  <- host_clusters %>% dplyr::filter(adm2_pcode %in% boosted_strata_adm2)
@@ -1263,7 +1267,7 @@ stage2_households_host_boosted <- select_stage2_households(
 # only replaces clusters with NO eligible buildings at all. Host-only: IDP
 # clusters never have a zero-building problem in the first place, since
 # IDP Stage 2 (05_idp_site_assignment.R, below) doesn't use buildings.
-# Run separately for the standard (m=6) and boosted (m=8) groups, each
+# Run separately for the standard (m=6) and boosted (m=7) groups, each
 # excluding the OTHER group's hexagons from its replacement candidate pool
 # via extra_used_hexagons (both groups' cluster tables are otherwise
 # invisible to each other's reallocation call).
@@ -1332,7 +1336,7 @@ stage2_households_host <- dplyr::bind_rows(
 clusters_final_host <- dplyr::bind_rows(reallocation_standard$clusters_final, reallocation_boosted$clusters_final)
 
 # ---------------------------------------------------------------------------
-# Supplementary clusters: even at m=8, a boosted stratum's already-selected
+# Supplementary clusters: even at m=7, a boosted stratum's already-selected
 # clusters may not have enough spare building capacity between them to
 # close the gap between the stratum's target and its realized sample (see
 # methodology document limitations section) - add brand-new clusters,
