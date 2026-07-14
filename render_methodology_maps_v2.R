@@ -31,7 +31,11 @@ households_all <- sf::st_read("output/stage2_sampling_frame.gpkg", quiet = TRUE)
 
 # ---------------------------------------------------------------------------
 # Map 1: national overview - population raster + IDP sites + excluded areas
+# (unaffected by the Stage 2 building-consolidation fix - skip re-render if
+# already produced)
 # ---------------------------------------------------------------------------
+
+if(!file.exists("output/methodology_map_overview_v2.png")) {
 
 admin1_focus <- NGA_shapes_all_cleaned$nga_admin1 %>%
   dplyr::filter(adm1_pcode %in% admin1_focus_areas)
@@ -77,6 +81,10 @@ p_overview2 <- ggplot() +
 
 ggsave("output/methodology_map_overview_v2.png", p_overview2, width = 10, height = 9, dpi = 130, bg = "white")
 cat("Saved overview v2 map\n")
+
+} else {
+  cat("Overview v2 map already exists - skipping re-render.\n")
+}
 
 # ---------------------------------------------------------------------------
 # Shared: fetch fresh building POLYGONS for a single cluster (mirrors
@@ -141,7 +149,7 @@ fetch_cluster_buildings <- function(hex_row) {
 # plus a new close-up.
 # ---------------------------------------------------------------------------
 
-host_example_id <- "host_NG020014_17"
+host_example_id <- "host_NG020013_17"
 
 hh <- households_all %>% dplyr::filter(cluster_id == host_example_id)
 
@@ -209,7 +217,7 @@ closeup_bbox_proj <- hh_bbox_proj + c(-pad_m, -pad_m, pad_m, pad_m)
 closeup_extent_wgs84 <- sf::st_as_sfc(closeup_bbox_proj, crs = mycrs) %>% sf::st_transform(4326)
 bbox_closeup_host <- sf::st_bbox(closeup_extent_wgs84)
 
-basemap_closeup_host <- maptiles::get_tiles(closeup_extent_wgs84, provider = "Esri.WorldImagery", zoom = 19, crop = TRUE)
+basemap_closeup_host <- maptiles::get_tiles(closeup_extent_wgs84, provider = "Esri.WorldImagery", zoom = 17, crop = TRUE)
 
 p_host_closeup <- ggplot() +
   tidyterra::geom_spatraster_rgb(data = basemap_closeup_host, maxcell = 2e6) +
