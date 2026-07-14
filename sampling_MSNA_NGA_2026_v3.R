@@ -386,9 +386,7 @@ iom_idp_df <- idp_combined_df %>%
 
 bound_hex_clip <- cache_rds(
   here(boundaries_dir, "nga_hexagons", "hexa_by_admin2.rds"),
-  
-  opt_list$rebuild_hex_intersection,
-  
+
   function(){
     
     split_admins <- split(
@@ -422,8 +420,10 @@ bound_hex_clip <- cache_rds(
     )
     
     bound_hex_clip <- bind_rows(hexes)
-    
-  }
+
+  },
+
+  rebuild = opt_list$rebuild_hex_intersection
 )
 
 # visualise hex data - only running to check, don't run and save memory if not needed
@@ -436,16 +436,16 @@ bound_hex_clip <- cache_rds(
 # focused admin1s by region as defined by IMPACT and FACT
 
 # ---- 4.1.1 international buffer ----
-# create a buffer 20km from the Niger country border, and 5km from the Chad and Cameroon border
+# create a buffer 20km from the Niger country border, and 5km from the Chad, Cameroon and Benin border
 admin0_cast <- st_cast(admin0_wa_proj, to = "MULTILINESTRING")
 
 admin0_wa_buff <- admin0_cast %>%
   mutate(
     buffer_m = case_when(
-      adm0_name %in% c("Chad", "Cameroon") ~ 5000,
+      adm0_name %in% c("Chad", "Cameroon", "Benin") ~ 5000,
       adm0_name == "Niger" ~ 20000,
       TRUE ~ NA_real_
-    )) %>% 
+    )) %>%
   filter(!is.na(buffer_m))
 
 # 3. Apply st_buffer with per-feature distances
@@ -549,11 +549,9 @@ p_before + p_after
 ## ---- 5. Intersect hex and accessible areas ----
 
 hex_access <- cache_rds(
-  
+
   here(boundaries_dir, "nga_hexagons", "accessible_hex.rds"),
-  
-  opt_list$rebuild_hex_intersection,
-  
+
   function(){
     st_intersection(
       st_make_valid(bound_hex_clip),
@@ -561,7 +559,9 @@ hex_access <- cache_rds(
     ) |>
       st_collection_extract("POLYGON") |>
       filter(!st_is_empty(geometry))
-    }
+    },
+
+  rebuild = opt_list$rebuild_hex_intersection
 )
 
 # visualise hexgrid - only running to check, don't run and save memory if not needed
@@ -678,29 +678,27 @@ build_population_by_hex <- function(
 
 
 hex_grid_host <- cache_rds(
-  
+
   here(population_dir, "sampling_frame", "hex_grid_host.rds"),
-  
-  opt_list$rebuild_pophex_host,
-  
+
   function() {
-    
+
     build_population_by_hex(
       hex_access = hex_access,
       source = "host",
       worldpop_pop = worldpop_pop
     )
-    
-  }
+
+  },
+
+  rebuild = opt_list$rebuild_pophex_host
   )
 
 
 hex_grid_idp <- cache_rds(
-  
+
   here(population_dir, "sampling_frame", "hex_grid_idp.rds"),
-  
-  opt_list$rebuild_pophex_idp,
-  
+
   function() {
 
     build_population_by_hex(
@@ -708,8 +706,10 @@ hex_grid_idp <- cache_rds(
       source = "idp",
       iom_idp_df = iom_idp_df
     )
-    
-  }
+
+  },
+
+  rebuild = opt_list$rebuild_pophex_idp
 )
 
 
