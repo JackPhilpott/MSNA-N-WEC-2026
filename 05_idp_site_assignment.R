@@ -253,13 +253,13 @@ select_stage2_idp_sites <- function(
       location_source = "idp_site_point",
       households_in_cluster_source = "DTM_estimate_provisional",
       site_radius_m = radius_val,
-      understaffed_cluster = site_households < target_households
+      below_target_cluster = site_households < target_households
     ) %>%
     dplyr::left_join(site_geometry, by = "cluster_id") %>%
     sf::st_as_sf()
 
   # site_households was only needed transiently above (to build the
-  # household rows' households_in_cluster below, and understaffed_cluster
+  # household rows' households_in_cluster below, and below_target_cluster
   # just above) - dropped here rather than kept as a cluster-level column so
   # clusters_final has the identical schema on both the host
   # (reallocate_zero_building_clusters()) and IDP side and bind_rows()
@@ -313,7 +313,7 @@ select_stage2_idp_sites <- function(
       by = "cluster_id"
     ) %>%
     dplyr::mutate(
-      understaffed_cluster = households_in_cluster < target_households,
+      below_target_cluster = households_in_cluster < target_households,
       # No building draw for IDP - these three are host-only fields
       # (finalize_households()'s output schema is shared, so they still
       # need to exist here, just empty).

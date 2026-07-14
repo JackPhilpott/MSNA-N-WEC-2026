@@ -12,9 +12,9 @@ cat("\n=== HOUSEHOLDS PER CLUSTER (primary only) ===\n")
 primary_per_cluster <- h %>% filter(status == "primary") %>% count(cluster_id)
 print(table(primary_per_cluster$n))
 
-cat("\n=== UNDERSTAFFED CLUSTERS ===\n")
-understaffed <- h %>% filter(understaffed_cluster) %>% distinct(cluster_id, households_in_cluster, target_households)
-cat("Count of understaffed clusters:", nrow(understaffed), "\n")
+cat("\n=== BELOW-TARGET CLUSTERS ===\n")
+below_target <- h %>% filter(below_target_cluster) %>% distinct(cluster_id, households_in_cluster, target_households)
+cat("Count of below-target clusters:", nrow(below_target), "\n")
 cat("Total clusters represented in output:", n_distinct(h$cluster_id), "\n")
 
 cat("\n=== REALLOCATION ===\n")

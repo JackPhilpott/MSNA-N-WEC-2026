@@ -62,7 +62,7 @@ print(head(multi %>% select(cluster_id, adm2_pcode, iom_site_name, n_other_sites
 cat("\n=== WEIGHT SANITY ===\n")
 print(summary(h$base_weight))
 print(summary(h$ssu_probability))
-cat("understaffed_cluster TRUE count:", sum(h$understaffed_cluster), "of", nrow(h), "\n")
+cat("below_target_cluster TRUE count:", sum(h$below_target_cluster), "of", nrow(h), "\n")
 
 cat("\n=== COORDINATE SANITY ===\n")
 cat("Longitude range:", range(h$longitude, na.rm=TRUE), "\n")

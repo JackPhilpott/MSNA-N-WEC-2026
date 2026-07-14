@@ -18,7 +18,7 @@
 #' Simple random sample without replacement of primary households plus a
 #' reserve/replacement list, ranked in draw order. A cluster with fewer
 #' eligible buildings than the target takes everything available and is
-#' flagged as understaffed. Shared by \code{select_stage2_households()} and
+#' flagged via \code{below_target_cluster}. Shared by \code{select_stage2_households()} and
 #' \code{reallocate_zero_building_clusters()} (\code{04_cluster_reallocation.R})
 #' so both draw households the same way.
 #'
@@ -51,7 +51,7 @@ draw_cluster <- function(pool, target_hh, reserve_n) {
       interview_number = ifelse(status == "primary", draw_rank, NA_integer_),
       replacement_rank = ifelse(status == "reserve", draw_rank - n_primary, NA_integer_),
       households_in_cluster = n_pool,
-      understaffed_cluster = n_pool < target_hh
+      below_target_cluster = n_pool < target_hh
     )
 
 }
@@ -595,7 +595,7 @@ finalize_households <- function(households, clusters_merged, wards, admin3, mycr
       psu_probability,
       ssu_probability,
       base_weight,
-      understaffed_cluster,
+      below_target_cluster,
       reallocated,
       original_uuid_hex_pop,
       location_source,

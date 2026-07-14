@@ -13,7 +13,7 @@
 #   same PPS-by-population-size mechanism as the original Stage 1 draw, so
 #   the substitute is methodologically identical rather than an ad hoc fix.
 #   Clusters that have SOME buildings but fewer than the target
-#   ("understaffed") are out of scope - only clusters with NO eligible
+#   (below_target_cluster) are out of scope - only clusters with NO eligible
 #   buildings at all are reallocated.
 #
 # ==============================================================================

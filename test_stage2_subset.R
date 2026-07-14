@@ -74,8 +74,8 @@ cat("Status breakdown:\n")
 print(table(test_households$status))
 cat("Base weight summary:\n")
 print(summary(test_households$base_weight))
-cat("Understaffed clusters (unique):",
-    length(unique(test_households$cluster_id[test_households$understaffed_cluster])), "\n")
+cat("Below-target clusters (unique):",
+    length(unique(test_households$cluster_id[test_households$below_target_cluster])), "\n")
 cat("Duplicate survey_id check:", anyDuplicated(test_households$survey_id), "\n")
 cat("NA adm3_pcode (GRID3, primary) check:", sum(is.na(test_households$adm3_pcode)), "of", nrow(test_households), "\n")
 cat("admin3_source breakdown:\n")
