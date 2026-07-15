@@ -751,15 +751,31 @@ add_supplementary_clusters <- function(
       rebuild = rebuild
     )
 
+    # Google Open Buildings tiles overlap at their boundaries, so the same
+    # physical building can appear in more than one round_building_files
+    # entry for a hexagon near a tile edge - deduplicate by rounded
+    # centroid (same 10cm-precision key draw_households_from_files() uses)
+    # before counting, so a candidate's estimated capacity here matches
+    # what it will actually deliver at draw time. Raw (non-deduplicated)
+    # counts could previously overstate a candidate's contribution and let
+    # the round loop stop adding candidates too early. Verified this makes
+    # no difference to the 2026 MSNA run's actual output (no meaningful
+    # duplication in that candidate set), but keeps the eligibility check
+    # honest for future reruns/regions where it might.
     hex_building_counts <-
       purrr::map(round_building_files, function(bf) {
-        readRDS(bf) %>%
+        part <- readRDS(bf)
+        coords <- sf::st_coordinates(part)
+        part %>%
           sf::st_drop_geometry() %>%
-          dplyr::count(uuid_hex_pop, name = "n_buildings")
+          dplyr::mutate(
+            .centroid_key = paste0(round(coords[, "X"], 1), "_", round(coords[, "Y"], 1))
+          ) %>%
+          dplyr::select(uuid_hex_pop, .centroid_key)
       }) %>%
       dplyr::bind_rows() %>%
-      dplyr::group_by(uuid_hex_pop) %>%
-      dplyr::summarise(n_buildings = sum(n_buildings), .groups = "drop")
+      dplyr::distinct(uuid_hex_pop, .centroid_key) %>%
+      dplyr::count(uuid_hex_pop, name = "n_buildings")
 
     # Walk each stratum's round batch in PPS-rank order, greedily adding
     # eligible hexagons as new clusters until that stratum's shortfall is

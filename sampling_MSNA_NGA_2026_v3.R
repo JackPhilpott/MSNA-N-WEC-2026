@@ -1202,12 +1202,19 @@ tryCatch({
 # (structures destroyed/abandoned/not rebuilt). See the methodology
 # document's limitations section for the underlying analysis. Raised from
 # the standard m=6 to m=7 households per cluster for these strata only -
-# chosen over m=8 as the smaller increase that still comfortably closes
-# the realized-MoE shortfall (tested both; m=7 gives ~8.5-8.7% realized
-# MoE across all 10 LGAs, close to m=8's ~6.2-8.3%, for roughly a third
-# of the additional field burden - 316 vs 1,098 extra interviews above
-# the original m=6 baseline). Any stratum still short even at m=7 gets
-# supplementary clusters added afterward (below).
+# chosen over m=8 (tested separately; a larger cluster size closes the
+# same gap with a bit more room to spare, for a meaningfully larger field
+# burden, so m=7 was preferred as the smaller sufficient increase).
+# Verified (2026-07-15) at 421 extra interviews above the original 17-
+# cluster, m=6 baseline across these 10 strata combined - m=7 delivers
+# 8.51-8.73% realized MoE in every one of them. Any stratum still short
+# of its Stage-1 target even at m=7 gets supplementary clusters added
+# afterward (below) - every one of the 10 boosted strata reaches its true
+# target this way (verify against output/strata_level_sampling_frame.csv's
+# target_sample, which is Stage-1 cluster count x m_used, NOT a sum of
+# every individual cluster's own target_households - supplementary
+# clusters would double-count against that sum without actually being
+# under-target).
 # ---------------------------------------------------------------------------
 boosted_strata_adm2 <- c(
   "NG008001", # Borno / Abadam

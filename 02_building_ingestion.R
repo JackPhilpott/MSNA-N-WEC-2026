@@ -62,10 +62,11 @@
 #'   \code{flush_threshold}-sized chunk files as-is instead. Google Open
 #'   Buildings country-scale tiles also deliberately overlap at their
 #'   boundaries, so a cluster's buildings are not guaranteed to be confined
-#'   to one file either - \code{select_stage2_households()} processes each
-#'   file separately, treating the first file a cluster appears in as
-#'   authoritative for that cluster, and only combines the much smaller
-#'   per-household results at the end.
+#'   to one file either - \code{select_stage2_households()} determines each
+#'   cluster's full file membership up front (pass 1), then accumulates
+#'   deduplicated buildings across every file the cluster appears in
+#'   (pass 2, deduplicated by rounded centroid) before drawing, rather than
+#'   treating any single file as authoritative.
 #'
 #' @details
 #' Processing workflow, per GDB, per batch of clusters:
@@ -863,10 +864,11 @@ load_building_footprints <- function(
   # Buildings country-scale tiles deliberately overlap at their boundaries
   # (confirmed empirically - a hexagon can have buildings appear in more
   # than one part's file), so select_stage2_households() cannot assume a
-  # cluster's buildings come from exactly one file; it instead treats the
-  # first file a cluster's buildings appear in as authoritative and skips
-  # that cluster in any later file, which resolves the boundary overlap
-  # without ever needing to combine files together.
+  # cluster's buildings come from exactly one file; it instead determines
+  # each cluster's full file membership first, then accumulates
+  # deduplicated buildings across all of them before drawing, which
+  # resolves the boundary overlap without ever needing to combine files
+  # together.
   # ---------------------------------------------------------------------------
 
   stopifnot(
