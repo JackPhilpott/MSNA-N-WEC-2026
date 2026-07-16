@@ -27,6 +27,8 @@ stopifnot(length(stop_idx) == 1)
 writeLines(lines[1:stop_idx], "temp_stage1_only.R")
 source("temp_stage1_only.R")
 
+dir.create("output/images", showWarnings = FALSE)
+
 households_all <- sf::st_read("output/stage2_sampling_frame.gpkg", quiet = TRUE)
 
 # ---------------------------------------------------------------------------
@@ -97,7 +99,7 @@ p_overview2 <- ggplot() +
     legend.position = "right"
   )
 
-ggsave("output/methodology_map_overview_v2.png", p_overview2, width = 10, height = 9, dpi = 130, bg = "white")
+ggsave("output/images/methodology_map_overview_v2.png", p_overview2, width = 10, height = 9, dpi = 130, bg = "white")
 cat("Saved overview v2 map\n")
 
 # ---------------------------------------------------------------------------
@@ -219,7 +221,7 @@ p_host2 <- ggplot() +
     legend.position = "bottom"
   )
 
-ggsave("output/methodology_map_host_v2.png", p_host2, width = 7, height = 7, dpi = 130, bg = "white")
+ggsave("output/images/methodology_map_host_v2.png", p_host2, width = 7, height = 7, dpi = 130, bg = "white")
 cat("Saved host v2 map\n")
 
 # ---- Map 3: close-up around the drawn households, buildings visible nearby ----
@@ -255,7 +257,7 @@ p_host_closeup <- ggplot() +
     legend.position = "bottom"
   )
 
-ggsave("output/methodology_map_host_closeup.png", p_host_closeup, width = 7, height = 7, dpi = 130, bg = "white")
+ggsave("output/images/methodology_map_host_closeup.png", p_host_closeup, width = 7, height = 7, dpi = 130, bg = "white")
 cat("Saved host close-up map\n")
 
 cat("ALL DONE\n")
