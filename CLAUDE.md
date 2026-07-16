@@ -7,6 +7,32 @@
 to the old project path may not be attached here automatically. This file
 exists so that context isn't lost.
 
+On 2026-07-16 the project root was also cleaned up: superseded/one-off
+scripts moved to `archive/`, and all active scripts renamed and moved into
+`scripts/` with numbering that reflects workflow order (`00_` shared
+functions through `08_`, see table below) rather than the old ad-hoc
+`02_`–`05_` + inconsistently-named files. If you see any lingering
+reference to an old filename (`sampling_MSNA_NGA_2026_v3.R`,
+`02_building_ingestion.R`, etc.) anywhere outside this project, it's stale
+— the table below is current.
+
+| Old name | Current name |
+|---|---|
+| `global_sampling_source.R` | `scripts/00_shared_functions.R` |
+| `sampling_MSNA_NGA_2026_v3.R` | `scripts/01_sampling_pipeline_main.R` |
+| `02_building_ingestion.R` | `scripts/02_stage2_building_ingestion.R` |
+| `03_household_selection.R` | `scripts/03_stage2_household_selection.R` |
+| `04_cluster_reallocation.R` | `scripts/04_stage2_cluster_reallocation.R` |
+| `05_idp_site_assignment.R` | `scripts/05_stage2_idp_site_assignment.R` |
+| `review_final_output.R` | `scripts/06_output_review.R` |
+| `build_sampling_workbook.py` | `scripts/07_build_workbook.py` |
+| `render_methodology_maps_v2.R` | `scripts/08_render_methodology_maps.R` |
+| `run_pipeline_watchdog.ps1` | `scripts/run_pipeline_watchdog.ps1` (unchanged name - runs in parallel, not sequential) |
+
+Scripts are still meant to be **run with the working directory at the
+project root** (not from inside `scripts/`) — every `source()`/`readLines()`
+call between them uses a `scripts/...` relative path on that assumption.
+
 ## What this project is
 
 Stratified two-stage cluster sample for the 2026 MSNA (North-West/East/
@@ -54,15 +80,15 @@ don't create a new one).
 - Downstream projects (`../2_monitoring/`, `../3_analysis/`) should treat
   this project's outputs as **static input files** to copy into their own
   `input_data/`, never as code to `source()` or a live path to read from.
-- `reference_data_dir` in `sampling_MSNA_NGA_2026_v3.R` points to
+- `reference_data_dir` in `scripts/01_sampling_pipeline_main.R` points to
   `C:/Users/JackPHILPOTT/Personal - Documents/GIS` (Google Open Buildings
   source) — genuinely external to this project, unaffected by moving this
   folder, but is a single-machine dependency worth knowing about.
-- `build_sampling_workbook.py` (builds the combined Excel workbook, kept
+- `scripts/07_build_workbook.py` (builds the combined Excel workbook, kept
   out of git intentionally due to size) derives its own path from
   `__file__`, so it's portable to future moves.
 - Shared functions `draw_cluster()`, `finalize_households()`,
-  `merge_repeated_psu_draws()` (`03_household_selection.R`) are reused by
-  all three Stage 2 paths (host draw, host reallocation, IDP site
-  assignment) — extend the shared schema there rather than duplicating
-  logic if adding output columns.
+  `merge_repeated_psu_draws()` (`scripts/03_stage2_household_selection.R`)
+  are reused by all three Stage 2 paths (host draw, host reallocation, IDP
+  site assignment) — extend the shared schema there rather than
+  duplicating logic if adding output columns.

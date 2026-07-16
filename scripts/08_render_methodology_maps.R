@@ -18,7 +18,7 @@ suppressMessages({
   library(terra)
 })
 
-lines <- readLines("sampling_MSNA_NGA_2026_v3.R")
+lines <- readLines("scripts/01_sampling_pipeline_main.R")
 stop_idx <- which(grepl(
   "^selected_clusters <- dplyr::bind_rows\\(host_clusters, idp_clusters\\)",
   lines
@@ -102,10 +102,11 @@ cat("Saved overview v2 map\n")
 
 # ---------------------------------------------------------------------------
 # Shared: fetch fresh building POLYGONS for a single cluster (mirrors
-# render_example_maps.R's approach - the main pipeline only keeps centroids)
+# archive/render_example_maps.R's approach - the main pipeline only keeps
+# centroids)
 # ---------------------------------------------------------------------------
 
-source("02_building_ingestion.R")
+source("scripts/02_stage2_building_ingestion.R")
 
 fetch_cluster_buildings <- function(hex_row) {
 

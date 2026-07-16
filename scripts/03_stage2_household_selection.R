@@ -19,7 +19,7 @@
 #' reserve/replacement list, ranked in draw order. A cluster with fewer
 #' eligible buildings than the target takes everything available and is
 #' flagged via \code{below_target_cluster}. Shared by \code{select_stage2_households()} and
-#' \code{reallocate_zero_building_clusters()} (\code{04_cluster_reallocation.R})
+#' \code{reallocate_zero_building_clusters()} (\code{04_stage2_cluster_reallocation.R})
 #' so both draw households the same way.
 #'
 #' @param pool sf object of eligible building points for one cluster.
@@ -60,7 +60,7 @@ draw_cluster <- function(pool, target_hh, reserve_n) {
 #' Read an RDS file with retry, guarding against a transient file lock
 #'
 #' Mirrors the retry pattern already used for cache writes elsewhere in
-#' this pipeline (\code{02_building_ingestion.R}'s \code{flush_buildings()}/
+#' this pipeline (\code{02_stage2_building_ingestion.R}'s \code{flush_buildings()}/
 #' \code{save_progress()}), applied to reads here: a OneDrive/AV lock
 #' briefly held on a cache file must not silently produce a short read in
 #' one pass and a full read in another, which is exactly the kind of
@@ -95,7 +95,7 @@ safe_read_rds <- function(path, attempts = 5) {
 #' \code{load_building_footprints()} roxygen docs), but also, for
 #' hexagons in very dense areas, across more than one chunk file WITHIN
 #' the same part. This happens because the ingestion-time duplicate
-#' detector (\code{seen_keys} in \code{02_building_ingestion.R}) only
+#' detector (\code{seen_keys} in \code{02_stage2_building_ingestion.R}) only
 #' remembers a bounded, rolling window of recently-seen buildings; in a
 #' dense stratum with many nearby selected hexagons, enough buildings can
 #' be processed between two overlapping fetches of the SAME physical
@@ -354,7 +354,7 @@ draw_households_from_files <- function(building_files, clusters_lookup, mycrs, r
 #' hexagon with a proportionally larger household target, rather than
 #' treating each draw as an independent cluster visit. Shared by
 #' \code{select_stage2_households()} and
-#' \code{reallocate_zero_building_clusters()} (\code{04_cluster_reallocation.R})
+#' \code{reallocate_zero_building_clusters()} (\code{04_stage2_cluster_reallocation.R})
 #' so both work from an identical cluster-level table.
 #'
 #' @param clusters sf polygon object, one row per Stage-1 PPS draw (e.g.
@@ -365,7 +365,7 @@ draw_households_from_files <- function(building_files, clusters_lookup, mycrs, r
 #'   \code{target_households}, \code{strata_id}, \code{reallocated} (FALSE),
 #'   \code{original_uuid_hex_pop} (NA), and the location/site provenance
 #'   columns described below (all set to their host/building-footprint
-#'   defaults here - \code{05_idp_site_assignment.R} overrides them for IDP
+#'   defaults here - \code{05_stage2_idp_site_assignment.R} overrides them for IDP
 #'   clusters) added.
 merge_repeated_psu_draws <- function(clusters, m) {
 
@@ -386,7 +386,7 @@ merge_repeated_psu_draws <- function(clusters, m) {
       target_households = m * selection_count,
       strata_id = paste(pop_type, adm2_pcode, sep = "_"),
       # Every cluster is "not reallocated" here - only
-      # reallocate_zero_building_clusters() (04_cluster_reallocation.R) ever
+      # reallocate_zero_building_clusters() (04_stage2_cluster_reallocation.R) ever
       # sets these, for the small number of zero-building clusters it
       # substitutes a new hexagon into. Present on every row (not just
       # reallocated ones) so finalize_households()'s output schema is
@@ -395,13 +395,13 @@ merge_repeated_psu_draws <- function(clusters, m) {
       original_uuid_hex_pop = NA_character_,
       # Set on every row for the same reason as reallocated/
       # original_uuid_hex_pop above - only add_supplementary_clusters()
-      # (04_cluster_reallocation.R) ever sets this TRUE, for the small
+      # (04_stage2_cluster_reallocation.R) ever sets this TRUE, for the small
       # number of brand-new clusters it adds (not substitutes) to a
       # stratum whose realized sample fell short of its target even after
       # raising m.
       supplementary_cluster = FALSE,
       # Location/site provenance - host clusters are always
-      # building-footprint-based. IDP clusters (05_idp_site_assignment.R)
+      # building-footprint-based. IDP clusters (05_stage2_idp_site_assignment.R)
       # override every one of these with the IOM DTM site actually used,
       # since IDP Stage 2 no longer queries buildings at all. Present on
       # every row so the combined host+IDP output has one consistent
@@ -437,7 +437,7 @@ merge_repeated_psu_draws <- function(clusters, m) {
 #' Admin-3 (secondary) attribution, builds \code{survey_id}, and produces
 #' both UTM and WGS84 coordinate columns. Shared by
 #' \code{select_stage2_households()} and
-#' \code{reallocate_zero_building_clusters()} (\code{04_cluster_reallocation.R})
+#' \code{reallocate_zero_building_clusters()} (\code{04_stage2_cluster_reallocation.R})
 #' so both produce an identical output schema.
 #'
 #' @param households sf point object of drawn households (in \code{mycrs}),
@@ -634,7 +634,7 @@ finalize_households <- function(households, clusters_merged, wards, admin3, mycr
 #'
 #' @param clusters sf polygon object of the SELECTED Stage-1 sampling
 #'   clusters - host clusters only (\code{host_clusters}). IDP clusters use
-#'   \code{select_stage2_idp_sites()} (\code{05_idp_site_assignment.R})
+#'   \code{select_stage2_idp_sites()} (\code{05_stage2_idp_site_assignment.R})
 #'   instead: IDP household locations come from the IOM DTM site's own GPS
 #'   point rather than a building footprint draw, so IDP Stage 2 never
 #'   queries Google Open Buildings. One row per PPS draw - a hexagon
@@ -797,7 +797,7 @@ select_stage2_households <- function(
   # Attach cluster-level attributes, design weights, admin3/ward attribution,
   # survey_id and coordinates via the shared finalize_households() (defined
   # above) - identical logic to what reallocate_zero_building_clusters()
-  # (04_cluster_reallocation.R) uses for the replacement households it draws.
+  # (04_stage2_cluster_reallocation.R) uses for the replacement households it draws.
   # ---------------------------------------------------------------------------
 
   households_final <- finalize_households(households, clusters_merged, wards, admin3, mycrs)

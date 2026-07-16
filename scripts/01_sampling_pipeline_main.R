@@ -25,7 +25,7 @@ library(purrr)
 library(ggspatial)
 library(sampling)
 
-source("global_sampling_source.R") #sampling methods from Olivier Cecchi
+source("scripts/00_shared_functions.R") #sampling methods from Olivier Cecchi
 
 ## ---- 1. set global environment ---- 
 
@@ -1089,7 +1089,7 @@ select_pps_clusters <- function(
 # Fixed seed so the PPS systematic draw (host + IDP) is reproducible on
 # rerun - required for audit trail on a humanitarian assessment. Stage 2
 # household selection sets its own seed independently in
-# 03_household_selection.R.
+# 03_stage2_household_selection.R.
 set.seed(1234)
 
 host_clusters <- select_pps_clusters(host_sampling$sampling_frame)
@@ -1135,7 +1135,7 @@ start_points <-
 ## ---- stage 2 sampling ----
 
 # 01 building ingestion
-source("02_building_ingestion.R")
+source("scripts/02_stage2_building_ingestion.R")
 
 reference_data_dir <- "C:/Users/JackPHILPOTT/Personal - Documents/GIS"
 
@@ -1146,7 +1146,7 @@ building_data_dir <- file.path(
 
 # Buildings are only needed for Stage 2 household selection within the
 # already-selected Stage-1 HOST clusters - IDP clusters use their IOM DTM
-# site's own GPS point instead (05_idp_site_assignment.R), never querying
+# site's own GPS point instead (05_stage2_idp_site_assignment.R), never querying
 # Google Open Buildings at all. Even scoped to host-only, the GDBs are
 # country-scale (tens of millions of features each) and querying the full
 # accessible area would exhaust memory on a normal machine.
@@ -1168,12 +1168,12 @@ building_files <- load_building_footprints(
 )
 
 # 02 stage 2 household selection
-source("03_household_selection.R")
+source("scripts/03_stage2_household_selection.R")
 
 # GRID3 ward boundaries: the only Admin-3-equivalent layer with national
 # (NW/NE/NC) coverage - the official COD Admin-3 layer only covers the 3 NE
 # states, so it's used as a secondary reference instead (see
-# 03_household_selection.R roxygen docs).
+# 03_stage2_household_selection.R roxygen docs).
 nga_wards <- sf::st_read(
   here(boundaries_dir, "GRID3_NGA_Ward_Boundaries_v1", "grid3_nga_boundary_vaccwards.shp"),
   quiet = TRUE
@@ -1269,16 +1269,16 @@ stage2_households_host_boosted <- select_stage2_households(
 # A selected HOST hexagon with zero eligible buildings can't be visited by
 # a field team - substitute a different hexagon from the same adm2_pcode
 # stratum, drawn with the same PPS-by-population mechanism as the original
-# Stage 1 draw. See 04_cluster_reallocation.R roxygen docs. Below-target
+# Stage 1 draw. See 04_stage2_cluster_reallocation.R roxygen docs. Below-target
 # clusters (some buildings, fewer than target) are untouched here - this
 # only replaces clusters with NO eligible buildings at all. Host-only: IDP
 # clusters never have a zero-building problem in the first place, since
-# IDP Stage 2 (05_idp_site_assignment.R, below) doesn't use buildings.
+# IDP Stage 2 (05_stage2_idp_site_assignment.R, below) doesn't use buildings.
 # Run separately for the standard (m=6) and boosted (m=7) groups, each
 # excluding the OTHER group's hexagons from its replacement candidate pool
 # via extra_used_hexagons (both groups' cluster tables are otherwise
 # invisible to each other's reallocation call).
-source("04_cluster_reallocation.R")
+source("scripts/04_stage2_cluster_reallocation.R")
 
 reallocation_standard <- reallocate_zero_building_clusters(
   clusters = host_clusters_standard,
@@ -1481,10 +1481,10 @@ if(nrow(boosted_shortfalls) > 0 && !is.null(supplementary$new_clusters)) {
 # 04 IDP site assignment
 #
 # IDP Stage 2 uses the IOM DTM site's own GPS point rather than a building
-# footprint draw - see 05_idp_site_assignment.R roxygen docs for why (every
+# footprint draw - see 05_stage2_idp_site_assignment.R roxygen docs for why (every
 # selected IDP hexagon has DTM-reported population by construction, so this
 # never hits a "zero eligible locations" problem the way buildings did).
-source("05_idp_site_assignment.R")
+source("scripts/05_stage2_idp_site_assignment.R")
 
 idp_sites <- select_stage2_idp_sites(
   clusters = idp_clusters,
@@ -1555,7 +1555,7 @@ if(!interactive()) {
 
 # ## ----  7 test impact sampling implementation ----
 # 
-# source("global_sampling_source.R") #sampling methods from Olivier Cecchi
+# source("scripts/00_shared_functions.R") #sampling methods from Olivier Cecchi
 # 
 # set.seed(1234)
 # 

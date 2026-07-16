@@ -1,7 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "PowerShell(powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"run_pipeline_watchdog.ps1\")"
+      "PowerShell(powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"scripts\\run_pipeline_watchdog.ps1\")"
     ]
   }
 }

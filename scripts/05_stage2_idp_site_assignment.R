@@ -32,7 +32,7 @@
 #'   (\code{idp_clusters}).
 #' @param iom_idp_df sf POINT object, one row per IOM DTM site, carrying
 #'   \code{households}/\code{individuals} (numeric population fields - see
-#'   \code{sampling_MSNA_NGA_2026_v3.R}, these are the cleaned numeric
+#'   \code{01_sampling_pipeline_main.R}, these are the cleaned numeric
 #'   versions of the raw \code{pop_hh}/\code{pop} fields), \code{site_id_ssid},
 #'   \code{site_name}, \code{site_type}, \code{ward}.
 #' @param wards sf polygon object of GRID3 ward boundaries, passed through

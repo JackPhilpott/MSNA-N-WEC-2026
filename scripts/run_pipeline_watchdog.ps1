@@ -1,5 +1,5 @@
 $rscript = "C:\Users\JackPHILPOTT\AppData\Local\Programs\R\R-4.6.0\bin\x64\Rscript.exe"
-$scriptPath = "sampling_MSNA_NGA_2026_v3.R"
+$scriptPath = "scripts/01_sampling_pipeline_main.R"
 $logOut = "run_log_stage2_full.txt"
 $logErr = "run_log_stage2_full_err.txt"
 $memLimitMB = 1500

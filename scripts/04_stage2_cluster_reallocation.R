@@ -515,7 +515,7 @@ reallocate_zero_building_clusters <- function(
   # ---------------------------------------------------------------------------
   # Fetch each replacement hexagon's full building pool (not just counts)
   # and draw households via the shared draw_households_from_files()
-  # (03_household_selection.R) - correctly consolidates a cluster's
+  # (03_stage2_household_selection.R) - correctly consolidates a cluster's
   # eligible buildings even if split across more than one cache file,
   # rather than assuming the first file is complete. Replacement hexagons
   # are spread across whichever round(s) resolved them, so their buildings
