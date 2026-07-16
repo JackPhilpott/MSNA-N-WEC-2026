@@ -24,7 +24,7 @@ temp_stage1_only.R
 *_log[0-9]*.txt
 run_log_*.txt
 
-# Claude Code local settings (machine/user-specific)
+# Assist tool local settings (machine/user-specific)
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 
