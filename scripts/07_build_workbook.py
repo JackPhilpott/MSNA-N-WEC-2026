@@ -12,8 +12,10 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 # Derived from this script's own location (not hardcoded) so the project can
-# be moved/renamed without breaking this path.
-PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+# be moved/renamed without breaking this path. This script lives in
+# scripts/, one level below the project root, so output/ is a parent-level
+# sibling of scripts/.
+PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_PATH = PROJECT_DIR + r"\output\MSNA_2026_sampling_frame_workbook.xlsx"
 
 SF_CSV = PROJECT_DIR + r"\output\stage2_sampling_frame.csv"
@@ -73,7 +75,7 @@ SF_WIDTHS = {
 }
 ST_WIDTHS = {
     "region": 8, "adm1_pcode": 11, "adm1_name": 14, "adm2_pcode": 11,
-    "adm2_name": 16, "pop_type": 8, "n_pop": 11, "N_hh": 10, "n_hex": 8,
+    "adm2_name": 16, "pop_type": 8, "strata_id": 18, "n_pop": 11, "N_hh": 10, "n_hex": 8,
     "selection_type": 12, "certainty_stratum": 12,
     "clusters_target_stage1": 14, "achieved_clusters": 13, "m_used": 8,
     "ICC": 7, "DEFF": 7, "expected_households_stage1": 16,
@@ -261,6 +263,7 @@ ST_DEFS = [
     ("adm2_pcode", "LGA-level administrative P-code — the stratification unit."),
     ("adm2_name", "LGA name."),
     ("pop_type", "Population group this stratum covers: “host” or “idp”."),
+    ("strata_id", "Identifier for this stratum (population group + LGA) — matches strata_id in the Sampling Frame sheet for joining across tables."),
     ("Population and design", None),
     ("n_pop", "Estimated total population in this stratum."),
     ("N_hh", "Estimated total number of households in this stratum — the sampling frame’s population size."),
