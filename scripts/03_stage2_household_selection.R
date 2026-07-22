@@ -358,13 +358,13 @@ draw_households_from_files <- function(building_files, clusters_lookup, mycrs, r
 #' so both work from an identical cluster-level table.
 #'
 #' @param clusters sf polygon object, one row per Stage-1 PPS draw (e.g.
-#'   \code{bind_rows(host_clusters, idp_clusters)}).
+#'   \code{bind_rows(non_idp_clusters, idp_clusters)}).
 #' @param m Integer. Primary households per cluster.
 #'
 #' @return sf polygon object, one row per unique \code{uuid_hex_pop}, with
 #'   \code{target_households}, \code{strata_id}, \code{reallocated} (FALSE),
 #'   \code{original_uuid_hex_pop} (NA), and the location/site provenance
-#'   columns described below (all set to their host/building-footprint
+#'   columns described below (all set to their Non-IDP/building-footprint
 #'   defaults here - \code{05_stage2_idp_site_assignment.R} overrides them for IDP
 #'   clusters) added.
 merge_repeated_psu_draws <- function(clusters, m) {
@@ -397,14 +397,13 @@ merge_repeated_psu_draws <- function(clusters, m) {
       # original_uuid_hex_pop above - only add_supplementary_clusters()
       # (04_stage2_cluster_reallocation.R) ever sets this TRUE, for the small
       # number of brand-new clusters it adds (not substitutes) to a
-      # stratum whose realized sample fell short of its target even after
-      # raising m.
+      # stratum whose realized sample fell short of its target.
       supplementary_cluster = FALSE,
-      # Location/site provenance - host clusters are always
+      # Location/site provenance - Non-IDP clusters are always
       # building-footprint-based. IDP clusters (05_stage2_idp_site_assignment.R)
       # override every one of these with the IOM DTM site actually used,
       # since IDP Stage 2 no longer queries buildings at all. Present on
-      # every row so the combined host+IDP output has one consistent
+      # every row so the combined Non-IDP+IDP output has one consistent
       # schema rather than pop_type-conditional columns.
       location_source = "building_footprint",
       households_in_cluster_source = "building_footprint_count",
@@ -413,7 +412,12 @@ merge_repeated_psu_draws <- function(clusters, m) {
       iom_site_name = NA_character_,
       iom_site_type = NA_character_,
       iom_site_ward = NA_character_,
-      n_other_sites_in_hex = NA_integer_
+      n_other_sites_in_hex = NA_integer_,
+      # IDP-only: which of IOM DTM's Population Category groups this site
+      # belongs to (see classify_idp_population_category() in
+      # 01_sampling_pipeline_main.R). NA for Non-IDP, same reasoning as the
+      # iom_site_* fields above.
+      idp_population_category = NA_character_
     )
 
   message(
@@ -451,8 +455,9 @@ merge_repeated_psu_draws <- function(clusters, m) {
 #'   \code{supplementary_cluster},
 #'   \code{location_source}, \code{households_in_cluster_source},
 #'   \code{site_radius_m}, \code{iom_site_id}, \code{iom_site_name},
-#'   \code{iom_site_type}, \code{iom_site_ward}, \code{n_other_sites_in_hex}
-#'   (see \code{merge_repeated_psu_draws()} for the host-side defaults).
+#'   \code{iom_site_type}, \code{iom_site_ward}, \code{n_other_sites_in_hex},
+#'   \code{idp_population_category}
+#'   (see \code{merge_repeated_psu_draws()} for the Non-IDP-side defaults).
 #' @param wards sf polygon object of GRID3 ward boundaries.
 #' @param admin3 sf polygon object of official COD Admin-3 boundaries.
 #' @param mycrs Coordinate reference system used for spatial processing.
@@ -491,7 +496,8 @@ finalize_households <- function(households, clusters_merged, wards, admin3, mycr
           iom_site_name,
           iom_site_type,
           iom_site_ward,
-          n_other_sites_in_hex
+          n_other_sites_in_hex,
+          idp_population_category
         ),
       by = "cluster_id"
     )
@@ -616,6 +622,7 @@ finalize_households <- function(households, clusters_merged, wards, admin3, mycr
       iom_site_type,
       iom_site_ward,
       n_other_sites_in_hex,
+      idp_population_category,
       geometry
     )
 
@@ -633,7 +640,7 @@ finalize_households <- function(households, clusters_merged, wards, admin3, mycr
 #' target, rather than treated as separate cluster visits.
 #'
 #' @param clusters sf polygon object of the SELECTED Stage-1 sampling
-#'   clusters - host clusters only (\code{host_clusters}). IDP clusters use
+#'   clusters - Non-IDP clusters only (\code{non_idp_clusters}). IDP clusters use
 #'   \code{select_stage2_idp_sites()} (\code{05_stage2_idp_site_assignment.R})
 #'   instead: IDP household locations come from the IOM DTM site's own GPS
 #'   point rather than a building footprint draw, so IDP Stage 2 never

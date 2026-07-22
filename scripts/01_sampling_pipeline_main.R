@@ -41,7 +41,7 @@ opt_list <- list(
   rebuild_hex = FALSE,
   rebuild_hex_intersection = FALSE,
   rebuild_sampling = FALSE,
-  rebuild_pophex_host = FALSE,
+  rebuild_pophex_non_idp = FALSE,
   rebuild_pophex_idp = FALSE
 )
 
@@ -324,17 +324,40 @@ worldpop_pop <- load_population(
 # ---- 2.2.3 IDP - IOM ----
 # if(!file.exists("input_data/boundaries/nga_hexagons/hexa_by_admin2.rds") | opt_list$rebuild_hex ){
 
+# Maps IOM DTM's raw "Population Category" field down to the two groups the
+# field methodology will eventually treat differently (camp-based randomised
+# walk vs. host-community household listing) - Returnees are excluded
+# upstream of this (still discarded, unchanged), so every value reaching
+# this function should be one of the camp/host-community variants below.
+# Matched case-insensitively/trimmed since the NE file has a raw casing typo
+# ("IDPs In Camps" vs "IDPs in Camps"). Any unrecognised value throws rather
+# than silently dropping a row into NA, so a future DTM refresh with a new
+# category label fails loudly instead of miscategorising.
+classify_idp_population_category <- function(x) {
+  x_clean <- trimws(tolower(x))
+  dplyr::case_when(
+    x_clean == "idps in camps" ~ "idps in camp",
+    x_clean %in% c(
+      "idps dispersed in host communities", "idps in host communities",
+      "idps integrated", "idps in integrated sites",
+      "idps relocated", "idps in relocated sites"
+    ) ~ "idps in host",
+    TRUE ~ NA_character_
+  )
+}
+
 iom_idp_files <- list.files(path = here(population_dir, "iom"), pattern = "\\.csv$", full.names = TRUE)
 
 # run IOM DTM for the NE
 iom_idp_NE <- read.csv(iom_idp_files[2])
 
-idp_NE_clean <- iom_idp_NE %>% 
-  clean_names() %>% 
-  remove_empty(which = c("rows", "cols")) %>% 
-  distinct() %>% 
-  mutate(region = "NE") %>% 
-  filter(location_type == "IDP Location") %>% 
+idp_NE_clean <- iom_idp_NE %>%
+  clean_names() %>%
+  remove_empty(which = c("rows", "cols")) %>%
+  distinct() %>%
+  mutate(region = "NE") %>%
+  filter(location_type == "IDP Location") %>%
+  mutate(idp_population_category = classify_idp_population_category(population_category)) %>%
   rename(
     adm1_pcode = state_pcode,
     adm1_name = state,
@@ -344,6 +367,10 @@ idp_NE_clean <- iom_idp_NE %>%
     pop_hh = households
   )
 
+if (any(is.na(idp_NE_clean$idp_population_category))) {
+  stop("Unmapped IOM DTM Population Category value(s) in the NE file - update classify_idp_population_category().")
+}
+
 # convert iom idp data to sf object and project coordinates in order to be joinable with other data
 idp_NE_sf <- convert_idp_sf(idp_NE_clean, "longitude_e", "latitude_n", mycrs, remove_coords = FALSE)
 
@@ -351,15 +378,20 @@ idp_NE_sf <- convert_idp_sf(idp_NE_clean, "longitude_e", "latitude_n", mycrs, re
 # run IOM DTM for the NW and NC
 iom_idp_NCNW <- read.csv(iom_idp_files[1])
 
-idp_NCNW_clean <- iom_idp_NCNW %>% 
-  clean_names() %>% 
-  remove_empty(which = c("rows", "cols")) %>% 
-  distinct() %>% 
+idp_NCNW_clean <- iom_idp_NCNW %>%
+  clean_names() %>%
+  remove_empty(which = c("rows", "cols")) %>%
+  distinct() %>%
   mutate(location_type = case_when(
     population_category == "Returnees" ~ "Returnee Location",
-    TRUE ~ "IDP Location")) %>% 
-  filter(location_type == "IDP Location")  
- 
+    TRUE ~ "IDP Location")) %>%
+  filter(location_type == "IDP Location") %>%
+  mutate(idp_population_category = classify_idp_population_category(population_category))
+
+if (any(is.na(idp_NCNW_clean$idp_population_category))) {
+  stop("Unmapped IOM DTM Population Category value(s) in the NC/NW file - update classify_idp_population_category().")
+}
+
 # convert iom idp data to sf object and project coordinates in order to be joinable with other data
 idp_NCNW_sf <- convert_idp_sf(idp_NCNW_clean, "longitude_e", "latitude_n", mycrs, remove_coords = FALSE)
 
@@ -581,28 +613,28 @@ hex_access <- cache_rds(
 
 build_population_by_hex <- function(
     hex_access,
-    source = c("host", "idp"),
+    source = c("non_idp", "idp"),
     worldpop_pop = NULL,
     iom_idp_df = NULL,
     hh_size = 6,
     min_hh = 5
 ) {
-  
+
   source <- match.arg(source)
-  
-  if (source == "host" && is.null(worldpop_pop)) {
-    stop("worldpop_pop must be supplied when source = 'host'")
+
+  if (source == "non_idp" && is.null(worldpop_pop)) {
+    stop("worldpop_pop must be supplied when source = 'non_idp'")
   }
-  
+
   if (source == "idp" && is.null(iom_idp_df)) {
     stop("iom_idp_df must be supplied when source = 'idp'")
   }
-  
+
   hex_access |>
     group_split(region) |>
     purrr::map(function(region_df) {
-      
-      if (source == "host") {
+
+      if (source == "non_idp") {
         
         out <-
           region_df |>
@@ -677,21 +709,21 @@ build_population_by_hex <- function(
 }
 
 
-hex_grid_host <- cache_rds(
+hex_grid_non_idp <- cache_rds(
 
-  here(population_dir, "sampling_frame", "hex_grid_host.rds"),
+  here(population_dir, "sampling_frame", "hex_grid_non_idp.rds"),
 
   function() {
 
     build_population_by_hex(
       hex_access = hex_access,
-      source = "host",
+      source = "non_idp",
       worldpop_pop = worldpop_pop
     )
 
   },
 
-  rebuild = opt_list$rebuild_pophex_host
+  rebuild = opt_list$rebuild_pophex_non_idp
   )
 
 
@@ -930,10 +962,28 @@ build_sampling_plan <- function(
   
 }
 
-host_sampling <- build_sampling_plan(hex_grid_host)
+# ---------------------------------------------------------------------------
+# realized_moe(): reports the margin of error a stratum's ACHIEVED sample
+# size actually delivers, by inverting build_sampling_plan()'s forward FPC
+# formula (n_fpc = N*ndeff/(N+ndeff-1)) to solve for e given achieved_sample.
+# Kept right next to build_sampling_plan() and sharing its exact defaults
+# (Z=qnorm(0.95), p=0.5, ICC=0.06) so the forward/inverse formulas can't
+# drift apart. Used for REPORTING only (populates
+# output/strata_level_sampling_frame.csv's realized_moe_pct) - see the
+# shortfall-correction comment below for why a raw MoE-percentage
+# comparison is deliberately NOT used to decide which strata get corrected.
+# ---------------------------------------------------------------------------
+realized_moe <- function(achieved_sample, N_hh, m, ICC = 0.06, Z = qnorm(0.95), p = 0.5) {
+  deff  <- 1 + (m - 1) * ICC
+  ndeff <- achieved_sample * (N_hh - 1) / (N_hh - achieved_sample)
+  n0    <- ndeff / deff
+  sqrt(Z^2 * p * (1 - p) / n0)
+}
+
+non_idp_sampling <- build_sampling_plan(hex_grid_non_idp)
 idp_sampling  <- build_sampling_plan(hex_grid_idp)
 
-combined_sampling_summary <- bind_rows(host_sampling$sampling_summary,idp_sampling$sampling_summary)
+combined_sampling_summary <- bind_rows(non_idp_sampling$sampling_summary,idp_sampling$sampling_summary)
 write_csv(combined_sampling_summary, "testing.csv")
 
 
@@ -1086,15 +1136,15 @@ select_pps_clusters <- function(
   
 }
 
-# Fixed seed so the PPS systematic draw (host + IDP) is reproducible on
+# Fixed seed so the PPS systematic draw (Non-IDP + IDP) is reproducible on
 # rerun - required for audit trail on a humanitarian assessment. Stage 2
 # household selection sets its own seed independently in
 # 03_stage2_household_selection.R.
 set.seed(1234)
 
-host_clusters <- select_pps_clusters(host_sampling$sampling_frame)
+non_idp_clusters <- select_pps_clusters(non_idp_sampling$sampling_frame)
 
-host_clusters <- host_clusters %>%
+non_idp_clusters <- non_idp_clusters %>%
   mutate(
     cluster_id =
       paste(
@@ -1145,19 +1195,19 @@ building_data_dir <- file.path(
 )
 
 # Buildings are only needed for Stage 2 household selection within the
-# already-selected Stage-1 HOST clusters - IDP clusters use their IOM DTM
+# already-selected Stage-1 Non-IDP clusters - IDP clusters use their IOM DTM
 # site's own GPS point instead (05_stage2_idp_site_assignment.R), never querying
-# Google Open Buildings at all. Even scoped to host-only, the GDBs are
+# Google Open Buildings at all. Even scoped to Non-IDP-only, the GDBs are
 # country-scale (tens of millions of features each) and querying the full
 # accessible area would exhaust memory on a normal machine.
-selected_clusters <- dplyr::bind_rows(host_clusters, idp_clusters)
+selected_clusters <- dplyr::bind_rows(non_idp_clusters, idp_clusters)
 
 # Character vector of per-GDB-part cache file paths, NOT a combined object -
 # see load_building_footprints() roxygen docs for why (13M+ rows at full
 # scale, geographically disjoint parts, no correctness need to combine).
 building_files <- load_building_footprints(
   gdb_directory = building_data_dir,
-  accessible_area = host_clusters,
+  accessible_area = non_idp_clusters,
   mycrs = mycrs,
   cache_directory = file.path(
     output_dir,
@@ -1194,97 +1244,63 @@ tryCatch({
 }, error = function(e) message("Could not check system free memory: ", e$message))
 
 # ---------------------------------------------------------------------------
-# Boosted strata: 10 host strata (all in Borno, Yobe, and Kano) where the
-# calculated target sample size (>=96) was not being met by the realized
-# sample once below-target clusters were accounted for - concentrated in
-# North-East LGAs with well-documented conflict-driven displacement, where
-# satellite-derived building footprints likely undercount real households
-# (structures destroyed/abandoned/not rebuilt). See the methodology
-# document's limitations section for the underlying analysis. Raised from
-# the standard m=6 to m=7 households per cluster for these strata only -
-# chosen over m=8 (tested separately; a larger cluster size closes the
-# same gap with a bit more room to spare, for a meaningfully larger field
-# burden, so m=7 was preferred as the smaller sufficient increase).
-# Verified (2026-07-15) at 421 extra interviews above the original 17-
-# cluster, m=6 baseline across these 10 strata combined - m=7 delivers
-# 8.51-8.73% realized MoE in every one of them. Any stratum still short
-# of its Stage-1 target even at m=7 gets supplementary clusters added
-# afterward (below) - every one of the 10 boosted strata reaches its true
-# target this way (verify against output/strata_level_sampling_frame.csv's
-# target_sample, which is Stage-1 cluster count x m_used, NOT a sum of
-# every individual cluster's own target_households - supplementary
-# clusters would double-count against that sum without actually being
-# under-target).
-# ---------------------------------------------------------------------------
-boosted_strata_adm2 <- c(
-  "NG008001", # Borno / Abadam
-  "NG008008", # Borno / Dikwa
-  "NG008014", # Borno / Kaga
-  "NG008015", # Borno / Kala/Balge
-  "NG008019", # Borno / Mafa
-  "NG008022", # Borno / Marte
-  "NG008025", # Borno / Ngala
-  "NG008026", # Borno / Nganzai
-  "NG020029", # Kano / Makoda
-  "NG036002"  # Yobe / Bursari
-)
-standard_m <- 6
-boosted_m <- 7
-
-host_clusters_standard <- host_clusters %>% dplyr::filter(!adm2_pcode %in% boosted_strata_adm2)
-host_clusters_boosted  <- host_clusters %>% dplyr::filter(adm2_pcode %in% boosted_strata_adm2)
-
-stage2_households_host_standard <- select_stage2_households(
-  clusters = host_clusters_standard,
-  building_files = building_files,
-  wards = nga_wards,
-  admin3 = NGA_shapes_all_cleaned$nga_admin3,
-  mycrs = mycrs,
-  cache_directory = file.path(
-    output_dir,
-    "cache",
-    "stage2_standard"
-  ),
-  m = standard_m,
-  rebuild = FALSE
-)
-
-stage2_households_host_boosted <- select_stage2_households(
-  clusters = host_clusters_boosted,
-  building_files = building_files,
-  wards = nga_wards,
-  admin3 = NGA_shapes_all_cleaned$nga_admin3,
-  mycrs = mycrs,
-  cache_directory = file.path(
-    output_dir,
-    "cache",
-    "stage2_boosted"
-  ),
-  m = boosted_m,
-  rebuild = FALSE
-)
-
-# 03 host zero-building cluster reallocation
+# Stage 2 shortfall correction: every Non-IDP stratum is drawn at the
+# standard m=6 households per cluster (no more standard/boosted split). A
+# stratum's calculated target_sample already encodes the 10% MoE design
+# target (e=0.10 in build_sampling_plan()) plus the 10% attrition/non-
+# response buffer, so "did this stratum reach its target_sample" IS the
+# correctly-derived acceptance check - a separate raw MoE-percentage
+# threshold is deliberately NOT compared directly (checked 2026-07-22: 303
+# of 323 Non-IDP strata that reach target sit at 9.24-9.31% realized MoE
+# purely from this buffer's own rounding, so a percentage cutoff anywhere
+# near that band either false-flags on-target strata or just rediscovers
+# this same check - see realized_moe(), used for reporting only).
 #
-# A selected HOST hexagon with zero eligible buildings can't be visited by
-# a field team - substitute a different hexagon from the same adm2_pcode
+# Below-target clusters (buildings undercounting real households, most
+# concentrated in but not limited to conflict-affected North-East LGAs -
+# see the methodology document's limitations section) mean some strata
+# don't reach target_sample from their original Stage-1 cluster draw
+# alone; those get the minimum number of brand-new supplementary clusters
+# (same PPS mechanism, added not substituted) needed to close the gap -
+# checked across every Non-IDP stratum, not a fixed list. Replaces the
+# previous m=6->7 blanket boost applied to a hardcoded list of 10 LGAs
+# (verified 2026-07-15 at +421 interviews); the minimal per-stratum
+# approach reaches the same design target across a broader, consistently-
+# identified set of ~30 strata for roughly half that interview cost.
+# ---------------------------------------------------------------------------
+
+stage2_households_non_idp <- select_stage2_households(
+  clusters = non_idp_clusters,
+  building_files = building_files,
+  wards = nga_wards,
+  admin3 = NGA_shapes_all_cleaned$nga_admin3,
+  mycrs = mycrs,
+  cache_directory = file.path(
+    output_dir,
+    "cache",
+    "stage2_non_idp"
+  ),
+  m = 6,
+  rebuild = FALSE
+)
+
+# 03 Non-IDP zero-building cluster reallocation
+#
+# A selected NON-IDP hexagon with zero eligible buildings can't be visited
+# by a field team - substitute a different hexagon from the same adm2_pcode
 # stratum, drawn with the same PPS-by-population mechanism as the original
 # Stage 1 draw. See 04_stage2_cluster_reallocation.R roxygen docs. Below-target
 # clusters (some buildings, fewer than target) are untouched here - this
-# only replaces clusters with NO eligible buildings at all. Host-only: IDP
-# clusters never have a zero-building problem in the first place, since
+# only replaces clusters with NO eligible buildings at all. Non-IDP-only:
+# IDP clusters never have a zero-building problem in the first place, since
 # IDP Stage 2 (05_stage2_idp_site_assignment.R, below) doesn't use buildings.
-# Run separately for the standard (m=6) and boosted (m=7) groups, each
-# excluding the OTHER group's hexagons from its replacement candidate pool
-# via extra_used_hexagons (both groups' cluster tables are otherwise
-# invisible to each other's reallocation call).
 source("scripts/04_stage2_cluster_reallocation.R")
 
-reallocation_standard <- reallocate_zero_building_clusters(
-  clusters = host_clusters_standard,
-  host_sampling = host_sampling,
+reallocation_non_idp <- reallocate_zero_building_clusters(
+  clusters = non_idp_clusters,
+  non_idp_sampling = non_idp_sampling,
   idp_sampling = idp_sampling,
-  stage2_households = stage2_households_host_standard,
+  stage2_households = stage2_households_non_idp,
   building_data_dir = building_data_dir,
   wards = nga_wards,
   admin3 = NGA_shapes_all_cleaned$nga_admin3,
@@ -1292,77 +1308,48 @@ reallocation_standard <- reallocate_zero_building_clusters(
   cache_directory = file.path(
     output_dir,
     "cache",
-    "reallocation_standard"
+    "reallocation_non_idp"
   ),
-  m = standard_m,
-  extra_used_hexagons = host_clusters_boosted$uuid_hex_pop,
+  m = 6,
   rebuild = FALSE
 )
 
-reallocation_boosted <- reallocate_zero_building_clusters(
-  clusters = host_clusters_boosted,
-  host_sampling = host_sampling,
-  idp_sampling = idp_sampling,
-  stage2_households = stage2_households_host_boosted,
-  building_data_dir = building_data_dir,
-  wards = nga_wards,
-  admin3 = NGA_shapes_all_cleaned$nga_admin3,
-  mycrs = mycrs,
-  cache_directory = file.path(
-    output_dir,
-    "cache",
-    "reallocation_boosted"
-  ),
-  m = boosted_m,
-  extra_used_hexagons = host_clusters_standard$uuid_hex_pop,
-  rebuild = FALSE
-)
-
-reallocation_unresolved_all <- dplyr::bind_rows(reallocation_standard$unresolved, reallocation_boosted$unresolved)
-
-if(nrow(reallocation_unresolved_all) > 0) {
+if(nrow(reallocation_non_idp$unresolved) > 0) {
 
   message(
-    nrow(reallocation_unresolved_all),
-    " host zero-building cluster(s) remain unresolved after reallocation - ",
+    nrow(reallocation_non_idp$unresolved),
+    " Non-IDP zero-building cluster(s) remain unresolved after reallocation - ",
     "see output/reallocation_unresolved.csv"
   )
 
   readr::write_csv(
-    reallocation_unresolved_all,
+    reallocation_non_idp$unresolved,
     here(output_dir, "reallocation_unresolved.csv")
   )
 
 }
 
-stage2_households_host <- dplyr::bind_rows(
-  stage2_households_host_standard, reallocation_standard$new_households,
-  stage2_households_host_boosted, reallocation_boosted$new_households
-)
+stage2_households_non_idp <- dplyr::bind_rows(stage2_households_non_idp, reallocation_non_idp$new_households)
 
-clusters_final_host <- dplyr::bind_rows(reallocation_standard$clusters_final, reallocation_boosted$clusters_final)
+clusters_final_non_idp <- reallocation_non_idp$clusters_final
 
 # ---------------------------------------------------------------------------
-# Supplementary clusters: even at m=7, a boosted stratum's already-selected
-# clusters may not have enough spare building capacity between them to
-# close the gap between the stratum's target and its realized sample (see
-# methodology document limitations section) - add brand-new clusters,
-# drawn via the same PPS mechanism as every other cluster in this design,
-# to close any remaining shortfall. Only strata in boosted_strata_adm2 are
-# checked - this mechanism is not applied stratum-wide.
+# Supplementary clusters: add the minimum number of brand-new clusters
+# (drawn via the same PPS mechanism as every other cluster in this design)
+# needed to close the gap between each Non-IDP stratum's target_sample and
+# its achieved sample - checked across every Non-IDP stratum (see comment above).
 # ---------------------------------------------------------------------------
 
-boosted_shortfalls <-
-  clusters_final_host %>%
+non_idp_shortfalls <-
+  clusters_final_non_idp %>%
   sf::st_drop_geometry() %>%
-  dplyr::filter(adm2_pcode %in% boosted_strata_adm2) %>%
   dplyr::distinct(cluster_id, pop_type, adm2_pcode, target_households) %>%
   dplyr::group_by(pop_type, adm2_pcode) %>%
   dplyr::summarise(target_total = sum(target_households), .groups = "drop") %>%
   dplyr::left_join(
-    stage2_households_host %>%
+    stage2_households_non_idp %>%
       sf::st_drop_geometry() %>%
-      dplyr::filter(status == "primary", adm2_pcode %in% boosted_strata_adm2) %>%
+      dplyr::filter(status == "primary") %>%
       dplyr::count(pop_type, adm2_pcode, name = "achieved_total"),
     by = c("pop_type", "adm2_pcode")
   ) %>%
@@ -1373,18 +1360,17 @@ boosted_shortfalls <-
   dplyr::filter(households_needed > 0) %>%
   dplyr::select(pop_type, adm2_pcode, households_needed)
 
-if(nrow(boosted_shortfalls) > 0) {
+if(nrow(non_idp_shortfalls) > 0) {
 
   message(
-    nrow(boosted_shortfalls), " boosted stratum/strata still short of target even at m=",
-    boosted_m, " - adding supplementary clusters: ",
-    paste(paste0(boosted_shortfalls$adm2_pcode, " (need ", boosted_shortfalls$households_needed, ")"), collapse = "; ")
+    nrow(non_idp_shortfalls), " Non-IDP stratum/strata short of target at m=6 - adding supplementary clusters: ",
+    paste(paste0(non_idp_shortfalls$adm2_pcode, " (need ", non_idp_shortfalls$households_needed, ")"), collapse = "; ")
   )
 
   supplementary <- add_supplementary_clusters(
-    shortfalls = boosted_shortfalls,
-    already_used_hexagons = clusters_final_host$uuid_hex_pop,
-    host_sampling = host_sampling,
+    shortfalls = non_idp_shortfalls,
+    already_used_hexagons = clusters_final_non_idp$uuid_hex_pop,
+    non_idp_sampling = non_idp_sampling,
     building_data_dir = building_data_dir,
     wards = nga_wards,
     admin3 = NGA_shapes_all_cleaned$nga_admin3,
@@ -1394,14 +1380,14 @@ if(nrow(boosted_shortfalls) > 0) {
       "cache",
       "supplementary"
     ),
-    m = boosted_m,
+    m = 6,
     rebuild = FALSE
   )
 
   if(!is.null(supplementary$new_clusters)) {
 
-    clusters_final_host <- dplyr::bind_rows(clusters_final_host, supplementary$new_clusters)
-    stage2_households_host <- dplyr::bind_rows(stage2_households_host, supplementary$new_households)
+    clusters_final_non_idp <- dplyr::bind_rows(clusters_final_non_idp, supplementary$new_clusters)
+    stage2_households_non_idp <- dplyr::bind_rows(stage2_households_non_idp, supplementary$new_households)
 
   }
 
@@ -1416,7 +1402,7 @@ if(nrow(boosted_shortfalls) > 0) {
 
 } else {
 
-  message("All boosted strata reached target at m=", boosted_m, " - no supplementary clusters needed.")
+  message("All Non-IDP strata reached target at m=6 - no supplementary clusters needed.")
 
 }
 
@@ -1424,8 +1410,8 @@ if(nrow(boosted_shortfalls) > 0) {
 # Recompute psu_probability for any stratum that received supplementary
 # clusters. Adding a cluster increases that stratum's EFFECTIVE Stage-1
 # draw count beyond its originally-calculated target ("clusters" below,
-# already present on every clusters_final_host row - a stratum-level
-# constant carried through unchanged from host_sampling$sampling_frame) -
+# already present on every clusters_final_non_idp row - a stratum-level
+# constant carried through unchanged from non_idp_sampling$sampling_frame) -
 # so every hexagon's selection probability in that stratum, both
 # already-selected clusters AND the new supplementary one(s), needs to
 # reflect the new total draw count, using the identical formula
@@ -1437,15 +1423,15 @@ if(nrow(boosted_shortfalls) > 0) {
 # independent of Stage 1 selection probability.
 # ---------------------------------------------------------------------------
 
-if(nrow(boosted_shortfalls) > 0 && !is.null(supplementary$new_clusters)) {
+if(nrow(non_idp_shortfalls) > 0 && !is.null(supplementary$new_clusters)) {
 
   n_supplementary_by_stratum <-
     supplementary$new_clusters %>%
     sf::st_drop_geometry() %>%
     dplyr::count(pop_type, adm2_pcode, name = "n_supplementary")
 
-  clusters_final_host <-
-    clusters_final_host %>%
+  clusters_final_non_idp <-
+    clusters_final_non_idp %>%
     dplyr::left_join(n_supplementary_by_stratum, by = c("pop_type", "adm2_pcode")) %>%
     dplyr::mutate(
       psu_probability = dplyr::case_when(
@@ -1457,13 +1443,13 @@ if(nrow(boosted_shortfalls) > 0 && !is.null(supplementary$new_clusters)) {
     dplyr::select(-n_supplementary)
 
   updated_psu <-
-    clusters_final_host %>%
+    clusters_final_non_idp %>%
     sf::st_drop_geometry() %>%
-    dplyr::filter(adm2_pcode %in% boosted_shortfalls$adm2_pcode) %>%
+    dplyr::filter(adm2_pcode %in% non_idp_shortfalls$adm2_pcode) %>%
     dplyr::distinct(cluster_id, psu_probability)
 
-  stage2_households_host <-
-    stage2_households_host %>%
+  stage2_households_non_idp <-
+    stage2_households_non_idp %>%
     dplyr::left_join(updated_psu, by = "cluster_id", suffix = c("", "_updated")) %>%
     dplyr::mutate(
       psu_probability = dplyr::coalesce(psu_probability_updated, psu_probability),
@@ -1500,21 +1486,21 @@ idp_sites <- select_stage2_idp_sites(
   rebuild = FALSE
 )
 
-stage2_households <- dplyr::bind_rows(stage2_households_host, idp_sites$households)
+stage2_households <- dplyr::bind_rows(stage2_households_non_idp, idp_sites$households)
 
 # Authoritative final cluster-hexagon/site table (Stage 1 draws with
-# reallocated host clusters' hexagon, and IDP clusters' site point, swapped
+# reallocated Non-IDP clusters' hexagon, and IDP clusters' site point, swapped
 # in) - the raw Stage 1 selected_clusters object above is now stale for any
 # reallocated or IDP cluster_id and should not be used for mapping/QC going
 # forward; use this instead.
-selected_clusters_final <- dplyr::bind_rows(clusters_final_host, idp_sites$clusters_final)
+selected_clusters_final <- dplyr::bind_rows(clusters_final_non_idp, idp_sites$clusters_final)
 
 saveRDS(
   selected_clusters_final,
   here(output_dir, "selected_clusters_final.rds")
 )
 
-host_surveys <- stage2_households %>% dplyr::filter(pop_type == "host")
+non_idp_surveys <- stage2_households %>% dplyr::filter(pop_type == "non_idp")
 idp_surveys  <- stage2_households %>% dplyr::filter(pop_type == "idp")
 
 sf::st_write(
@@ -1530,13 +1516,77 @@ readr::write_csv(
 )
 
 readr::write_csv(
-  host_surveys %>% sf::st_drop_geometry(),
-  here(output_dir, "stage2_sampling_frame_host.csv")
+  non_idp_surveys %>% sf::st_drop_geometry(),
+  here(output_dir, "stage2_sampling_frame_non_idp.csv")
 )
 
 readr::write_csv(
   idp_surveys %>% sf::st_drop_geometry(),
   here(output_dir, "stage2_sampling_frame_idp.csv")
+)
+
+# ---------------------------------------------------------------------------
+# output/strata_level_sampling_frame.csv - one row per (pop_type, adm2_pcode)
+# stratum, combining each stratum's Stage 1 design (non_idp_sampling$sample_plan
+# / idp_sampling$sample_plan) with what Stage 2 actually delivered
+# (selected_clusters_final, stage2_households). Previously produced ad hoc/
+# interactively, not by any tracked script - this closes that gap so the
+# methodology document's boosted-strata narrative can no longer drift out of
+# sync with a stale run (see CLAUDE.md).
+# ---------------------------------------------------------------------------
+
+sample_plan_all <- dplyr::bind_rows(non_idp_sampling$sample_plan, idp_sampling$sample_plan)
+
+# Uniform since the Change-1 rewrite removed the m=6/m=7 split - every
+# stratum (Non-IDP and IDP) is now drawn at the same households-per-cluster
+# target.
+m_used_all <- 6
+
+achieved_clusters_by_stratum <-
+  selected_clusters_final %>%
+  sf::st_drop_geometry() %>%
+  dplyr::distinct(cluster_id, pop_type, adm2_pcode) %>%
+  dplyr::count(pop_type, adm2_pcode, name = "achieved_clusters")
+
+achieved_sample_by_stratum <-
+  stage2_households %>%
+  sf::st_drop_geometry() %>%
+  dplyr::filter(status == "primary") %>%
+  dplyr::count(pop_type, adm2_pcode, name = "achieved_sample")
+
+strata_level_sampling_frame <-
+  sample_plan_all %>%
+  dplyr::left_join(achieved_clusters_by_stratum, by = c("pop_type", "adm2_pcode")) %>%
+  dplyr::left_join(achieved_sample_by_stratum, by = c("pop_type", "adm2_pcode")) %>%
+  dplyr::mutate(
+    achieved_clusters = dplyr::coalesce(achieved_clusters, 0L),
+    achieved_sample = dplyr::coalesce(achieved_sample, 0L),
+    strata_id = paste(pop_type, adm2_pcode, sep = "_"),
+    m_used = m_used_all,
+    ICC = 0.06,
+    DEFF = 1 + (m_used - 1) * ICC,
+    # Certainty strata's "clusters" (sample_plan) is a placeholder (always
+    # 1) - achieved_clusters is the meaningful count there instead (see
+    # CLAUDE.md). PPS strata use their calculated Stage-1 cluster target.
+    target_sample = dplyr::case_when(
+      certainty_stratum ~ achieved_clusters * m_used,
+      TRUE ~ clusters * m_used
+    ),
+    confidence_level_pct = 90,
+    target_moe_pct = dplyr::if_else(certainty_stratum, NA_real_, 10),
+    realized_moe_pct = round(100 * realized_moe(achieved_sample, N_hh, m_used, ICC = ICC), 2)
+  ) %>%
+  dplyr::select(
+    region, adm1_pcode, adm1_name, adm2_pcode, adm2_name, pop_type, strata_id,
+    n_pop, N_hh, n_hex, selection_type, certainty_stratum,
+    clusters_target_stage1 = clusters, achieved_clusters, m_used, ICC, DEFF,
+    expected_households_stage1 = expected_households, target_sample,
+    achieved_sample, confidence_level_pct, target_moe_pct, realized_moe_pct
+  )
+
+readr::write_csv(
+  strata_level_sampling_frame,
+  here(output_dir, "strata_level_sampling_frame.csv")
 )
 
 message("Pipeline complete through Stage 2 household selection.")

@@ -34,7 +34,9 @@
 #'   \code{households}/\code{individuals} (numeric population fields - see
 #'   \code{01_sampling_pipeline_main.R}, these are the cleaned numeric
 #'   versions of the raw \code{pop_hh}/\code{pop} fields), \code{site_id_ssid},
-#'   \code{site_name}, \code{site_type}, \code{ward}.
+#'   \code{site_name}, \code{site_type}, \code{ward}, \code{idp_population_category}
+#'   (see \code{classify_idp_population_category()} in
+#'   \code{01_sampling_pipeline_main.R} - "idps in camp" or "idps in host").
 #' @param wards sf polygon object of GRID3 ward boundaries, passed through
 #'   to \code{finalize_households()}.
 #' @param admin3 sf polygon object of official COD Admin-3 boundaries,
@@ -89,7 +91,7 @@ select_stage2_idp_sites <- function(
   stopifnot(
     inherits(clusters, "sf"),
     inherits(iom_idp_df, "sf"),
-    all(c("households", "individuals", "site_id_ssid", "site_name", "site_type", "ward") %in% names(iom_idp_df))
+    all(c("households", "individuals", "site_id_ssid", "site_name", "site_type", "ward", "idp_population_category") %in% names(iom_idp_df))
   )
 
   dir.create(cache_directory, recursive = TRUE, showWarnings = FALSE)
@@ -214,7 +216,7 @@ select_stage2_idp_sites <- function(
   # Step D: attach the representative site's point + attributes onto the
   # cluster table, replacing the hexagon polygon geometry with the site's
   # own point (the actual location field teams will be given) and
-  # overriding the location/site provenance columns from their host-side
+  # overriding the location/site provenance columns from their Non-IDP-side
   # defaults (see merge_repeated_psu_draws()).
   # ---------------------------------------------------------------------------
 
@@ -228,7 +230,8 @@ select_stage2_idp_sites <- function(
       iom_site_name = as.character(site_name),
       iom_site_type = as.character(site_type),
       iom_site_ward = as.character(ward),
-      n_other_sites_in_hex
+      n_other_sites_in_hex,
+      idp_population_category = as.character(idp_population_category)
     )
 
   site_geometry <-
@@ -246,7 +249,8 @@ select_stage2_idp_sites <- function(
       -iom_site_name,
       -iom_site_type,
       -iom_site_ward,
-      -n_other_sites_in_hex
+      -n_other_sites_in_hex,
+      -idp_population_category
     ) %>%
     dplyr::left_join(site_attrs, by = "cluster_id") %>%
     dplyr::mutate(
@@ -261,9 +265,9 @@ select_stage2_idp_sites <- function(
   # site_households was only needed transiently above (to build the
   # household rows' households_in_cluster below, and below_target_cluster
   # just above) - dropped here rather than kept as a cluster-level column so
-  # clusters_final has the identical schema on both the host
+  # clusters_final has the identical schema on both the Non-IDP
   # (reallocate_zero_building_clusters()) and IDP side and bind_rows()
-  # between them doesn't introduce a host-side-NA extra column.
+  # between them doesn't introduce a Non-IDP-side-NA extra column.
   clusters_merged_with_sites_for_slots <- clusters_merged_with_sites
 
   clusters_merged_with_sites <-
@@ -314,7 +318,7 @@ select_stage2_idp_sites <- function(
     ) %>%
     dplyr::mutate(
       below_target_cluster = households_in_cluster < target_households,
-      # No building draw for IDP - these three are host-only fields
+      # No building draw for IDP - these three are Non-IDP-only fields
       # (finalize_households()'s output schema is shared, so they still
       # need to exist here, just empty).
       building_id = NA_character_,

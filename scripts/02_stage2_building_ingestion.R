@@ -31,7 +31,7 @@
 #' @param gdb_directory Character. Directory containing Google Open Buildings
 #'   File Geodatabases.
 #' @param accessible_area sf polygon object of the SELECTED Stage-1 sampling
-#'   clusters (e.g. \code{bind_rows(host_clusters, idp_clusters)}), with a
+#'   clusters (e.g. \code{bind_rows(non_idp_clusters, idp_clusters)}), with a
 #'   \code{uuid_hex_pop} column identifying the physical hexagon (stable
 #'   across repeated PPS draws of the same hexagon) - one row per
 #'   cluster/hexagon draw. Buildings are only needed for Stage 2 household

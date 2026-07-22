@@ -31,9 +31,9 @@
 #' time on live building queries.
 #'
 #' @param clusters sf polygon object of the SELECTED Stage-1 sampling
-#'   clusters (e.g. \code{bind_rows(host_clusters, idp_clusters)}).
-#' @param host_sampling,idp_sampling Lists returned by
-#'   \code{build_sampling_plan()} for the host and IDP hex grids - used for
+#'   clusters (e.g. \code{bind_rows(non_idp_clusters, idp_clusters)}).
+#' @param non_idp_sampling,idp_sampling Lists returned by
+#'   \code{build_sampling_plan()} for the Non-IDP and IDP hex grids - used for
 #'   \code{sampling_frame} (every hexagon in the universe, not just selected
 #'   ones, carrying \code{MOS}/\code{total_MOS}/\code{clusters}/
 #'   \code{psu_probability}).
@@ -58,7 +58,7 @@
 #'   affected PPS stratum).
 diagnose_zero_building_clusters <- function(
     clusters,
-    host_sampling,
+    non_idp_sampling,
     idp_sampling,
     stage2_households,
     m = 6,
@@ -101,7 +101,7 @@ diagnose_zero_building_clusters <- function(
 
   full_sampling_frame <-
     dplyr::bind_rows(
-      host_sampling$sampling_frame,
+      non_idp_sampling$sampling_frame,
       idp_sampling$sampling_frame
     ) %>%
     sf::st_drop_geometry()
@@ -171,8 +171,8 @@ diagnose_zero_building_clusters <- function(
 #' from and are reported as unresolved, not silently dropped.
 #'
 #' @param clusters sf polygon object of the SELECTED Stage-1 sampling
-#'   clusters (e.g. \code{bind_rows(host_clusters, idp_clusters)}).
-#' @param host_sampling,idp_sampling Lists returned by
+#'   clusters (e.g. \code{bind_rows(non_idp_clusters, idp_clusters)}).
+#' @param non_idp_sampling,idp_sampling Lists returned by
 #'   \code{build_sampling_plan()}.
 #' @param stage2_households sf object returned by
 #'   \code{select_stage2_households()}.
@@ -216,7 +216,7 @@ diagnose_zero_building_clusters <- function(
 #' @export
 reallocate_zero_building_clusters <- function(
     clusters,
-    host_sampling,
+    non_idp_sampling,
     idp_sampling,
     stage2_households,
     building_data_dir,
@@ -245,7 +245,7 @@ reallocate_zero_building_clusters <- function(
 
   diag <- diagnose_zero_building_clusters(
     clusters = clusters,
-    host_sampling = host_sampling,
+    non_idp_sampling = non_idp_sampling,
     idp_sampling = idp_sampling,
     stage2_households = stage2_households,
     m = m,
@@ -275,7 +275,7 @@ reallocate_zero_building_clusters <- function(
 
   full_sampling_frame <-
     dplyr::bind_rows(
-      host_sampling$sampling_frame,
+      non_idp_sampling$sampling_frame,
       idp_sampling$sampling_frame
     )
 
@@ -490,8 +490,8 @@ reallocate_zero_building_clusters <- function(
         original_uuid_hex_pop = original$uuid_hex_pop[1],
         supplementary_cluster = FALSE,
         # Still building-footprint-based (just a different hexagon) - same
-        # defaults merge_repeated_psu_draws() sets for every host cluster.
-        # replacement_hex comes straight from host_sampling$sampling_frame,
+        # defaults merge_repeated_psu_draws() sets for every Non-IDP cluster.
+        # replacement_hex comes straight from non_idp_sampling$sampling_frame,
         # which never went through that function, so these need setting
         # here explicitly for finalize_households()'s shared schema.
         location_source = "building_footprint",
@@ -501,7 +501,8 @@ reallocate_zero_building_clusters <- function(
         iom_site_name = NA_character_,
         iom_site_type = NA_character_,
         iom_site_ward = NA_character_,
-        n_other_sites_in_hex = NA_integer_
+        n_other_sites_in_hex = NA_integer_,
+        idp_population_category = NA_character_
       )
 
   }) %>%
@@ -610,7 +611,7 @@ reallocate_zero_building_clusters <- function(
 #' \code{reallocate_zero_building_clusters()}), checks each for eligible
 #' buildings, and keeps adding clusters - in weighted PPS order - until the
 #' stratum's household shortfall is closed or the candidate pool is
-#' exhausted. Host-only (no equivalent need has arisen for IDP strata,
+#' exhausted. Non-IDP-only (no equivalent need has arisen for IDP strata,
 #' which don't depend on buildings in the first place).
 #'
 #' @param shortfalls Data frame: \code{pop_type}, \code{adm2_pcode},
@@ -620,8 +621,8 @@ reallocate_zero_building_clusters <- function(
 #'   already occupied by any cluster in the final frame (all groups,
 #'   including already-reallocated replacements) - never re-selected as a
 #'   supplementary cluster.
-#' @param host_sampling List returned by \code{build_sampling_plan()} for
-#'   the host hex grid.
+#' @param non_idp_sampling List returned by \code{build_sampling_plan()} for
+#'   the Non-IDP hex grid.
 #' @param building_data_dir,wards,admin3,mycrs,cache_directory Same as
 #'   \code{reallocate_zero_building_clusters()}.
 #' @param m Integer. Primary household target for each new supplementary
@@ -652,7 +653,7 @@ reallocate_zero_building_clusters <- function(
 add_supplementary_clusters <- function(
     shortfalls,
     already_used_hexagons,
-    host_sampling,
+    non_idp_sampling,
     building_data_dir,
     wards,
     admin3,
@@ -674,7 +675,7 @@ add_supplementary_clusters <- function(
   strata_pools <- purrr::pmap(shortfalls, function(pop_type, adm2_pcode, households_needed) {
 
     pool <-
-      host_sampling$sampling_frame %>%
+      non_idp_sampling$sampling_frame %>%
       dplyr::filter(
         pop_type == !!pop_type,
         adm2_pcode == !!adm2_pcode,
@@ -822,7 +823,8 @@ add_supplementary_clusters <- function(
             iom_site_name = NA_character_,
             iom_site_type = NA_character_,
             iom_site_ward = NA_character_,
-            n_other_sites_in_hex = NA_integer_
+            n_other_sites_in_hex = NA_integer_,
+            idp_population_category = NA_character_
           )
 
       }

@@ -72,6 +72,7 @@ SF_WIDTHS = {
     "location_source": 16, "households_in_cluster_source": 20,
     "site_radius_m": 11, "iom_site_id": 22, "iom_site_name": 22,
     "iom_site_type": 14, "iom_site_ward": 16, "n_other_sites_in_hex": 12,
+    "idp_population_category": 18,
 }
 ST_WIDTHS = {
     "region": 8, "adm1_pcode": 11, "adm1_name": 14, "adm2_pcode": 11,
@@ -178,7 +179,7 @@ wb.remove(wb.active)
 ws_sf, sf_header, sf_start, sf_last, sf_last_col = write_data_sheet(
     wb, "Sampling Frame", SF_CSV, SF_NUMERIC, SF_BOOL, SF_WIDTHS,
     BLUE, "TableStyleMedium2",
-    "One row per planned interview (primary or reserve), host and IDP combined.",
+    "One row per planned interview (primary or reserve), Non-IDP and IDP combined.",
 )
 add_flag_highlight(ws_sf, sf_header, sf_start, sf_last, sf_last_col, "below_target_cluster", AMBER)
 add_flag_highlight(ws_sf, sf_header, sf_start, sf_last, sf_last_col, "reallocated", ORANGE)
@@ -207,7 +208,7 @@ SF_DEFS = [
     ("status", "Whether this row is a “primary” interview to conduct first, or a “reserve” replacement if a primary household can’t be reached."),
     ("interview_number", "The primary household’s sequence number within its cluster (1 to target); blank for reserve rows."),
     ("replacement_rank", "The reserve household’s order of use within its cluster if a primary needs replacing; blank for primary rows."),
-    ("pop_type", "Population group this record belongs to: “host” (non-displaced) or “idp” (internally displaced)."),
+    ("pop_type", "Population group this record belongs to: “non_idp” (not internally displaced) or “idp” (internally displaced)."),
     ("strata_id", "Identifier for the sampling stratum (population group + LGA) this cluster was drawn from."),
     ("Geography", None),
     ("region", "Nigeria’s North-East / North-West / North-Central region grouping for this location."),
@@ -222,19 +223,19 @@ SF_DEFS = [
     ("admin3_cod_name", "Ward/Admin-3 name from the official COD Admin-3 layer, as a secondary reference."),
     ("Location", None),
     ("uuid_hex", "Identifier for the selected hexagon (the Stage 1 primary sampling unit) this record belongs to."),
-    ("uuid", "Identifier for the specific building footprint (host) or IOM DTM site (IDP) this interview location was drawn from."),
-    ("building_id", "Google Open Buildings identifier for the selected building footprint (host records only)."),
-    ("confidence", "Google Open Buildings confidence score for the selected building footprint (host records only)."),
-    ("building_area_m2", "Footprint area in square metres of the selected building (host records only)."),
+    ("uuid", "Identifier for the specific building footprint (Non-IDP) or IOM DTM site (IDP) this interview location was drawn from."),
+    ("building_id", "Google Open Buildings identifier for the selected building footprint (Non-IDP records only)."),
+    ("confidence", "Google Open Buildings confidence score for the selected building footprint (Non-IDP records only)."),
+    ("building_area_m2", "Footprint area in square metres of the selected building (Non-IDP records only)."),
     ("latitude", "Latitude (WGS84) of the interview location."),
     ("longitude", "Longitude (WGS84) of the interview location."),
     ("x_utm", "Projected easting coordinate of the interview location, in metres."),
     ("y_utm", "Projected northing coordinate of the interview location, in metres."),
     ("location_source", "Whether the interview location came from a building footprint (“building_footprint”) or an IOM DTM site GPS point (“idp_site_point”)."),
     ("Design and weighting", None),
-    ("households_in_cluster", "Total number of eligible households identified in this cluster (deduplicated building count for host; DTM-reported estimate for IDP)."),
+    ("households_in_cluster", "Total number of eligible households identified in this cluster (deduplicated building count for Non-IDP; DTM-reported estimate for IDP)."),
     ("households_in_cluster_source", "Whether households_in_cluster is a deduplicated building count or a provisional DTM estimate."),
-    ("target_households", "Number of households this cluster was intended to deliver (accounts for repeated PPS draws and the m=7 boost in 10 conflict-affected strata)."),
+    ("target_households", "Number of households this cluster was intended to deliver (accounts for repeated PPS draws)."),
     ("selection_count", "Number of times this cluster’s hexagon was drawn in the Stage 1 systematic PPS selection."),
     ("certainty_stratum", "Whether this record’s stratum was fully enumerated (every eligible hexagon included) rather than sampled by probability."),
     ("selection_type", "How this cluster was selected: “certainty” (full enumeration) or “pps” (probability-proportional-to-size)."),
@@ -243,9 +244,9 @@ SF_DEFS = [
     ("base_weight", "The design weight for this record: 1 ÷ (psu_probability × ssu_probability)."),
     ("Flags", None),
     ("below_target_cluster", "Flags a cluster where fewer eligible households were available than the target, so it delivers everything available rather than the full target."),
-    ("reallocated", "Flags a host cluster that was swapped to a different hexagon in the same stratum because the original had no eligible buildings."),
+    ("reallocated", "Flags a Non-IDP cluster that was swapped to a different hexagon in the same stratum because the original had no eligible buildings."),
     ("original_uuid_hex_pop", "The originally-selected hexagon’s identifier, kept for reference when a cluster has been reallocated."),
-    ("supplementary_cluster", "Flags a cluster that was added after the original Stage 1 draw to close a residual shortfall in one of the 10 boosted strata."),
+    ("supplementary_cluster", "Flags a cluster that was added after the original Stage 1 draw to close a stratum’s shortfall against its target_sample."),
     ("IDP site detail", None),
     ("site_radius_m", "Fixed radius in metres field teams should treat as “this site” around an IDP site’s GPS point (IDP records only)."),
     ("iom_site_id", "IOM DTM site identifier for the selected IDP site (IDP records only)."),
@@ -253,6 +254,7 @@ SF_DEFS = [
     ("iom_site_type", "IOM DTM site type classification for the selected IDP site (IDP records only)."),
     ("iom_site_ward", "Ward recorded by IOM DTM for the selected IDP site (IDP records only)."),
     ("n_other_sites_in_hex", "Number of additional, smaller IOM DTM sites also located in this cluster’s hexagon beyond the one selected as representative."),
+    ("idp_population_category", "Which IOM DTM Population Category group this IDP site belongs to: “idps in camp” or “idps in host” (IDP records only; returnee-classified sites are excluded from the frame entirely)."),
 ]
 
 ST_DEFS = [
@@ -262,7 +264,7 @@ ST_DEFS = [
     ("adm1_name", "State name."),
     ("adm2_pcode", "LGA-level administrative P-code — the stratification unit."),
     ("adm2_name", "LGA name."),
-    ("pop_type", "Population group this stratum covers: “host” or “idp”."),
+    ("pop_type", "Population group this stratum covers: “non_idp” or “idp”."),
     ("strata_id", "Identifier for this stratum (population group + LGA) — matches strata_id in the Sampling Frame sheet for joining across tables."),
     ("Population and design", None),
     ("n_pop", "Estimated total population in this stratum."),
@@ -340,20 +342,22 @@ def write_readme(wb):
         "This workbook accompanies the sampling frame for the 2026 Multi-Sector Needs "
         "Assessment (MSNA) covering North-West, North-East, and North-Central Nigeria. "
         "The design is a stratified two-stage cluster sample, stratified by population "
-        "group (host / IDP) and LGA. Host clusters are drawn by probability-proportional-"
-        "to-size (PPS) selection weighted by gridded population, with Stage 2 household "
-        "locations drawn from Google Open Buildings footprints. IDP clusters are drawn by "
-        "PPS weighted by IOM Displacement Tracking Matrix (DTM) reported population, with "
-        "interview locations anchored to each selected site’s own GPS point rather than a "
-        "building draw. Ten conflict-affected host strata (nine in Borno/Yobe, one in Kano) "
-        "received a cluster-size boost (m=6→7) plus supplementary clusters to correct for "
-        "building-footprint undercounting in areas of known destruction and displacement — "
-        "see the accompanying methodology document for full detail."
+        "group (Non-IDP / IDP) and LGA. Non-IDP clusters are drawn by probability-"
+        "proportional-to-size (PPS) selection weighted by gridded population, with Stage "
+        "2 household locations drawn from Google Open Buildings footprints. IDP clusters "
+        "are drawn by PPS weighted by IOM Displacement Tracking Matrix (DTM) reported "
+        "population, with interview locations anchored to each selected site’s own GPS "
+        "point rather than a building draw. Non-IDP strata whose realized sample fell "
+        "short of their calculated target — concentrated in but not limited to conflict-"
+        "affected North-East LGAs, where building-footprint undercounting is most severe — "
+        "receive the minimum number of additional supplementary clusters (drawn via the "
+        "same PPS mechanism, at the standard cluster size) needed to close the gap — see "
+        "the accompanying methodology document for full detail."
     )
 
     subhead("How to use this workbook", NAVY)
     row += 1
-    def_row("Sampling Frame", "One row per planned interview (primary or reserve), host and IDP combined — for field teams and household/interview-level analysis.")
+    def_row("Sampling Frame", "One row per planned interview (primary or reserve), Non-IDP and IDP combined — for field teams and household/interview-level analysis.")
     def_row("Strata-Level Summary", "One row per population-group × LGA stratum — for validation and reporting on sample sizes, design effects, and realized margins of error.")
     row += 1
 
