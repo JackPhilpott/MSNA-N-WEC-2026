@@ -983,6 +983,39 @@ realized_moe <- function(achieved_sample, N_hh, m, ICC = 0.06, Z = qnorm(0.95), 
 non_idp_sampling <- build_sampling_plan(hex_grid_non_idp)
 idp_sampling  <- build_sampling_plan(hex_grid_idp)
 
+# ---------------------------------------------------------------------------
+# Certainty-stratum feasibility filter (HQ-approved 2026-07-23 revision)
+#
+# Certainty strata enumerate every eligible IDP site (achieved_clusters ==
+# n_hex always), but Stage 2 caps each site at m households with no ability
+# to add supplementary clusters the way PPS strata can (add_supplementary_
+# clusters() only ever runs against PPS shortfalls) - so achieved_sample =
+# n_hex * m is a hard ceiling. Where even that ceiling can't reach the 10%
+# MoE target, sending field teams there produces indicative-only data at
+# real operational cost; HQ decided the trade-off isn't worth it. Strata
+# failing this projected-MoE check have their hexagons dropped before
+# select_pps_clusters() ever runs, so zero clusters/interviews get planned
+# there - not a silent drop, they stay visible in
+# strata_level_sampling_frame.csv as achieved_clusters = 0 / achieved_sample
+# = 0 rows with excluded_infeasible = TRUE (see that block below, which
+# re-derives this identical check from the file's own columns rather than
+# depending on this object). All certainty strata happen to be IDP today,
+# but this is computed generically off certainty_stratum, not hardcoded to
+# IDP - if a future frame ever produced a Non-IDP certainty stratum it would
+# be filtered the same way.
+# ---------------------------------------------------------------------------
+idp_infeasible_strata <-
+  idp_sampling$sampling_summary %>%
+  dplyr::filter(
+    certainty_stratum,
+    100 * realized_moe(n_hex * households_per_cluster, N_hh, households_per_cluster) > 10
+  ) %>%
+  dplyr::distinct(pop_type, adm2_pcode)
+
+idp_sampling$sampling_frame <-
+  idp_sampling$sampling_frame %>%
+  dplyr::anti_join(idp_infeasible_strata, by = c("pop_type", "adm2_pcode"))
+
 combined_sampling_summary <- bind_rows(non_idp_sampling$sampling_summary,idp_sampling$sampling_summary)
 write_csv(combined_sampling_summary, "testing.csv")
 
@@ -1574,14 +1607,36 @@ strata_level_sampling_frame <-
     ),
     confidence_level_pct = 90,
     target_moe_pct = dplyr::if_else(certainty_stratum, NA_real_, 10),
-    realized_moe_pct = round(100 * realized_moe(achieved_sample, N_hh, m_used, ICC = ICC), 2)
+    # Projected MoE at full enumeration (n_hex * m) - meaningful for every
+    # certainty stratum regardless of exclusion, since it's the exact figure
+    # the exclusion decision is made on. excluded_infeasible is therefore
+    # fully re-derivable from this file's own columns (certainty_stratum,
+    # n_hex, N_hh, m_used) rather than hidden state - it mirrors the
+    # identical check idp_infeasible_strata applies earlier in the pipeline
+    # (before Stage 1 cluster selection) to zero out these strata's
+    # achieved_clusters/achieved_sample in the first place.
+    projected_moe_pct = dplyr::if_else(
+      certainty_stratum,
+      round(100 * realized_moe(n_hex * m_used, N_hh, m_used, ICC = ICC), 2),
+      NA_real_
+    ),
+    excluded_infeasible = certainty_stratum & projected_moe_pct > 10,
+    # NA (not Inf/NaN) for strata with zero achieved sample - currently only
+    # excluded certainty strata, where "what MoE would this deliver" is
+    # meaningless because nothing is being sampled there at all.
+    realized_moe_pct = dplyr::if_else(
+      achieved_sample == 0,
+      NA_real_,
+      round(100 * realized_moe(achieved_sample, N_hh, m_used, ICC = ICC), 2)
+    )
   ) %>%
   dplyr::select(
     region, adm1_pcode, adm1_name, adm2_pcode, adm2_name, pop_type, strata_id,
-    n_pop, N_hh, n_hex, selection_type, certainty_stratum,
+    n_pop, N_hh, n_hex, selection_type, certainty_stratum, excluded_infeasible,
     clusters_target_stage1 = clusters, achieved_clusters, m_used, ICC, DEFF,
     expected_households_stage1 = expected_households, target_sample,
-    achieved_sample, confidence_level_pct, target_moe_pct, realized_moe_pct
+    achieved_sample, confidence_level_pct, target_moe_pct, projected_moe_pct,
+    realized_moe_pct
   )
 
 readr::write_csv(

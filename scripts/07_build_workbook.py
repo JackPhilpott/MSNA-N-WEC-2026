@@ -32,6 +32,7 @@ AMBER = "FFF2CC"
 ORANGE = "FCE4D6"
 PURPLE = "E6D9F2"
 MINT = "D5F0E3"
+RED = "F4CCCC"
 
 # ---------------------------------------------------------------------------
 # Column type coercion + widths
@@ -52,9 +53,9 @@ ST_NUMERIC = {
     "n_pop", "N_hh", "n_hex", "clusters_target_stage1", "achieved_clusters",
     "m_used", "ICC", "DEFF", "expected_households_stage1", "target_sample",
     "achieved_sample", "confidence_level_pct", "target_moe_pct",
-    "realized_moe_pct",
+    "projected_moe_pct", "realized_moe_pct",
 }
-ST_BOOL = {"certainty_stratum"}
+ST_BOOL = {"certainty_stratum", "excluded_infeasible"}
 
 SF_WIDTHS = {
     "survey_id": 24, "cluster_id": 20, "status": 10, "interview_number": 10,
@@ -77,11 +78,11 @@ SF_WIDTHS = {
 ST_WIDTHS = {
     "region": 8, "adm1_pcode": 11, "adm1_name": 14, "adm2_pcode": 11,
     "adm2_name": 16, "pop_type": 8, "strata_id": 18, "n_pop": 11, "N_hh": 10, "n_hex": 8,
-    "selection_type": 12, "certainty_stratum": 12,
+    "selection_type": 12, "certainty_stratum": 12, "excluded_infeasible": 16,
     "clusters_target_stage1": 14, "achieved_clusters": 13, "m_used": 8,
     "ICC": 7, "DEFF": 7, "expected_households_stage1": 16,
     "target_sample": 12, "achieved_sample": 13, "confidence_level_pct": 13,
-    "target_moe_pct": 12, "realized_moe_pct": 13,
+    "target_moe_pct": 12, "projected_moe_pct": 14, "realized_moe_pct": 13,
 }
 
 
@@ -193,6 +194,7 @@ ws_st, st_header, st_start, st_last, st_last_col = write_data_sheet(
     GREEN, "TableStyleMedium7",
     "One row per population-group x LGA stratum - for validation and reporting.",
 )
+add_flag_highlight(ws_st, st_header, st_start, st_last, st_last_col, "excluded_infeasible", RED)
 add_flag_highlight(ws_st, st_header, st_start, st_last, st_last_col, "certainty_stratum", MINT)
 
 print(f"Strata-Level Summary: {st_last - st_start} data rows written")
@@ -272,19 +274,21 @@ ST_DEFS = [
     ("n_hex", "Number of eligible hexagons available in this stratum before selection."),
     ("selection_type", "How this stratum was sampled: “certainty” (full enumeration) or “pps” (probability-proportional-to-size)."),
     ("certainty_stratum", "Whether this stratum was fully enumerated rather than sampled by probability."),
+    ("excluded_infeasible", "Whether this certainty stratum was excluded entirely (zero clusters/interviews planned) because even full enumeration at its site cap can’t reach the 10% MoE target — see projected_moe_pct. Always FALSE for PPS strata, which can add supplementary clusters instead of being excluded."),
     ("ICC", "Intra-cluster correlation coefficient assumed for this stratum’s design effect calculation."),
     ("DEFF", "Design effect applied to this stratum’s sample size calculation, derived from m_used and ICC."),
-    ("m_used", "Households-per-cluster target actually used for this stratum (7 in the 10 boosted strata, 6 elsewhere)."),
+    ("m_used", "Households-per-cluster target used for this stratum (uniformly 6, since the 2026-07-22 revision replaced the earlier m=6/m=7 boosted-strata split)."),
     ("Clusters and sample size", None),
     ("clusters_target_stage1", "Number of clusters the Stage 1 sample size formula calculated for this stratum."),
-    ("achieved_clusters", "Number of clusters actually delivered in this stratum, including any reallocated or supplementary clusters."),
-    ("expected_households_stage1", "Household sample size originally calculated by the Stage 1 formula, before any boosting or reallocation."),
-    ("target_sample", "The stratum’s true design target: Stage-1 cluster count × m_used (or full population for certainty strata)."),
-    ("achieved_sample", "Number of primary household interviews actually delivered in this stratum."),
+    ("achieved_clusters", "Number of clusters actually delivered in this stratum, including any reallocated or supplementary clusters. Zero for excluded_infeasible strata."),
+    ("expected_households_stage1", "Household sample size originally calculated by the Stage 1 formula, before any boosting, reallocation, or exclusion."),
+    ("target_sample", "The stratum’s true design target: Stage-1 cluster count × m_used (or achieved_clusters × m_used for certainty strata). Zero for excluded_infeasible strata."),
+    ("achieved_sample", "Number of primary household interviews actually delivered in this stratum. Zero for excluded_infeasible strata."),
     ("Precision", None),
     ("confidence_level_pct", "Confidence level assumed for this stratum’s margin-of-error calculation (90%)."),
     ("target_moe_pct", "Target margin of error for this stratum (10% for PPS strata; not applicable for certainty strata)."),
-    ("realized_moe_pct", "Margin of error actually achieved, calculated from the delivered sample size rather than the target."),
+    ("projected_moe_pct", "For certainty strata only: the margin of error full enumeration would deliver (n_hex × m_used households) — the figure the excluded_infeasible decision is based on. Blank for PPS strata."),
+    ("realized_moe_pct", "Margin of error actually achieved, calculated from the delivered sample size rather than the target. Blank where achieved_sample is zero (excluded_infeasible strata), since no MoE is meaningful there."),
 ]
 
 
@@ -351,8 +355,13 @@ def write_readme(wb):
         "short of their calculated target — concentrated in but not limited to conflict-"
         "affected North-East LGAs, where building-footprint undercounting is most severe — "
         "receive the minimum number of additional supplementary clusters (drawn via the "
-        "same PPS mechanism, at the standard cluster size) needed to close the gap — see "
-        "the accompanying methodology document for full detail."
+        "same PPS mechanism, at the standard cluster size) needed to close the gap. IDP "
+        "certainty strata — small IDP populations fully enumerated rather than sampled — "
+        "have no such supplementary-cluster option, since every eligible site is already "
+        "included; where even full enumeration can't reach the 10% MoE target, the stratum "
+        "is excluded entirely (excluded_infeasible = TRUE in the Strata-Level Summary "
+        "sheet, zero clusters/interviews planned) rather than fielded for indicative-only "
+        "data. See the accompanying methodology document for full detail."
     )
 
     subhead("How to use this workbook", NAVY)
@@ -376,6 +385,7 @@ def write_readme(wb):
     legend_row(ORANGE, "Sampling Frame — reallocated = TRUE (cluster swapped to a different hexagon after the original had no eligible buildings).")
     legend_row(PURPLE, "Sampling Frame — supplementary_cluster = TRUE (cluster added after the original Stage 1 draw to close a shortfall).")
     legend_row(MINT, "Strata-Level Summary — certainty_stratum = TRUE (every eligible hexagon in this stratum was enumerated, not sampled).")
+    legend_row(RED, "Strata-Level Summary — excluded_infeasible = TRUE (certainty stratum excluded entirely: even full enumeration can't reach the 10% MoE target).")
     row += 1
 
     subhead("Sampling Frame — column definitions", BLUE)

@@ -19,11 +19,12 @@ formula than a walk-based one). See the end of the 2026-07-22 conversation
 for discussion starting points (randomised-walk protocol, listing
 protocol, whether 150m radius still fits both, weighting formula impact).
 
-**Status: complete and frozen**, revised once since initial submission —
-see "Revision 2026-07-22" below for the current design; the rest of this
-file predates that revision except where updated. Final sampling frame
-originally submitted 2026-07-15 (git commit `9510d15`, pushed to
-`origin/master`); revised 2026-07-22 (see below) at HQ's request. This
+**Status: complete and frozen**, revised twice since initial submission —
+see "Revision 2026-07-22" and "Revision 2026-07-23" below for the current
+design; the rest of this file predates those revisions except where
+updated. Final sampling frame originally submitted 2026-07-15 (git commit
+`9510d15`, pushed to `origin/master`); revised 2026-07-22 and 2026-07-23
+(see below) at HQ's request. This
 project moved from `5. GIS\sampling\R Sampling\MSNA N-WEC 2026\` to this
 location on 2026-07-16 — if you're picking this up in a fresh session,
 prior session memory tied to the old project path may not be attached here
@@ -59,8 +60,10 @@ call between them uses a `scripts/...` relative path on that assumption.
 
 Stratified two-stage cluster sample for the 2026 MSNA (North-West/East/
 Central Nigeria), Non-IDP + IDP populations (see "Revision 2026-07-22" for
-why "Non-IDP" and not "host"), ~86,670 total planned interview rows across
-5,802 clusters. See `msna_methodology_summary_portable.md` in this folder
+why "Non-IDP" and not "host"), ~86,394 total planned interview rows across
+5,779 clusters (see "Revision 2026-07-23" for why this is lower than the
+~86,670/5,802 figures from the prior revision). See
+`msna_methodology_summary_portable.md` in this folder
 for the full methodology writeup (also published online as a shareable
 document — ask the user for the link if you need to update it, don't
 create a new one). As of 2026-07-22, this doc's final section carries only
@@ -88,6 +91,12 @@ the authoritative row-level source either way.
   across every stratum rather than a hardcoded list. Currently 28 Non-IDP
   strata across 9 states needed this, converging to 9.03–9.27% realized
   MoE. See the methodology doc §4 for the full list and rationale.
+- **Certainty-stratum exclusion**: since 2026-07-23, a certainty stratum is
+  excluded entirely (zero clusters/interviews) if even full enumeration
+  can't project to a 10% MoE — certainty strata have no supplementary-
+  cluster option, unlike PPS strata, since every eligible site is already
+  included. Currently **all 18** of today's certainty-eligible IDP strata
+  fail this check and are excluded — see "Revision 2026-07-23" below.
 
 ## Two subtle bugs fixed 2026-07-15 (both reporting-only, not the delivered sample)
 
@@ -170,6 +179,72 @@ depends on the old naming.
 `01_sampling_pipeline_main.R`, right after the Stage 2 output writes —
 this closes the drift gap bug #2 below used to describe; there is no
 longer an untracked/ad hoc step producing this file.
+
+## Revision 2026-07-23 — certainty-stratum exclusion
+
+One HQ-approved change: certainty strata (IDP populations too small to
+sample from meaningfully, so every eligible site is enumerated instead —
+see "What this project is" above and methodology doc §2) that still can't
+project to the assessment's 10% MoE target even at full enumeration are now
+**excluded from the sample entirely** — zero clusters, zero interviews —
+rather than fielded and reported as indicative, which is what the design
+did before today. Rationale: unlike a PPS stratum falling short of target,
+a certainty stratum has no supplementary-cluster option (every eligible
+site is already included, so there's nowhere left to draw an additional
+cluster from); HQ judged the field effort of visiting these sites not worth
+the indicative-only data it would produce.
+
+**Mechanism** (`scripts/01_sampling_pipeline_main.R`, right after
+`idp_sampling <- build_sampling_plan(hex_grid_idp)`, ~line 986): for every
+certainty stratum, `realized_moe()` (already used for reporting, see
+"Revision 2026-07-22" above) is reused to project the MoE at the maximum
+achievable sample (`n_hex * m` — every eligible site, capped at `m`
+households each). Strata projecting above 10% have their hexagons dropped
+from `idp_sampling$sampling_frame` via `anti_join()` **before**
+`select_pps_clusters()` runs, so no code changes were needed anywhere
+downstream (Stage 2, weighting, output writes) — those strata simply never
+enter cluster selection and their `achieved_clusters`/`achieved_sample`
+naturally coalesce to 0 in `strata_level_sampling_frame.csv`'s existing
+left-join logic. The same check is independently re-derived, generically,
+when that CSV is built (`excluded_infeasible` = `certainty_stratum &
+projected_moe_pct > 10`, using only that file's own columns) rather than
+threading the early filter's result all the way through — so the exclusion
+decision is auditable directly from the delivered CSV, not hidden state.
+This rule is **not hardcoded to IDP or to today's 18 strata** — it runs
+generically off `certainty_stratum`, so a future DTM data refresh growing
+any of these LGAs' population enough to pass the check would make it
+eligible again (as certainty or PPS) with no design change required.
+
+**Result on the current population data: all 18** of today's
+certainty-eligible strata (all IDP; there are no Non-IDP certainty strata)
+fail the check and are excluded — none remain in the achieved sample. This
+removes 362 DTM-recorded IDP households / 23 sites / 138 interviews (276
+planned rows incl. reserves) across 4 states (14 in Kano, 2 in Niger, 1
+each in Kaduna and Kebbi) — dropping the total achieved sample from 52,384
+to 52,246 and total clusters from 5,802 to 5,779. **Kebbi State loses IDP
+coverage entirely** (Gwandu was its only IDP stratum) — no IDP estimate of
+any kind is possible for Kebbi under this design. Kano/Niger/Kaduna retain
+partial IDP coverage (16/30, 11/13, 21/22 LGAs respectively). Full detail,
+the affected-LGA table, and reporting guidance: methodology doc §5
+(rewritten from "Precision limitations in certainty strata" to "Excluded
+strata: the certainty-stratum coverage gap") and §6 (weighting coverage-gap
+note).
+
+**Gotcha hit during this revision**: `select_stage2_idp_sites()`
+(`05_stage2_idp_site_assignment.R`) caches its full result at
+`output/cache/idp_sites/stage2_idp_sites.rds` and is called with
+`rebuild = FALSE` — unlike the Stage-1 hex-grid caches, this cache has
+**no dependency on the exclusion filter's inputs**, so a stale cache from
+before this change would silently keep serving the old (unfiltered)
+IDP site assignment on rerun. Deleted before the 2026-07-23 rerun; delete
+`output/cache/idp_sites/stage2_idp_sites.rds` again before any future
+rerun that changes which IDP hexagons reach `select_stage2_idp_sites()`
+(this exclusion filter, or anything upstream of it).
+
+New `strata_level_sampling_frame.csv` columns: `excluded_infeasible`
+(bool) and `projected_moe_pct` (certainty strata only, NA for PPS strata —
+the figure `excluded_infeasible` is derived from). `07_build_workbook.py`
+updated to type, width, highlight (red), and document both.
 
 ## Rules for extending or rerunning this pipeline
 
