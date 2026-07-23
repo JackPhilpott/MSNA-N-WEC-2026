@@ -17,6 +17,7 @@ suppressMessages({
   library(tidyterra)
   library(terra)
   library(ggrepel)
+  library(cowplot)
 })
 
 # Tile downloads from the basemap provider have been intermittently flaky
@@ -95,8 +96,9 @@ idp_sites_focus <- iom_idp_df %>%
 # NGA_shapes_all$nga_admin1 instead.
 nga_all_states <- NGA_shapes_all$nga_admin1
 
-context_margin_m <- 150000  # 150km - enough to show a bit of neighbouring
-                             # territory for context, not a focus in itself
+context_margin_m <- 60000  # 60km - just enough for neighbouring-country
+                            # labels to sit comfortably, not a wide margin
+                            # of surrounding-country territory
 context_bbox <- sf::st_bbox(nga_all_states) + c(-context_margin_m, -context_margin_m, context_margin_m, context_margin_m)
 context_extent <- sf::st_as_sfc(context_bbox, crs = sf::st_crs(nga_all_states))
 
@@ -113,23 +115,49 @@ neighbour_labels <- neighbouring_countries %>%
 state_labels_focus <- admin1_focus %>%
   sf::st_point_on_surface()
 
-p_overview2 <- ggplot() +
-  geom_sf(data = neighbouring_countries, fill = "grey88", color = "grey65", linewidth = 0.25) +
-  geom_sf(data = nga_all_states, fill = "grey95", color = "grey60", linewidth = 0.2) +
-  tidyterra::geom_spatraster(data = worldpop_focus, maxcell = 3e6) +
+# Shared building blocks so the population fill scale and excluded-zone
+# label can't drift out of sync between the map layers and the various
+# legend-extraction mini-plots below.
+#
+# breaks are chosen explicitly (not left to default) because log1p
+# compresses the high end of the scale - evenly-spaced raw values like
+# 0/100/200/300 end up bunched together visually however long the bar is,
+# since log1p(100)->log1p(200) is a much smaller step than
+# log1p(0)->log1p(100). Fewer, wider-spaced breaks read cleanly instead.
+population_fill_scale <- function() {
   scale_fill_gradientn(
     colors = c("#FFFFFF00", "#FFF2AE", "#FDB863", "#E08214", "#B2182B"),
     na.value = "transparent",
     trans = "log1p",
+    breaks = c(0, 50, 300),
     name = "Non-IDP population\nper grid cell"
-  ) +
-  geom_sf(data = restricted_focus, aes(color = "Excluded from sampling\nuniverse (border buffer +\ninaccessible admin-3s)"), fill = "grey25", alpha = 0.65, linewidth = 0.3) +
+  )
+}
+excluded_zone_label <- "Excluded from sampling universe"  # full border-buffer/admin-3 detail now lives in the doc caption, not this key
+
+# No title/subtitle/caption text on the image itself - all of that moves
+# into a figure caption in the methodology doc instead (see the doc's
+# placeholder for this map). The legend is the only in-image text.
+p_overview_base <- ggplot() +
+  geom_sf(data = neighbouring_countries, fill = "grey88", color = "grey65", linewidth = 0.25) +
+  geom_sf(data = nga_all_states, fill = "grey95", color = "grey60", linewidth = 0.2) +
+  tidyterra::geom_spatraster(data = worldpop_focus, maxcell = 3e6) +
+  population_fill_scale() +
+  geom_sf(data = restricted_focus, aes(color = excluded_zone_label), fill = "grey25", alpha = 0.65, linewidth = 0.3) +
   scale_color_manual(
-    values = c("Excluded from sampling\nuniverse (border buffer +\ninaccessible admin-3s)" = "grey25"),
+    values = setNames("grey25", excluded_zone_label),
     name = NULL,
-    guide = guide_legend(override.aes = list(fill = "grey25", alpha = 0.65, linewidth = 0))
+    guide = guide_legend(override.aes = list(fill = "grey25", alpha = 0.65, linewidth = 0), order = 2)
   ) +
-  geom_sf(data = admin1_focus, fill = NA, color = "#1B2A4A", linewidth = 0.7) +
+  # Assessment-state boundary gets its own (line-style) legend entry, kept
+  # as a separate aesthetic (linetype, not color) so it doesn't merge into
+  # the excluded-zone swatch legend above.
+  geom_sf(data = admin1_focus, aes(linetype = "Assessment states (14)"), fill = NA, color = "#1B2A4A", linewidth = 0.7) +
+  scale_linetype_manual(
+    name = NULL,
+    values = c("Assessment states (14)" = "solid"),
+    guide = guide_legend(override.aes = list(color = "#1B2A4A", linewidth = 0.7), order = 1)
+  ) +
   geom_sf(data = idp_sites_focus, aes(size = individuals), color = "#1B6FA8", alpha = 0.8, shape = 16) +
   scale_size_continuous(range = c(0.4, 5), name = "IDP site\npopulation") +
   ggrepel::geom_text_repel(
@@ -139,32 +167,103 @@ p_overview2 <- ggplot() +
     size = 2.8, color = "#1B2A4A", fontface = "bold",
     bg.color = "white", bg.r = 0.12, seed = 1
   ) +
+  coord_sf(xlim = c(context_bbox["xmin"], context_bbox["xmax"]), ylim = c(context_bbox["ymin"], context_bbox["ymax"]), expand = FALSE) +
+  theme_void(base_size = 12)
+
+extract_legend <- function(single_guide_plot) {
+  suppressWarnings(cowplot::get_legend(single_guide_plot))
+}
+
+# ---- Legend inset in the map's bottom-right corner (over the Cameroon/CAR
+# area, clear of Nigeria's own territory) ----
+# A "legend below the map" layout was also tried and works, but the inset
+# was preferred (2026-07-23) - kept as the only version going forward.
+#
+# Built as a fully separate, fixed-size composite (title + legend + border
+# all baked into one grob together, via cowplot) rather than relying on
+# ggplot's own legend.position="inside" auto-sizing - that approach kept
+# growing toward the plot centre as content changed and needed constant
+# manual re-guessing of where its edges landed. draw_plot()'s explicit
+# width/height instead *forces* the whole panel into a fixed corner
+# footprint regardless of content size.
+
+# Nudge Cameroon and Central African Republic's labels up and left, away
+# from the corner the legend panel will occupy - a manual fix since
+# ggrepel's collision-avoidance has no visibility into a grob composited
+# on afterward. Indexed geometry assignment (rather than case_when on the
+# sfc column) keeps the sfc class/CRS intact.
+neighbour_labels_inset <- neighbour_labels
+cameroon_idx <- neighbour_labels_inset$adm0_name == "Cameroon"
+car_idx <- neighbour_labels_inset$adm0_name == "Central African Republic"
+sf::st_geometry(neighbour_labels_inset)[cameroon_idx] <-
+  sf::st_geometry(neighbour_labels_inset)[cameroon_idx] + c(-20000, 150000)
+sf::st_geometry(neighbour_labels_inset)[car_idx] <-
+  sf::st_geometry(neighbour_labels_inset)[car_idx] + c(-180000, 70000)
+
+p_map_inset_no_legend <- p_overview_base +
   ggrepel::geom_text_repel(
-    data = neighbour_labels,
+    data = neighbour_labels_inset,
     aes(label = adm0_name, geometry = geometry),
     stat = "sf_coordinates",
-    size = 3.2, color = "grey35", fontface = "italic",
-    bg.color = "white", bg.r = 0.12, seed = 1
+    size = 4.0, color = "grey35", fontface = "italic",
+    bg.color = "white", bg.r = 0.12, seed = 1,
+    xlim = c(unname(context_bbox["xmin"]) + 20000, unname(context_bbox["xmax"]) - 140000)
   ) +
-  coord_sf(xlim = c(context_bbox["xmin"], context_bbox["xmax"]), ylim = c(context_bbox["ymin"], context_bbox["ymax"]), expand = FALSE) +
-  labs(
-    title = "Assessment area: Non-IDP population, IDP sites, and excluded areas",
-    subtitle = paste0(
-      nrow(admin1_focus), " states across NW/NE/NC Nigeria (navy outline), within Nigeria's ", nrow(nga_all_states), " states | ",
-      nrow(idp_sites_focus), " IOM DTM sites"
-    ),
-    caption = "Excluded area = 20km buffer along the Niger border, 5km along Chad/Cameroon/Benin, plus FACT-assessed inaccessible admin-3 areas (North-East only)"
-  ) +
-  theme_void(base_size = 12) +
+  theme(legend.position = "none")
+
+legend_combined_inset <- extract_legend(
+  ggplot() +
+    geom_sf(data = admin1_focus, aes(linetype = "Assessment states (14)"), fill = NA, color = "#1B2A4A", linewidth = 0.7) +
+    scale_linetype_manual(name = NULL, values = c("Assessment states (14)" = "solid"),
+                           guide = guide_legend(override.aes = list(color = "#1B2A4A", linewidth = 0.7), order = 1)) +
+    geom_sf(data = restricted_focus, aes(color = excluded_zone_label), fill = "grey25", alpha = 0.65, linewidth = 0.3) +
+    scale_color_manual(name = NULL, values = setNames("grey25", excluded_zone_label),
+                        guide = guide_legend(override.aes = list(fill = "grey25", alpha = 0.65, linewidth = 0), order = 2)) +
+    tidyterra::geom_spatraster(data = worldpop_focus, maxcell = 3e5) +
+    population_fill_scale() +
+    geom_sf(data = idp_sites_focus, aes(size = individuals), color = "#1B6FA8", alpha = 0.8, shape = 16) +
+    scale_size_continuous(range = c(0.4, 5), name = "IDP site\npopulation") +
+    guides(
+      fill = guide_colorbar(direction = "vertical", barwidth = unit(0.3, "cm"), barheight = unit(2.2, "cm"), order = 3),
+      size = guide_legend(order = 4)
+    ) +
+    theme_void(base_size = 12) +
+    theme(
+      legend.position = "right",
+      legend.box = "vertical",
+      legend.title = element_text(size = 8, face = "bold"),
+      legend.text = element_text(size = 7),
+      legend.key.size = unit(0.38, "cm"),
+      legend.spacing.y = unit(0.12, "cm"),
+      legend.background = element_blank()
+    )
+)
+
+legend_title_inset <- cowplot::ggdraw() +
+  cowplot::draw_label("Legend", fontface = "bold", size = 12, colour = "grey15", x = 0.04, hjust = 0)
+
+legend_panel_inset <- cowplot::plot_grid(legend_title_inset, legend_combined_inset, ncol = 1, rel_heights = c(0.09, 0.91)) +
   theme(
-    plot.title = element_text(face = "bold", size = 15, margin = margin(b = 4)),
-    plot.subtitle = element_text(size = 10, color = "grey30", margin = margin(b = 8)),
-    plot.caption = element_text(size = 8, color = "grey40", margin = margin(t = 8)),
-    legend.position = "right"
+    plot.background = element_rect(fill = "white", color = "grey60", linewidth = 0.5),
+    plot.margin = margin(4, 6, 4, 6)
   )
 
-ggsave("output/images/methodology_map_overview_v2.png", p_overview2, width = 10, height = 9, dpi = 130, bg = "white")
-cat("Saved overview v2 map\n")
+p_overview_inset_titled <- cowplot::ggdraw(p_map_inset_no_legend) +
+  # Fixed footprint anchored at the true bottom-right corner - genuinely
+  # corner-fixed regardless of legend content size, rather than an
+  # auto-sized box anchored at one point that can visually sprawl toward
+  # the centre. width/height are sized close to the panel's actual content
+  # (not an oversized box) to avoid dead white space inside the border.
+  cowplot::draw_plot(legend_panel_inset, x = 0.65, y = 0.01, width = 0.33, height = 0.35)
+
+ggsave("output/images/methodology_map_overview_legend_inset.png", p_overview_inset_titled, width = 9, height = 8.5, dpi = 130, bg = "white")
+cat("Saved overview map (legend inset)\n")
+
+cat(
+  "Overview map stats for the doc caption: ", nrow(admin1_focus), " assessment states, ",
+  nrow(nga_all_states), " total Nigerian states, ", nrow(idp_sites_focus), " IOM DTM sites\n",
+  sep = ""
+)
 
 # ---------------------------------------------------------------------------
 # Shared: fetch fresh building POLYGONS for a single cluster (mirrors
