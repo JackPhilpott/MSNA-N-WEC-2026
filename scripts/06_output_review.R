@@ -65,11 +65,6 @@ cat("\nClusters whose hexagon contained more than one IOM DTM site (largest used
 cat("\nhouseholds_in_cluster_source by pop_type:\n")
 print(table(h$pop_type, h$households_in_cluster_source))
 
-cat("\n=== WEIGHTS ===\n")
-print(summary(h$base_weight))
-print(summary(h$psu_probability))
-print(summary(h$ssu_probability))
-
 cat("\n=== ADMIN3 COVERAGE ===\n")
 cat("NA adm3_pcode (GRID3 primary):", sum(is.na(h$adm3_pcode)), "of", nrow(h), "\n")
 print(table(h$admin3_source, useNA = "ifany"))

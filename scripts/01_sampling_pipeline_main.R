@@ -1533,18 +1533,36 @@ saveRDS(
   here(output_dir, "selected_clusters_final.rds")
 )
 
-non_idp_surveys <- stage2_households %>% dplyr::filter(pop_type == "non_idp")
-idp_surveys  <- stage2_households %>% dplyr::filter(pop_type == "idp")
+# ---------------------------------------------------------------------------
+# Export schema (2026-07-24 revision): drop uuid (redundant - a non-globally-
+# unique local hex index, not a location identifier; the real identifiers
+# are uuid_hex/building_id/iom_site_id) and the three weighting columns
+# (psu_probability, ssu_probability, base_weight) from the delivered
+# sampling frame files specifically. Weighting is deferred to a later,
+# dedicated pass once the IDP Stage 2 field methodology (camp vs
+# host-community, listing vs walk - see CLAUDE.md's "Pending" note) is
+# finalised, since that decision will change the ssu_probability formula for
+# IDP records; publishing weighting mechanics now would describe a formula
+# that's about to change. stage2_households itself is left untouched (these
+# columns stay available internally, e.g. for any future interactive/QC use)
+# - only this export copy drops them.
+# ---------------------------------------------------------------------------
+stage2_households_export <-
+  stage2_households %>%
+  dplyr::select(-uuid, -psu_probability, -ssu_probability, -base_weight)
+
+non_idp_surveys <- stage2_households_export %>% dplyr::filter(pop_type == "non_idp")
+idp_surveys  <- stage2_households_export %>% dplyr::filter(pop_type == "idp")
 
 sf::st_write(
-  stage2_households,
+  stage2_households_export,
   here(output_dir, "stage2_sampling_frame.gpkg"),
   delete_dsn = TRUE,
   quiet = TRUE
 )
 
 readr::write_csv(
-  stage2_households %>% sf::st_drop_geometry(),
+  stage2_households_export %>% sf::st_drop_geometry(),
   here(output_dir, "stage2_sampling_frame.csv")
 )
 

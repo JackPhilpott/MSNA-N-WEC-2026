@@ -19,12 +19,13 @@ formula than a walk-based one). See the end of the 2026-07-22 conversation
 for discussion starting points (randomised-walk protocol, listing
 protocol, whether 150m radius still fits both, weighting formula impact).
 
-**Status: complete and frozen**, revised twice since initial submission —
-see "Revision 2026-07-22" and "Revision 2026-07-23" below for the current
-design; the rest of this file predates those revisions except where
-updated. Final sampling frame originally submitted 2026-07-15 (git commit
-`9510d15`, pushed to `origin/master`); revised 2026-07-22 and 2026-07-23
-(see below) at HQ's request. This
+**Status: complete and frozen**, revised three times since initial
+submission — see "Revision 2026-07-22", "Revision 2026-07-23", and
+"Revision 2026-07-24" below for the current design; the rest of this file
+predates those revisions except where updated. Final sampling frame
+originally submitted 2026-07-15 (git commit `9510d15`, pushed to
+`origin/master`); revised 2026-07-22, 2026-07-23, and 2026-07-24 (see
+below) at HQ's/the user's request. This
 project moved from `5. GIS\sampling\R Sampling\MSNA N-WEC 2026\` to this
 location on 2026-07-16 — if you're picking this up in a fresh session,
 prior session memory tied to the old project path may not be attached here
@@ -245,6 +246,44 @@ New `strata_level_sampling_frame.csv` columns: `excluded_infeasible`
 (bool) and `projected_moe_pct` (certainty strata only, NA for PPS strata —
 the figure `excluded_infeasible` is derived from). `07_build_workbook.py`
 updated to type, width, highlight (red), and document both.
+
+## Revision 2026-07-24 — dropped `uuid`, deferred weighting columns/methodology
+
+Two changes, found during a full pre-resubmission diagnostic sweep and
+made at the user's request; neither reruns cluster/household selection
+(no caches invalidated, no change to which locations are sampled) — both
+are export-schema-only, applied to the final `stage2_households` object
+right before the CSV/gpkg writes in `01_sampling_pipeline_main.R`
+(`stage2_households_export`), leaving the underlying `stage2_households`
+object itself untouched.
+
+1. **Dropped the `uuid` column** from `stage2_sampling_frame*.csv/.gpkg`
+   and the workbook. Found during the diagnostic sweep to not contain what
+   it claimed to (see the 2026-07-23→24 commit history): it's actually the
+   hexagon's local, non-globally-unique index number (`uuid = paste0("hex_",
+   row_number())`, set at line ~447 — this internal field still exists and
+   is still used to build `uuid_hex`, just no longer exported on its own).
+   The real per-record location identifiers were already present in their
+   own columns (`building_id` for Non-IDP, `iom_site_id` for IDP,
+   `uuid_hex` for the hexagon) and are unaffected.
+2. **Dropped `psu_probability`, `ssu_probability`, `base_weight`** from the
+   same export files, and genericized methodology doc §6 from a detailed
+   weighting-mechanics writeup to a brief forward-looking statement. Reason:
+   the IDP Stage 2 field-methodology decision (see "Pending" note at the
+   top of this file — camp vs. host-community, listing vs. randomised walk)
+   is still unresolved and will change the `ssu_probability` formula for
+   IDP records specifically; publishing exact weighting mechanics now would
+   describe a formula that's about to change. The actual probability
+   computation is untouched internally (still needed for the supplementary-
+   cluster recompute logic and any future interactive use) — only the
+   exported columns and the doc's level of detail changed. Weighting
+   columns and a full methodology writeup are expected to return once the
+   field-methodology decision lands and actual data collection outcomes are
+   available to weight against.
+
+`06_output_review.R`'s `=== WEIGHTS ===` section was removed (read directly
+from the now-column-stripped CSV, would otherwise error). `07_build_workbook.py`'s
+"Design and weighting" SF_DEFS group renamed to "Design".
 
 ## Rules for extending or rerunning this pipeline
 
