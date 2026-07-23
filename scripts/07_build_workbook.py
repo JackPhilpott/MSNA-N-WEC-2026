@@ -225,7 +225,7 @@ SF_DEFS = [
     ("admin3_cod_name", "Ward/Admin-3 name from the official COD Admin-3 layer, as a secondary reference."),
     ("Location", None),
     ("uuid_hex", "Identifier for the selected hexagon (the Stage 1 primary sampling unit) this record belongs to."),
-    ("uuid", "Identifier for the specific building footprint (Non-IDP) or IOM DTM site (IDP) this interview location was drawn from."),
+    ("uuid", "The selected hexagon's local index number within its LGA/population-group group (the numeric suffix of uuid_hex) - not globally unique on its own, and not a building or DTM site identifier despite the name. For the actual location identifier, see building_id (Non-IDP) or iom_site_id (IDP) below; for the globally-unique hexagon identifier, see uuid_hex above."),
     ("building_id", "Google Open Buildings identifier for the selected building footprint (Non-IDP records only)."),
     ("confidence", "Google Open Buildings confidence score for the selected building footprint (Non-IDP records only)."),
     ("building_area_m2", "Footprint area in square metres of the selected building (Non-IDP records only)."),
