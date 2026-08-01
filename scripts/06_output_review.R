@@ -1,6 +1,6 @@
 suppressMessages(library(dplyr))
 
-h <- readr::read_csv("output/stage2_sampling_frame.csv", show_col_types = FALSE)
+h <- readr::read_csv("_archive/2026-07-23_design_frame_pre_coverage/stage2_sampling_frame.csv", show_col_types = FALSE)
 
 cat("=== ROW COUNTS ===\n")
 cat("Total rows:", nrow(h), "\n")
@@ -35,7 +35,7 @@ cat("\nRemaining zero-building clusters in final output (should be 0 for PPS-str
 # selected_clusters_final.rds is the authoritative post-reallocation cluster
 # table (one row per final cluster) - compare against it rather than the
 # stale pre-reallocation warning message.
-clusters_final_path <- "output/selected_clusters_final.rds"
+clusters_final_path <- "_archive/2026-07-23_design_frame_pre_coverage/selected_clusters_final.rds"
 if(file.exists(clusters_final_path)) {
   clusters_final <- readRDS(clusters_final_path) %>% sf::st_drop_geometry()
   zero_building_final <- clusters_final$cluster_id[!clusters_final$cluster_id %in% h$cluster_id]
@@ -44,7 +44,7 @@ if(file.exists(clusters_final_path)) {
     print(clusters_final %>% dplyr::filter(cluster_id %in% zero_building_final) %>% dplyr::select(cluster_id, pop_type, adm2_pcode, certainty_stratum))
   }
 } else {
-  cat("output/selected_clusters_final.rds not found - cannot verify.\n")
+  cat(clusters_final_path, "not found - cannot verify.\n")
 }
 
 cat("\n=== IDP SITE ASSIGNMENT ===\n")

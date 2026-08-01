@@ -380,13 +380,82 @@ Mali terminology).
 - No `tier2_fallback_used` (or similar) flag exists yet in the data
   dictionary or output schema — the ToR narrative requires one exist before
   fieldwork, per the Tier 2 limitation, but it hasn't been added.
-- The two outdated IDP example maps (`methodology_map_idp_site.png`/
-  `_closeup.png`, still 150m-radius) have not been regenerated. The ToR
-  itself flags this (`[INSERT NEW MAP HERE — replacing Figure 5]`) and
-  references a suggested Claude Code prompt left as a Word comment in the
-  ToR — that comment text wasn't available from the PDF version supplied
-  2026-07-28, so the new map has not been attempted; get the actual comment
-  text (or fresh instructions) before building it.
+- **Update 2026-07-31**: the two outdated IDP example maps have been
+  replaced with four new maps — "IDP in camp" and "IDP in host" (each
+  wide + close-up) — built from the Claude-web prompt the user eventually
+  supplied (the Word-comment text referenced below), then revised twice
+  against direct user feedback. `scripts/analysis_idp_tor_maps_part1.R`
+  renders IDP-in-camp (hexagon boundary, DTM point, backup point);
+  `_part2.R` renders IDP-in-host (hexagon boundary, DTM point, hand-
+  delineated illustrative boundary). Output:
+  `output/images/methodology_map_idp_{camp,host}_v2.png` + `_closeup.png`
+  (old `methodology_map_idp_site.png`/`_closeup.png` deleted, untracked).
+  Style matches the real Figure 4 convention (in-image bold title + grey
+  subtitle, legend along the bottom) — not Figure 1's boxed side-panel
+  convention, which the pasted prompt's wording conflated with Figure 4's.
+  **This is the current draft pending final user sign-off — not yet
+  committed to git.**
+  - **IDP-in-camp site: `idp_NG008013_17`** (Shuwari-Kaleri Housing Unit
+    Camp, Jere, Borno) — the original pick, kept after all. Its Stage 1
+    hexagon is genuinely adm2-boundary-clipped (15 vertices, 17.2km²,
+    confirmed directly against `hex_access`, not a plotting bug), so it
+    renders as an irregular, non-hexagonal shape — the map's subtitle now
+    says so explicitly. Two clean-hexagon alternatives were tried instead
+    (`idp_NG008011_8` Reception/Transit Camp, Gwoza; then `idp_NG008003_1`
+    Gssss Camp Bama and `idp_NG008019_1` GGSS Mafa) but the user preferred
+    reverting: Shuwari-Kaleri's camp visually fills almost the whole framed
+    hexagon with very little empty space, which none of the clean-hex
+    alternatives matched (Reception/Transit's camp sits in one small corner
+    of its hexagon; Bama's camp blends into the edge of Bama town at this
+    zoom and its 35,519hh caseload looks like a data outlier; Mafa's camp
+    is contiguous with surrounding town on one side). **Net decision: an
+    intact hexagon is not worth a materially worse illustration — prefer
+    site quality over hexagon regularity for this figure.**
+  - **IDP-in-host site: `idp_NG021005_2`** (Rugar Tsara, Bindawa, Katsina),
+    confirmed as the right site by the user. Found after four rounds of
+    candidates: (1) `idp_NG002017_1` Anguwan Tula — user rejected it, the
+    traced boundary didn't visibly follow a real edge; (2) four more of the
+    18 density+caseload dual-flagged sites, smaller by caseload but still
+    high-density by construction — all sat in continuous urban fabric with
+    no visible boundary at all; (3) four near-zero-density rural sites —
+    imagery too coarse/low-res to show any structures at all; (4) a
+    moderate-density band (300–2,000 people/km², deliberately outside the
+    18-site subset) — Rugar Tsara showed a small, tight, regular settlement
+    block clearly separated from surrounding farmland, a genuinely
+    delineable case. The boundary is a hand-specified irregular polygon
+    (bearing/distance vertices from the DTM point, seeded jitter for
+    organic shape) — explicitly not derived from footprint/imagery
+    analysis, matching the actual field method (no GPS radius or boundary
+    of any kind behind it in the field).
+    - **v1→v2 fixes, both per direct user feedback**: (a) the wide view now
+      shows the Stage 1 hexagon too, at the same zoomed-out extent as the
+      IDP-in-camp wide view, not just a tight crop around the illustrative
+      boundary; (b) the illustrative boundary rendered ~50-90m too far
+      north relative to the visible rooftop cluster in v1 (confirmed by
+      direct pixel comparison against the rendered PNG — the boundary's
+      hand-drawn shape was correct, this was a rendering/estimation offset,
+      not a re-draw). Likely cause: the boundary's bearing/distance
+      vertices were originally eyeballed off a non-square candidate review
+      image (7in × 7.5in rendered onto a squarish geographic extent, which
+      can letterbox unevenly and throw off a pixel-based read). Fixed with
+      an empirical constant `SHIFT_SOUTH_M = 85` (tuned by rendering 75m
+      and 100m test versions and comparing directly against the basemap),
+      not by re-deriving vertices from the flawed source image. The DTM
+      point and hexagon are both in the map legend now (shares one combined
+      legend with the illustrative boundary, matching IDP-in-camp's
+      convention).
+  - Scratch diagnostic/candidate-search scripts used to reach these picks
+    (`diag_hex_shape{2,3}.R`, `analysis_idp_tor_maps_part1{b,c,d}.R`,
+    `tmp_host_closeup_iter.R`, and all `candidate*`/`test_shift_*` review
+    images) have been deleted — the reasoning is captured here instead.
+    `part1.R`/`part2.R` are the only scripts needed to reproduce the final
+    four images.
+  - **Still open**: Section 3's feasibility-review paragraph says the 18
+    dual-flagged sites are "concentrated in Zamfara, Benue, Borno and
+    Adamawa States" — re-checking the actual list found Borno, Kaduna,
+    Adamawa, Zamfara, Katsina, and Yobe (no Benue; Kaduna missing from the
+    doc's sentence). User confirmed this should be fixed next time Section
+    3 is touched, not immediately.
 - Weighting formula/columns remain deferred (per Revision 2026-07-24) —
   now additionally blocked on the Tier 2 interval/reserve-count still
   being placeholders, not just the broad method choice.
@@ -425,9 +494,12 @@ National: 52,246 (design) → 31,051 (WORKING) interviews, 323 → 176 LGAs.
 Cross-verified exactly: WORKING stage2 primary-row count == strata-level
 WORKING achieved_sample sum, both = 31,051. NC is hit hardest (99→18
 LGAs); NE is near-complete (65→64); NW loses 65 of 159 (21 explicitly
-declined + all 44 Kano). 3 LGAs are excluded for both coverage and the
-small-population reason at once: Niger/Katcha, Niger/Lapai,
-Kaduna/Markafi. Full detail, per-LGA: `output/analysis_partner_coverage/`
+declined + all 44 Kano). **17** LGAs are excluded for both coverage and
+the small-population reason at once (corrected 2026-07-31 — see "Revision
+2026-07-31" below; the original "3 LGAs" figure only counted Niger/Katcha,
+Niger/Lapai, Kaduna/Markafi and missed all 14 Kano LGAs, whose IDP strata
+were already certainty-excluded before Kano was separately folded into
+"not covered"). Full detail, per-LGA: `output/analysis_partner_coverage/`
 - `NGA_MSNA_2026_sampling_frame_workbook_v2.xlsx` (README + Strata-Level
 Summary FULL + Coverage Summary), `NGA_MSNA_2026_coverage_summary_v2.csv`
 (the clean per-LGA table), and FULL/WORKING CSVs at both strata and
@@ -488,6 +560,397 @@ of script-to-script handoff artifact). `output/cache/` (234MB, pipeline
 recompute caches) was **not** touched - still load-bearing for fast
 reruns. `output/images/` (5 current methodology map PNGs) was **not**
 touched - all current.
+
+## Revision 2026-07-31 — LGA-level partner-coverage maps for the main ToR methodology section
+
+Six exploratory variants were built first (`scripts/analysis_coverage_map.R`,
+now deleted); the user picked two to take forward and requested a further
+round of styling/content changes on both. Final state below.
+
+**Two final scripts**, each standalone (not part of the numbered 00-08
+pipeline):
+- `scripts/analysis_coverage_map1.R` → `coverage_map1_partner_coverage.png`
+  — plain binary partner-coverage map (the old "v2"). Lightweight load:
+  sources `01_sampling_pipeline_main.R` only up to `NGA_shapes_all_cleaned`
+  (~line 294), no Stage 1/hex/worldpop needed.
+- `scripts/analysis_coverage_map2.R` → `coverage_map2_full_design.png` —
+  the main, comprehensive sampling-design map (the old "v5 combined").
+  Heavy load: sources up to `selected_clusters` (~line 1236) for the actual
+  Stage 1 hexagon geometries, which also picks up `restricted`/
+  `accessible_area` (the border-buffer/FACT-inaccessible layer) at no
+  extra cost.
+
+Both mirror `methodology_map_overview_legend_inset.png` (Figure 1)'s
+extent/style: same 14-state/neighbouring-country view, boxed legend-inset
+panel bottom-right, no in-image title. `ggnewscale` isn't installed —
+anywhere a plot needs two fill scales at once, the main map layer uses a
+single precomputed hex-colour column + `scale_fill_identity()` instead; the
+small legend-extraction plots (`cowplot::get_legend()`, matching Figure 1's
+own pattern) each keep their own natural scale so legends still render
+with proper labels.
+
+**Both maps, per user feedback 2026-07-31**, now also show:
+- A **regional boundary** (NC/NE/NW, dissolved from a hardcoded 14-state→
+  region lookup — simpler/safer than depending on a region column existing
+  on the raw admin1 shapefile) styled like the old state layer (solid navy,
+  medium weight, `#1B2A4A`).
+- A **state boundary**, now thin grey (`grey55`, 0.3 linewidth) so it
+  doesn't compete visually with the region layer.
+- A **Nigeria national boundary** (from `admin0_wa_proj`, filtered to
+  `adm0_pcode == "NG"`), solid near-black, thickest of the three
+  (linewidth 1.0).
+- All three boundary layers in the legend, as one combined `linetype`
+  scale with `override.aes` (same technique Figure 1 already used for its
+  "Assessment states (14)" entry).
+
+**Map 1** (`coverage_map1_partner_coverage.png`) — binary sampled (green)
+/ excluded (grey), plus the boundary layers above. Legend whitespace
+tightened (boxed panel height reduced, `legend.margin`/`legend.spacing.y`
+minimised throughout).
+
+**Map 2** (`coverage_map2_full_design.png`) — the bigger rework:
+- Legend title for the fill scale: "Achieved sample per LGA (WORKING)" →
+  "Planned interviews per hex" (renamed once to plain "Planned sample",
+  then the whole metric moved from LGA-level to hex-level, so the label
+  tracks the granularity change).
+- **LGA-level colour-by-sample-count replaced with actual Stage 1
+  hexagons** — the ~3,300 selected clusters themselves, not a whole-LGA
+  wash, per the user's own reasoning ("hexagon is the lowest granular
+  information we have"). Restricted to `(adm2_pcode, pop_type)` pairs in
+  the WORKING frame; a hex's fill reflects total planned households
+  there — `m_used`, summed across repeat systematic-PPS draws of the same
+  hex (`selected_clusters`' `uuid_hex_pop`, deduplicated).
+  - **Finding, flagged but not investigated further**: 676 of 3,302
+    selected hexes (~20%) were drawn more than once by the systematic PPS
+    draw (up to 17×, 102 households, in very-small-population strata) —
+    far more common than expected. One legend swatch per distinct value
+    would have meant 16+ near-identical dark-green rows, so all repeats
+    are collapsed into one "12+ households (hex selected more than once)"
+    category against a plain "6 households (single draw)" baseline.
+  - **Separate finding, RESOLVED 2026-07-31 (user-confirmed)**: every
+    single selected hex nationally has `m_used == 6` — none has
+    `m_used == 7`. The map was originally going to distinguish "6
+    households (standard stratum)" vs "7 households (boosted stratum)"
+    per the user's own framing, but that turned out to be stale: the
+    m=6→7 boost for a hand-picked list of 10 conflict-affected LGAs was
+    **superseded 2026-07-22** by the current minimal-supplementary-cluster
+    approach (28 strata topped up at the standard m=6 instead — see
+    Section 4 of the methodology doc, "Non-IDP strata with a below-target
+    shortfall," which already documents this supersession accurately and
+    needed no correction). `m_used == 7` not appearing anywhere is exactly
+    what that means in practice — confirmed correct, not a data bug. The
+    "Change 1" plan file (`snappy-petting-bird.md`) initially misled the
+    investigation by describing this as an *unexecuted* future change
+    ("replaces the m=6→7 blanket boost") — it had, in fact, already been
+    executed and delivered; that plan file is stale/superseded and should
+    not be treated as representing pending work. Legend correctly ships
+    with just "6 households (single draw)" / "12+ households (hex
+    selected more than once)" — no boosted-stratum category exists to
+    show.
+- **Excluded areas simplified to exactly two categories**, replacing the
+  old 3-way (coverage-only / certainty-only / both) split:
+  - **"Excluded: no partner coverage"** (grey) — whole LGA has zero
+    working hexes because its Non-IDP stratum isn't covered, and it isn't
+    otherwise design-excluded.
+  - **"Excluded: design effect"** (`#8B4A4A`) — covers two structurally
+    different but conceptually related things under one colour: (a) LGAs
+    whose exclusion is structural rather than operational — not covered
+    AND its IDP stratum was already certainty-excluded under Annex 1.5, so
+    it would have been excluded regardless of partner coverage (the same
+    17 LGAs from Revision 2026-07-31b, rendered as a whole-LGA fill); and
+    (b) the geographic border-buffer/FACT-inaccessible zone
+    (`restricted`/`accessible_area`, clipped to the 14 focus states),
+    drawn as a semi-transparent overlay in the same colour, mirroring how
+    `methodology_map_overview` shows it. These are geometrically distinct
+    layers (whole-LGA fill vs. a buffer-zone overlay that mostly cuts
+    *within* otherwise-sampled LGAs, sub-LGA/admin-3 level) but share one
+    legend swatch, per the user's explicit request to simplify to two
+    exclusion categories total.
+
+**Cleanup**: the six exploratory variants and their script
+(`analysis_coverage_map.R`, `coverage_v{1,2,3,4a,4b,5}_*.png`) were
+deleted — the two final maps and scripts above are the only ones kept.
+**Awaiting the user's final review — nothing committed to git.**
+
+## Revision 2026-07-31b — corrected the Section 8 "overlap between exclusion reasons" count (3 → 17)
+
+The methodology doc's Section 8 previously said 3 LGAs are excluded under
+both `partner_coverage_declined` and `certainty_stratum_below_moe_threshold`
+at once (Niger/Katcha, Niger/Lapai, Kaduna/Markafi). Recomputed directly
+from `coverage_status`/`excluded_infeasible` in
+`NGA_MSNA_2026_strata_level_sampling_frame_v2_FULL.csv` (bypassing the
+existing `exclusion_reason`/summary-table logic entirely, precisely to
+check it independently): the correct count is **17**, all IDP strata,
+zero Non-IDP — the original 3, plus all 14 Kano LGAs (Bebeji, Dambatta,
+Dawakin Kudu, Dawakin Tofa, Gwale, Gwarzo, Kunchi, Makoda, Minjibir, Rimin
+Gado, Rogo, Shanono, Tofa, Warawa), whose IDP strata were already
+certainty-excluded in the original design and which were separately
+confirmed `not_covered` when Kano was folded in wholesale on 2026-07-30
+(Revision 2026-07-30 above). The "3 LGAs" figure was written before that
+Kano decision and never recomputed against it.
+
+Also checked (per user request) whether this reflects a real code bug —
+it doesn't. `exclusion_reason_for()` in `analysis_partner_coverage.py`
+already joins both reasons with `"; "` when both apply (no folding/
+collapsing), and the per-region LGA-counts table
+(`region_lga_counts`/lines ~406-424 of that script) was *always*
+documented in its own print statement as "not mutually exclusive," a
+caveat the methodology doc already carries in prose. The apparent
+arithmetic mismatch a user found (region LGA-count columns not summing to
+the region total) is expected, intentional behaviour, not a regression —
+confirmed by an independent from-scratch mutually-exclusive 4-category
+recount (covered-clean / covered-but-certainty-excluded /
+not-covered-clean / not-covered-and-certainty-excluded) built directly
+from raw flags, which sums exactly to the design LGA total in every
+region × population-type cell.
+
+Fixed: the Section 8 overlap paragraph (count, full state-grouped LGA
+list, explicit "IDP-only" statement) and the matching "3 LGAs" reference
+in this file's "Revision 2026-07-30" section (above). No other paragraph
+or table in Section 8 depended on the old count — the per-region
+"Excluded: small population" column (2/0/16, NC/NE/NW) was already
+correct, since it was always an independent (non-exclusive) tally, not
+derived from the overlap paragraph's count.
+
+## Revision 2026-07-31c — cleaned up `output/` so DESIGN vs WORKING frames aren't ambiguous
+
+User feedback: the coverage-confirmed WORKING frame (31,051 interviews)
+lives in `output/analysis_partner_coverage/`, but the *original*, now-
+superseded DESIGN-only frame (52,246 interviews) sat right at
+`output/` top level with the more prominent, simpler filenames
+(`stage2_sampling_frame.csv`, `strata_level_sampling_frame.csv`, etc.) —
+easy to mistake for the current deliverable at a glance.
+
+Moved (via `git mv`, so history is preserved) into
+`output/archive_design_only_pre_coverage/`:
+`stage2_sampling_frame.{csv,gpkg}`, `stage2_sampling_frame_{idp,non_idp}.csv`,
+`strata_level_sampling_frame.csv`, `selected_clusters_final.rds`, and the
+untracked `MSNA_2026_sampling_frame_workbook.xlsx` (plain `mv`, wasn't
+git-tracked). Added `output/README.md` (force-added past the `output/`
+gitignore, same convention as other tracked output files) explaining the
+DESIGN-vs-WORKING distinction and which files are current, front and
+centre.
+
+**Every script that reads these files by their old top-level path was
+updated to the new archive path** (all still work without a pipeline
+rerun): `06_output_review.R`, `08_render_methodology_maps.R`,
+`analysis_idp_camp_backup_points_part1.R`,
+`analysis_idp_host_feasibility_flagging.R`, `analysis_partner_coverage.py`,
+`07_build_workbook.py`, `build_training_examples_shapefile.R`. **Not
+changed**: `01_sampling_pipeline_main.R` still *writes* fresh copies to the
+old top-level `output/*.csv` paths — that's its normal, correct behaviour.
+This means **if the pipeline is ever rerun, the top-level clutter comes
+back** and needs re-archiving by hand (`output/README.md` says so
+explicitly) — rerunning this pipeline is already meant to be rare/
+deliberate per the rule below, so this was judged an acceptable tradeoff
+against the more invasive alternative of changing the pipeline's own write
+paths on a frozen, submitted deliverable.
+
+## Revision 2026-07-31d — full `output/` restructure (naming/folders, second cleanup pass)
+
+The 2026-07-31c cleanup (archiving the pre-coverage DESIGN frame) fixed the
+most urgent ambiguity but left `output/` with inconsistent, ad hoc folder
+naming (`analysis_<thing>` folders each holding a mix of CSVs/xlsx/PNGs,
+duplicate copies of every ToR map living in both `images/` and the
+`analysis_*` folder that produced it, plus `cache/` and the newly-archived
+DESIGN frame both still sitting inside `output/` itself). User asked for a
+second pass: one folder for all Excel outputs, one for all images, cache
+and the DESIGN-frame archive moved out of `output/` entirely into the
+project's actual archiving location, and better naming throughout.
+
+**Final structure** (all moves via `git mv` for tracked files, preserving
+history):
+- **`_cache/`** (new, root-level, sibling to `output/` and `_archive/`) ←
+  was `output/cache/`. Deliberately **not** folded into `_archive/` even
+  though the user's original ask grouped "cache and archive" together —
+  cache is a live build artifact (load-bearing for fast pipeline reruns),
+  not historical/superseded material, so mixing it into `_archive/` would
+  have been confusing later. Flagged this distinction to the user
+  explicitly before executing; no objection raised.
+- **`_archive/2026-07-23_design_frame_pre_coverage/`** ← was
+  `output/archive_design_only_pre_coverage/`, one level up. Date-stamped
+  per the user's own convention already used for `_archive/`'s existing
+  scripts (e.g. `02_building_ingestion.R.before_assist_fix_2026-07-10.bak`).
+- **`output/excel_workbooks/`** ← both `.xlsx` deliverables, from
+  `analysis_partner_coverage/` and `analysis_idp_camp_backup_points/`
+  respectively. Filenames themselves left unchanged (only their folder
+  moved) — deliberately did not rename the data files themselves, since
+  filenames like `NGA_MSNA_2026_stage2_sampling_frame_v2_WORKING.csv` were
+  already communicated/in active use in-conversation; renaming those
+  specifically would have been a different, riskier kind of change than
+  reorganising which folder they sit in.
+- **`output/maps/`** (renamed from `output/images/`) ← every ToR map PNG,
+  now with exactly one copy of each (previously duplicated in both
+  `images/` and whichever `analysis_coverage_map`/`analysis_idp_tor_maps`
+  folder produced it — deleted the redundant untracked copies) +
+  `output/maps/supporting_evidence/` (the 3 camp-backup-point verification
+  images, git-tracked, moved from `analysis_idp_camp_backup_points/`).
+- **`output/sampling_frame_current/`** (renamed from
+  `analysis_partner_coverage/`) ← the 5 current-frame CSVs
+  (`coverage_summary`/`stage2_*_FULL`/`stage2_*_WORKING`/
+  `strata_*_FULL`/`strata_*_WORKING`) + the internal `_pipeline_state.pkl`
+  handoff. Name change reflects that this folder's real role is "the
+  current sampling frame," not just "an analysis output."
+- **`output/analysis_supporting/idp_camp_backup_points/`** and
+  **`output/analysis_supporting/idp_host_feasibility/`** (renamed from
+  `analysis_idp_camp_backup_points/`/`analysis_idp_host_feasibility/`) —
+  the CSV/rds planning-analysis outputs only, now that the xlsx/PNGs that
+  used to sit alongside them have moved to their own folders.
+- `output/training_examples/` unchanged (already a clean, self-contained
+  deliverable type).
+
+**Every script updated to match** (paths only — no pipeline rerun needed,
+verified via `grep` sweep for stale references before/after):
+`06_output_review.R`, `08_render_methodology_maps.R`,
+`analysis_idp_camp_backup_points_part1.R` and `_part2.R`,
+`analysis_idp_host_feasibility_flagging.R`, `analysis_partner_coverage.py`
+(`OUT_DIR` now points at `sampling_frame_current/`),
+`build_partner_coverage_workbook.py` (reads the pkl handoff from
+`sampling_frame_current/`, writes the xlsx to `excel_workbooks/` — these
+are two different directories now, previously the same one),
+`07_build_workbook.py` (both its read paths *and* its own xlsx output now
+point into `_archive/2026-07-23_design_frame_pre_coverage/`, since that
+script's whole output is the now-superseded pre-coverage workbook),
+`analysis_coverage_map1.R`/`_map2.R` and `analysis_idp_tor_maps_part1.R`/
+`_part2.R` (all four now write directly to `output/maps/` — no more
+separate analysis-staging folder that then gets copied, which is what
+caused the duplication in the first place), `build_training_examples_shapefile.R`.
+`01_sampling_pipeline_main.R` intentionally **not** changed — see
+2026-07-31c above, same reasoning still applies.
+
+`output/README.md` rewritten to describe the new structure — still the
+first thing to read when unsure what's current.
+
+## Revision 2026-08-01 — patched `site_radius_m` and added `tier2_fallback_used` (targeted CSV patch, not a pipeline rerun)
+
+Two data-quality gaps flagged while pointing the user at
+`sampling_frame_current/NGA_MSNA_2026_stage2_sampling_frame_v2_WORKING.csv`
+for data collection — both now fixed via
+`scripts/patch_site_radius_and_tier2_flag.R`, a targeted in-place patch of
+the WORKING and FULL household-level CSVs (same pattern as the earlier
+`strata_id` CSV patch — no pipeline rerun, no cache invalidation, fully
+reversible via git since both files are tracked).
+
+- **`site_radius_m`** was stale — uniformly 150m for every IDP row
+  (17,910 WORKING / 26,316 FULL rows), left over from the superseded
+  single-radius method. The concept doesn't apply to most of the current
+  design at all: in-camp Tier 1 is bounded by "visible camp extent" (no
+  radius), Tier 2 starts from a point with no radius either, and
+  host-community listing is bounded by social recognition, not geography.
+  The only rows with a genuine radius are the 15 flagged large in-camp
+  sites with a backup GPS point (`analysis_supporting/idp_camp_backup_points/
+  manual_visual_review.csv`'s `radius_m`, or the 300m fallback where
+  delineation failed — identical logic to
+  `analysis_idp_camp_backup_points_part2.R`'s own `final_radius_m`). Fixed:
+  `NA` everywhere except those 15 sites' rows (786 WORKING / 786 FULL rows
+  populated with their real radius — same count in both, since none of the
+  15 flagged camps are coverage-excluded).
+- **`tier2_fallback_used`** didn't exist. Added as a schema-readiness
+  column, not a computed one — whether Tier 2 gets triggered is a
+  field-team, real-time decision that hasn't happened yet (fieldwork
+  hasn't started), so there's nothing to compute. `FALSE` for every
+  in-camp IDP row (2,316 WORKING / 2,676 FULL), `NA` for Non-IDP/
+  host-community rows it doesn't apply to.
+
+Verified directly against the patched files (not assumed): a flagged-camp
+in-camp row shows its real radius + `FALSE`; a Non-IDP row and a
+host-community row both show `NA`/`NA`.
+
+`output/README.md`'s caveat section rewritten from "known issues" to
+"fixes applied 2026-08-01."
+
+## Revision 2026-08-01b — `output/` restructured again (data/maps/gis), workbook rebuilt with household frame
+
+The 2026-07-31d restructure grouped things by *what analysis produced them*
+(`sampling_frame_current/`, `excel_workbooks/`, `analysis_supporting/`).
+User clarified the intent was different: group by *file type and audience*
+instead. Final structure:
+
+- **`output/data/data_collection/`** — every CSV/XLSX a field team or
+  current-fielding-plan user needs, all in one flat folder (no more
+  Excel-vs-CSV split): the 5 current sampling-frame CSVs (household- and
+  strata-level, FULL and WORKING, plus the coverage summary), the combined
+  workbook, `idp_camp_backup_points.csv`/`.xlsx` (a genuine field
+  deliverable — Tier 2 fallback backup GPS points), and the internal
+  `_pipeline_state.pkl` handoff. Was `sampling_frame_current/` +
+  `excel_workbooks/` + part of `analysis_supporting/idp_camp_backup_points/`.
+- **`output/data/supporting_analysis/`** — data files that explain *how*
+  the design was built but aren't needed by field teams:
+  `idp_camp_backup_points/` (ranking, footprint evidence, the manual visual
+  review sheet) and `idp_host_feasibility/` (feasibility flags). Was
+  `analysis_supporting/`.
+- **`output/maps/`** — unchanged.
+- **`output/gis/training_examples/`** — was `output/training_examples/`,
+  now grouped under a `gis/` parent alongside any future GIS-specific
+  deliverables.
+
+Every script's paths updated again (4th pass on some): `analysis_coverage_map1.R`/
+`_map2.R`, `analysis_idp_tor_maps_part1.R`/`_part2.R`,
+`analysis_partner_coverage.py`, `analysis_idp_camp_backup_points_part1.R`/
+`_part2.R` (Part 2 now writes its CSV/XLSX deliverable to
+`data/data_collection/` while still *reading* Part 1's rds/review-sheet
+from `data/supporting_analysis/` — two different directories now, where
+previously one `analysis_dir` served both roles),
+`analysis_idp_host_feasibility_flagging.R`, `build_training_examples_shapefile.R`,
+`patch_site_radius_and_tier2_flag.R`, `build_partner_coverage_workbook.py`.
+
+**While rebuilding the workbook, found `_pipeline_state.pkl` was missing**
+(an untracked, ephemeral handoff file that didn't survive the moves across
+two restructures). Fixed by rerunning `analysis_partner_coverage.py` —
+this regenerates the 5 CSVs + pkl fresh from the `_archive/` DESIGN frame
+and reproduced byte-for-byte-equivalent figures (86,394 FULL / 50,653
+WORKING rows, 176/147 coverage split, all region-level before/after
+numbers unchanged — a clean reproducibility check). **This also
+overwrote the 2026-08-01 `site_radius_m`/`tier2_fallback_used` patch**,
+which was then reapplied via `patch_site_radius_and_tier2_flag.R` — same
+output as the first application (786 rows get a real radius, 2,316/2,676
+in-camp rows get `tier2_fallback_used = FALSE`). **Anyone regenerating
+`analysis_partner_coverage.py`'s output in future must rerun the patch
+script immediately afterward** — `output/README.md` says so explicitly.
+
+**Workbook rebuilt with real, substantive content changes**, not just a
+relocation — user asked me to check it was current (its file date was
+older than the sampling-frame CSVs it's supposed to summarise) and update
+it with the FULL sampling frame:
+- Added a **"Sampling Frame (FULL)" sheet** — the actual household-level
+  frame (86,394 rows, one row per planned interview), read directly from
+  the patched CSV on disk rather than from the (older, patch-unaware)
+  pickled state, specifically so it carries the 2026-08-01
+  `site_radius_m`/`tier2_fallback_used` fixes. This sheet didn't exist
+  before — the original design deliberately left it out ("too large to
+  embed usefully here... delivered as separate CSVs"); the user's request
+  overrode that. Verified directly (not just from the build log): both new
+  columns present in the sheet header, and a flagged-camp row shows the
+  right values (`site_radius_m = 230`, `tier2_fallback_used = FALSE`).
+- **Fixed the same stale "3 LGAs" overlap figure** in the README sheet's
+  text that was already caught and corrected in the methodology doc
+  (Revision 2026-07-31b) — this workbook-generating script's README text
+  had never been updated to match. Now says 17, with the full state-grouped
+  list and the "IDP-only" clarification, matching the doc's corrected
+  language.
+- Row/column counts throughout the README sheet's prose double-checked
+  against the actual regenerated files rather than assumed (86,394 FULL /
+  50,653 WORKING).
+
+`output/README.md` rewritten again to match the new structure.
+
+## Revision 2026-08-02 — folded IDP Camp Backup Points into the main workbook, deleted its standalone .xlsx
+
+User flagged `data_collection/idp_camp_backup_points.csv` and
+`idp_camp_backup_points.xlsx` as confusingly duplicate-named. Resolved by
+folding the backup-points data into `NGA_MSNA_2026_sampling_frame_workbook_v2.xlsx`
+as a new **"IDP Camp Backup Points"** sheet (`build_partner_coverage_workbook.py`,
+read directly from the CSV on disk, same pattern as the household Sampling
+Frame sheet) and deleting the standalone `.xlsx`
+(`analysis_idp_camp_backup_points_part2.R` no longer writes one — comment
+left in its place explaining why). The `.csv` stays as the raw-data file.
+
+Caught and fixed a bug in the new sheet's own description while doing
+this: the note initially said the sheet held "the 81 largest in-camp IDP
+sites (flagged_camp = TRUE)" — wrong, conflating the sheet's total row
+count (81, every in-camp site) with the flagged subset (15, the ones that
+actually have a populated backup GPS point). Verified the corrected text
+directly against the rebuilt sheet before considering this done.
 
 ## Rules for extending or rerunning this pipeline
 

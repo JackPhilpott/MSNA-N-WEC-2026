@@ -33,7 +33,7 @@ mycrs <- 31028   # WGS 84 / UTM zone 28N, metres - identical to main pipeline
 
 data_dir       <- here("input_data")
 output_dir     <- here("output")
-analysis_dir   <- here(output_dir, "analysis_idp_camp_backup_points")
+analysis_dir   <- here(output_dir, "data", "supporting_analysis", "idp_camp_backup_points")
 review_dir     <- here(analysis_dir, "camp_review_images")
 dir.create(review_dir, recursive = TRUE, showWarnings = FALSE)
 
@@ -61,7 +61,7 @@ map_theme <- function(){
 # ---------------------------------------------------------------------------
 # 1. Load in-camp IDP sites, rank by caseload
 # ---------------------------------------------------------------------------
-idp_sites_raw <- read_csv(here(output_dir, "stage2_sampling_frame_idp.csv"), show_col_types = FALSE)
+idp_sites_raw <- read_csv(here("_archive", "2026-07-23_design_frame_pre_coverage", "stage2_sampling_frame_idp.csv"), show_col_types = FALSE)
 
 camp_sites <-
   idp_sites_raw %>%

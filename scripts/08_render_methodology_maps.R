@@ -44,9 +44,9 @@ stopifnot(length(stop_idx) == 1)
 writeLines(lines[1:stop_idx], "temp_stage1_only.R")
 source("temp_stage1_only.R")
 
-dir.create("output/images", showWarnings = FALSE)
+dir.create("output/maps", showWarnings = FALSE)
 
-households_all <- sf::st_read("output/stage2_sampling_frame.gpkg", quiet = TRUE)
+households_all <- sf::st_read("_archive/2026-07-23_design_frame_pre_coverage/stage2_sampling_frame.gpkg", quiet = TRUE)
 
 # ---------------------------------------------------------------------------
 # Map 1: national overview - population raster + IDP sites + excluded areas
@@ -256,7 +256,7 @@ p_overview_inset_titled <- cowplot::ggdraw(p_map_inset_no_legend) +
   # (not an oversized box) to avoid dead white space inside the border.
   cowplot::draw_plot(legend_panel_inset, x = 0.65, y = 0.01, width = 0.33, height = 0.35)
 
-ggsave("output/images/methodology_map_overview_legend_inset.png", p_overview_inset_titled, width = 9, height = 8.5, dpi = 130, bg = "white")
+ggsave("output/maps/methodology_map_overview_legend_inset.png", p_overview_inset_titled, width = 9, height = 8.5, dpi = 130, bg = "white")
 cat("Saved overview map (legend inset)\n")
 
 cat(
@@ -384,7 +384,7 @@ p_non_idp2 <- ggplot() +
     legend.position = "bottom"
   )
 
-ggsave("output/images/methodology_map_non_idp_v2.png", p_non_idp2, width = 7, height = 7, dpi = 130, bg = "white")
+ggsave("output/maps/methodology_map_non_idp_v2.png", p_non_idp2, width = 7, height = 7, dpi = 130, bg = "white")
 cat("Saved Non-IDP v2 map\n")
 
 # ---- Map 3: close-up around the drawn households, buildings visible nearby ----
@@ -420,7 +420,7 @@ p_non_idp_closeup <- ggplot() +
     legend.position = "bottom"
   )
 
-ggsave("output/images/methodology_map_non_idp_closeup.png", p_non_idp_closeup, width = 7, height = 7, dpi = 130, bg = "white")
+ggsave("output/maps/methodology_map_non_idp_closeup.png", p_non_idp_closeup, width = 7, height = 7, dpi = 130, bg = "white")
 cat("Saved Non-IDP close-up map\n")
 
 cat("ALL DONE\n")

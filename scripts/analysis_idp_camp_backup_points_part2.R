@@ -5,9 +5,9 @@
 # the deliverable CSV/XLSX and a sanity-check map.
 #
 # Consumes:
-#   - output/analysis_idp_camp_backup_points/part1_state.rds (all 81 camp
+#   - output/data/supporting_analysis/idp_camp_backup_points/part1_state.rds (all 81 camp
 #     sites, ranked + flagged; footprint evidence for the 15 flagged camps)
-#   - output/analysis_idp_camp_backup_points/manual_visual_review.csv
+#   - output/data/supporting_analysis/idp_camp_backup_points/manual_visual_review.csv
 #     (hand-completed after visually reviewing each flagged camp's
 #     satellite image against its building-footprint overlay - see
 #     Part 1's review images and CLAUDE.md/this analysis's notes for the
@@ -28,8 +28,12 @@ set.seed(1234)  # same seed convention as the main pipeline's Stage 1 draw
 
 mycrs <- 31028
 output_dir   <- here("output")
-analysis_dir <- here(output_dir, "analysis_idp_camp_backup_points")
+analysis_dir <- here(output_dir, "data", "supporting_analysis", "idp_camp_backup_points")  # matches Part 1's output location (part1_state.rds/manual_visual_review.csv live here, read-only from here)
 review_dir   <- here(analysis_dir, "camp_review_images")
+deliverable_dir <- here(output_dir, "data", "data_collection")  # idp_camp_backup_points.csv is a field-team deliverable, not a supporting analysis output
+maps_dir     <- here(output_dir, "maps", "supporting_evidence")
+dir.create(deliverable_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(maps_dir, recursive = TRUE, showWarnings = FALSE)
 
 # Fixed-radius fallback for camps where visual delineation failed - not
 # calibrated per-camp (that's the point of it being a fallback), set to the
@@ -128,12 +132,13 @@ deliverable <-
     extent_source_note
   )
 
-write_csv(deliverable, here(analysis_dir, "idp_camp_backup_points.csv"))
+write_csv(deliverable, here(deliverable_dir, "idp_camp_backup_points.csv"))
 
-xlsx_ok <- requireNamespace("openxlsx", quietly = TRUE)
-if (xlsx_ok) {
-  openxlsx::write.xlsx(deliverable, here(analysis_dir, "idp_camp_backup_points.xlsx"), overwrite = TRUE)
-}
+# No standalone .xlsx here (2026-08-02) - this data is folded into
+# NGA_MSNA_2026_sampling_frame_workbook_v2.xlsx as its own sheet instead
+# (build_partner_coverage_workbook.py), to avoid two files with the same
+# base name sitting side by side in data_collection/. Rerun that script
+# after this one if the workbook needs refreshing.
 
 # ---------------------------------------------------------------------------
 # Summary
@@ -208,10 +213,10 @@ for (cid in example_ids) {
     theme(plot.title = element_text(size = 13, face = "bold", hjust = 0.5),
           plot.subtitle = element_text(size = 9, hjust = 0.5, lineheight = 1.3))
 
-  ggsave(here(analysis_dir, paste0("example_", cid, ".png")), p, width = 8.5, height = 8.2, dpi = 130, bg = "white")
+  ggsave(here(maps_dir, paste0("example_", cid, ".png")), p, width = 8.5, height = 8.2, dpi = 130, bg = "white")
   message("Wrote example map: example_", cid, ".png")
 }
 
-cat("\nWrote:", here(analysis_dir, "idp_camp_backup_points.csv"), "\n")
-if (xlsx_ok) cat("Wrote:", here(analysis_dir, "idp_camp_backup_points.xlsx"), "\n")
+cat("\nWrote:", here(deliverable_dir, "idp_camp_backup_points.csv"), "\n")
+if (xlsx_ok) cat("Wrote:", here(xlsx_dir, "idp_camp_backup_points.xlsx"), "\n")
 cat("\n=== PART 2 COMPLETE ===\n")

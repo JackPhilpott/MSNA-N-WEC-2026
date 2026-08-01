@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 # Builds output/MSNA_2026_sampling_frame_workbook.xlsx: a combined, styled
 # Excel workbook (README + Sampling Frame + Strata-Level Summary tabs) from
-# output/stage2_sampling_frame.csv and output/strata_level_sampling_frame.csv.
+# _archive/2026-07-23_design_frame_pre_coverage/stage2_sampling_frame.csv and
+# _archive/2026-07-23_design_frame_pre_coverage/strata_level_sampling_frame.csv
+# (the pre-coverage DESIGN frame - see output/README.md).
 # Requires: pip install openpyxl
 import csv
 import os
@@ -16,10 +18,10 @@ from openpyxl.utils import get_column_letter
 # scripts/, one level below the project root, so output/ is a parent-level
 # sibling of scripts/.
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT_PATH = PROJECT_DIR + r"\output\MSNA_2026_sampling_frame_workbook.xlsx"
+OUT_PATH = PROJECT_DIR + r"\_archive\2026-07-23_design_frame_pre_coverage\MSNA_2026_sampling_frame_workbook.xlsx"
 
-SF_CSV = PROJECT_DIR + r"\output\stage2_sampling_frame.csv"
-ST_CSV = PROJECT_DIR + r"\output\strata_level_sampling_frame.csv"
+SF_CSV = PROJECT_DIR + r"\_archive\2026-07-23_design_frame_pre_coverage\stage2_sampling_frame.csv"
+ST_CSV = PROJECT_DIR + r"\_archive\2026-07-23_design_frame_pre_coverage\strata_level_sampling_frame.csv"
 
 NAVY = "1B2A4A"
 BLUE = "2C5F8A"

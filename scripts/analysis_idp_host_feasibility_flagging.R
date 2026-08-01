@@ -12,7 +12,7 @@
 #      large for one-person listing to be practical.
 #
 # Scope: the 1,099 "idps in host" sites actually selected into the delivered
-# sample (output/stage2_sampling_frame_idp.csv), not the full raw DTM
+# sample (_archive/2026-07-23_design_frame_pre_coverage/stage2_sampling_frame_idp.csv), not the full raw DTM
 # universe - these are the sites field teams will actually visit. "idps in
 # camp" sites are out of scope (different, non-listing field method).
 #
@@ -40,7 +40,7 @@ hh_size <- 6        # average household size - identical to main pipeline
 data_dir       <- here("input_data")
 population_dir <- here(data_dir, "population")
 output_dir     <- here("output")
-analysis_dir   <- here(output_dir, "analysis_idp_host_feasibility")
+analysis_dir   <- here(output_dir, "data", "supporting_analysis", "idp_host_feasibility")
 dir.create(analysis_dir, recursive = TRUE, showWarnings = FALSE)
 
 # ---------------------------------------------------------------------------
@@ -60,7 +60,7 @@ buffer_radius_m <- 750
 # 1. Load host-community IDP sites actually in the delivered sample
 # ---------------------------------------------------------------------------
 idp_sites_raw <- read_csv(
-  here(output_dir, "stage2_sampling_frame_idp.csv"),
+  here("_archive", "2026-07-23_design_frame_pre_coverage", "stage2_sampling_frame_idp.csv"),
   show_col_types = FALSE
 )
 
