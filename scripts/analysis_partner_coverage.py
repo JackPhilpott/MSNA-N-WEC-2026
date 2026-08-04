@@ -1,7 +1,7 @@
 # ==============================================================================
 # Partner coverage layer - join partner_coverage/Partnerscoverage.xlsx onto the
-# live sampling frame (_archive/2026-07-23_design_frame_pre_coverage/strata_level_sampling_frame.csv +
-# _archive/2026-07-23_design_frame_pre_coverage/stage2_sampling_frame.csv), add coverage_status/exclusion_reason,
+# live sampling frame (_archive/2026-08-04_design_frame_pre_coverage/strata_level_sampling_frame.csv +
+# _archive/2026-08-04_design_frame_pre_coverage/stage2_sampling_frame.csv), add coverage_status/exclusion_reason,
 # produce FULL + WORKING frames, before/after summaries, and a standalone
 # coverage-summary CSV for the ToR narrative.
 #
@@ -17,8 +17,8 @@ from collections import defaultdict, Counter
 import openpyxl
 
 PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling"
-STRATA_CSV = PROJECT_DIR + r"\_archive\2026-07-23_design_frame_pre_coverage\strata_level_sampling_frame.csv"
-STAGE2_CSV = PROJECT_DIR + r"\_archive\2026-07-23_design_frame_pre_coverage\stage2_sampling_frame.csv"
+STRATA_CSV = PROJECT_DIR + r"\_archive\2026-08-04_design_frame_pre_coverage\strata_level_sampling_frame.csv"
+STAGE2_CSV = PROJECT_DIR + r"\_archive\2026-08-04_design_frame_pre_coverage\stage2_sampling_frame.csv"
 COVERAGE_XLSX = PROJECT_DIR + r"\input_data\boundaries\partner_coverage\Partnerscoverage.xlsx"
 OUT_DIR = PROJECT_DIR + r"\output\data\data_collection"
 

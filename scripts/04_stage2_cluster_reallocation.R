@@ -79,6 +79,7 @@ diagnose_zero_building_clusters <- function(
       adm2_pcode,
       uuid_hex_pop,
       target_households,
+      reserve_households,
       selection_count,
       certainty_stratum,
       selection_type
@@ -183,9 +184,10 @@ diagnose_zero_building_clusters <- function(
 #' @param mycrs Coordinate reference system used for spatial processing.
 #' @param cache_directory Character. Directory for intermediate/cached files
 #'   (kept separate from the main Stage 2 building cache).
-#' @param m Integer. Primary households per cluster. Default 6.
-#' @param reserve_n Integer. Maximum reserve households per cluster. Default
-#'   equal to \code{m}.
+#' @param m Integer. Primary households per cluster. Default 6. Reserve
+#'   households are carried over from the original zero-building cluster's
+#'   own \code{reserve_households} (1:1 with its \code{target_households} -
+#'   see \code{merge_repeated_psu_draws()}), not a separate parameter here.
 #' @param seed Integer or NULL. Random seed for the replacement draw,
 #'   independent of the Stage 1 and Stage 2 seeds. Default 4321.
 #' @param candidate_multiplier Numeric. Round-1 candidate batch size per
@@ -225,7 +227,6 @@ reallocate_zero_building_clusters <- function(
     mycrs,
     cache_directory,
     m = 6,
-    reserve_n = m,
     seed = 4321,
     candidate_multiplier = 5,
     rebuild = FALSE,
@@ -484,6 +485,7 @@ reallocate_zero_building_clusters <- function(
       dplyr::mutate(
         cluster_id = cluster_id_i,
         target_households = original$target_households[1],
+        reserve_households = original$reserve_households[1],
         selection_count = original$selection_count[1],
         strata_id = paste(pop_type, adm2_pcode, sep = "_"),
         reallocated = TRUE,
@@ -536,9 +538,9 @@ reallocate_zero_building_clusters <- function(
   clusters_lookup <-
     replacement_rows %>%
     sf::st_drop_geometry() %>%
-    dplyr::select(uuid_hex_pop, cluster_id, target_households)
+    dplyr::select(uuid_hex_pop, cluster_id, target_households, reserve_households)
 
-  new_households_raw <- draw_households_from_files(final_building_files, clusters_lookup, mycrs, reserve_n)
+  new_households_raw <- draw_households_from_files(final_building_files, clusters_lookup, mycrs)
 
   still_empty <- setdiff(replacement_rows$cluster_id, new_households_raw$cluster_id)
 
@@ -626,8 +628,10 @@ reallocate_zero_building_clusters <- function(
 #' @param building_data_dir,wards,admin3,mycrs,cache_directory Same as
 #'   \code{reallocate_zero_building_clusters()}.
 #' @param m Integer. Primary household target for each new supplementary
-#'   cluster.
-#' @param reserve_n Integer. Default equal to \code{m}.
+#'   cluster. Reserve households are set equal to \code{m} too (these are
+#'   always freshly-drawn single clusters, \code{selection_count = 1L}, so
+#'   the 1:1 reserve rule - see \code{merge_repeated_psu_draws()} - never
+#'   scales them beyond \code{m} in the first place).
 #' @param seed Integer or NULL. Default 8642 (distinct from Stage 1's 1234
 #'   and reallocation's 4321).
 #' @param candidate_multiplier Numeric. Round batch size per stratum, as a
@@ -660,7 +664,6 @@ add_supplementary_clusters <- function(
     mycrs,
     cache_directory,
     m,
-    reserve_n = m,
     seed = 8642,
     candidate_multiplier = 4,
     rebuild = FALSE
@@ -811,6 +814,7 @@ add_supplementary_clusters <- function(
           dplyr::mutate(
             cluster_id = new_id,
             target_households = m,
+            reserve_households = m,
             selection_count = 1L,
             strata_id = paste(pop_type, adm2_pcode, sep = "_"),
             reallocated = FALSE,
@@ -876,9 +880,9 @@ add_supplementary_clusters <- function(
   clusters_lookup <-
     new_clusters %>%
     sf::st_drop_geometry() %>%
-    dplyr::select(uuid_hex_pop, cluster_id, target_households)
+    dplyr::select(uuid_hex_pop, cluster_id, target_households, reserve_households)
 
-  new_households_raw <- draw_households_from_files(final_building_files, clusters_lookup, mycrs, reserve_n)
+  new_households_raw <- draw_households_from_files(final_building_files, clusters_lookup, mycrs)
 
   new_households <- finalize_households(new_households_raw, new_clusters, wards, admin3, mycrs)
 

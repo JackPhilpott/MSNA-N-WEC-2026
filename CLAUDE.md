@@ -952,6 +952,110 @@ count (81, every in-camp site) with the flagged subset (15, the ones that
 actually have a populated backup GPS point). Verified the corrected text
 directly against the rebuilt sheet before considering this done.
 
+## Revision 2026-08-04 — reserve-list scaling fixed for repeat-drawn clusters (uniform Option A)
+
+**Problem, flagged by a separate Claude web session writing field guides**:
+the reserve/replacement household list was a flat 6 for every cluster,
+regardless of how large its primary target was. For a single-draw cluster
+(the vast majority) this is a 1:1 ratio and was fine. For a cluster formed
+by merging multiple repeated PPS draws of the same hexagon (up to 17 draws
+in very-small-population strata, `selection_count` > 1 - see "Map 2" under
+Revision 2026-07-31 for how common this actually is, ~20% of selected
+hexes), the primary target scales with `selection_count` (`m *
+selection_count`) but reserve never did - so a 30-primary in-camp cluster
+still carried only 6 reserves, a ~1:5 ratio, proportionally the thinnest
+safety margin exactly where the most listing/replacement activity happens.
+
+**Decision** (user, after weighing several options): uniform Option A -
+`reserve_households = target_households` (both `m * selection_count`),
+applied identically to Non-IDP and IDP clusters. Rejected an asymmetric
+Non-IDP/IDP-only option considered first, on the user's explicit reasoning
+that consistency and simplicity across population groups was more
+defensible than an unverified operational-cost assumption. Confirmed this
+adds **zero field-team effort** - field teams already collect the same
+number of primary interviews; this only changes how large the printed
+backup list is, i.e. file size, not fieldwork.
+
+**Mechanism** (mirrors `target_households` exactly, just extended to a
+new column):
+- `merge_repeated_psu_draws()` (`03_stage2_household_selection.R`) now
+  also computes `reserve_households = m * selection_count`, alongside the
+  existing `target_households = m * selection_count`.
+- `draw_households_from_files()`/`finalize_cluster()` (same file) look up
+  a per-cluster `reserve_n_i` from `clusters_lookup$reserve_households`
+  instead of taking a flat `reserve_n = m` scalar - the `reserve_n`
+  parameter was removed from `draw_households_from_files()` and
+  `select_stage2_households()` entirely.
+- `reallocate_zero_building_clusters()` and `add_supplementary_clusters()`
+  (`04_stage2_cluster_reallocation.R`) propagate the same per-cluster
+  `reserve_households` through their own replacement/new-cluster rows.
+- `select_stage2_idp_sites()`/`build_slots()`
+  (`05_stage2_idp_site_assignment.R`) take `reserve_n_i` as a 3rd per-
+  cluster argument (was a flat closure-captured `reserve_n`).
+- **Capping behaviour deliberately differs by population type, matching
+  each side's EXISTING primary-target capping philosophy exactly** (not a
+  new rule invented for reserves): Non-IDP reserve is naturally capped by
+  building-pool availability (`draw_cluster()`'s existing `min(n_pool,
+  target_hh + reserve_n)`), same as Non-IDP primary already is. IDP
+  reserve is left **uncapped** against DTM-recorded site population, same
+  as IDP primary always has been - the real household list is built by
+  field teams on arrival, not drawn from a pre-existing pool, so a DTM
+  estimate below the planned total isn't grounds to plan fewer reserves
+  than primaries any more than it's grounds to plan fewer primaries. 55 of
+  676 WORKING repeat-drawn IDP clusters would exceed their recorded DTM
+  population under naive full reserve scaling (e.g. `idp_NG034007_1`: 84
+  primary, needs 168 total, only 85 recorded) - this is expected and does
+  not break anything, since IDP reserve was never capped in the first
+  place.
+
+**New column**: `reserve_households` on both the strata-level and
+household-level sampling frame, alongside `target_households`.
+
+**Impact**: no change to primary interview counts, cluster locations, or
+field-team workload (52,246 DESIGN / 31,051 WORKING primary interviews,
+unchanged) - only household-level row counts (primary + reserve slots)
+grew: FULL 86,394 -> 104,190 rows (+20.6%), WORKING 50,653 -> 61,837 rows
+(+22.1%). Repeat-drawn clusters are cut by the partner-coverage layer at
+roughly the same rate as clusters generally (~60% retained), so the
+WORKING-frame growth rate is not meaningfully smaller than FULL's, contrary
+to an initial hypothesis that it would be - checked directly rather than
+assumed.
+
+**Gotcha hit during this rerun, worth knowing before ever adding a new
+per-cluster column here again**: three separate `select()` calls needed
+updating to thread `reserve_households` through
+(`04_stage2_cluster_reallocation.R`'s `zero_building_clusters` builder,
+and `03_stage2_household_selection.R`'s `finalize_households()` final
+export `select()`) - missing one didn't error cleanly the first time: R's
+`dplyr::mutate(col = df$nonexistent_col[1])` silently assigns `NULL`
+(dropping the column entirely) rather than erroring, so the actual `Can't
+select columns that don't exist` error only surfaced several steps later,
+downstream of the real mistake. Also hit: the pipeline had been launched
+piped through `tail -200` (`Rscript ... | tail -200`) - a piped command's
+reported exit code is `tail`'s, not `Rscript`'s, so a genuine mid-run
+failure was masked as "exit 0, completed" and looked like an unexplained
+early stop instead of an error. **Always redirect a background pipeline
+run straight to a log file (`> log 2>&1`) rather than piping through
+`tail`**, so the real exit code and full output are both preserved.
+Separately: a stale `output/cache/stage2_non_idp/stage2_households.rds`
+(cached from an earlier attempt, before the `finalize_households()` export
+fix landed) silently kept serving pre-fix rows for the bulk Non-IDP draw
+even after the code was corrected and the pipeline re-ran successfully -
+`rebuild = FALSE` caches key on the cache directory path only, not on
+whether the generating code changed, so any code fix touching a cached
+function's output schema needs that specific cache cleared before the fix
+can actually take effect, not just a clean rerun.
+
+Design frame re-archived to
+`_archive/2026-08-04_design_frame_pre_coverage/` (superseding
+`_archive/2026-07-23_design_frame_pre_coverage/` as the source
+`analysis_partner_coverage.py` reads from - its `STRATA_CSV`/`STAGE2_CSV`
+constants updated accordingly). `patch_site_radius_and_tier2_flag.R` and
+`build_partner_coverage_workbook.py` re-run against the new frame per the
+existing required sequence (see `output/README.md`'s "If you rerun the
+pipeline" section). **Not yet committed to git** - awaiting user review
+of the regenerated frame before treating this as final.
+
 ## Rules for extending or rerunning this pipeline
 
 - **Don't rerun this pipeline casually.** The frame is submitted and

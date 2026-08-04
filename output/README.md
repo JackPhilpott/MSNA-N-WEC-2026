@@ -18,15 +18,30 @@ See "Data-quality fixes applied" below for what's already been corrected.
 | | Interviews | LGAs | What it is |
 |---|---|---|---|
 | **DESIGN frame** | 52,246 | 323 | What the approved sampling design calls for, before any partner-coverage check. Preserved, re-derivable — nothing changes here when coverage is reconfirmed. |
-| **WORKING frame** | 31,051 | 176 | The DESIGN frame filtered to LGAs a partner has confirmed they can cover, minus the small-population certainty-stratum exclusions. **This is what will actually be fielded.** (50,653 household-level rows, i.e. primary + reserve interview slots, vs. 86,394 in the FULL frame.) |
+| **WORKING frame** | 31,051 | 176 | The DESIGN frame filtered to LGAs a partner has confirmed they can cover, minus the small-population certainty-stratum exclusions. **This is what will actually be fielded.** (61,837 household-level rows, i.e. primary + reserve interview slots, vs. 104,190 in the FULL frame — see "Reserve-list scaling fix" below for why this grew from 50,653/86,394.) |
 
-The original, pre-coverage-layer DESIGN-only outputs (2026-07-23, before the
-2026-07-30 partner-coverage revision) have been moved to
-**`../_archive/2026-07-23_design_frame_pre_coverage/`** (superseded by the
-`_v2_FULL` files in `data/data_collection/`, which carry the same design
-plus coverage columns — kept for reference only, do not use for fielding).
-Pipeline recompute caches live in **`../_cache/`** (not a deliverable —
-load-bearing for fast pipeline reruns only).
+The original, pre-coverage-layer DESIGN-only outputs (now superseded twice —
+first by the 2026-07-30 partner-coverage revision, then by the 2026-08-04
+reserve-list scaling fix, see below) have been moved to
+**`../_archive/2026-07-23_design_frame_pre_coverage/`** and
+**`../_archive/2026-08-04_design_frame_pre_coverage/`** respectively
+(superseded by the `_v2_FULL` files in `data/data_collection/`, which carry
+the same design plus coverage columns — kept for reference only, do not use
+for fielding). Pipeline recompute caches live in **`../_cache/`** (not a
+deliverable — load-bearing for fast pipeline reruns only).
+
+## Reserve-list scaling fix, 2026-08-04
+
+`reserve_households` (new column) now scales 1:1 with `target_households`
+for every cluster, replacing a flat 6-reserve cap that previously applied
+regardless of primary target size — see `CLAUDE.md`'s "Revision 2026-08-04"
+for the full rationale and mechanism. This is a **file-size-only** change:
+no primary interview counts, cluster locations, or field-team workload
+changed (52,246 DESIGN / 31,051 WORKING primary interviews, same as
+before) — only how many backup/replacement household slots are printed
+for clusters formed by merging multiple repeated PPS draws of the same
+hexagon. Household-level row counts grew accordingly: FULL 86,394 →
+104,190 (+20.6%), WORKING 50,653 → 61,837 (+22.1%).
 
 ## Data-quality fixes applied 2026-08-01
 

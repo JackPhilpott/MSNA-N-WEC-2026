@@ -199,15 +199,15 @@ compute_cluster_file_membership <- function(building_files, clusters_lookup) {
 #'
 #' @param building_files Character vector of building cache file paths.
 #' @param clusters_lookup Data frame with \code{uuid_hex_pop},
-#'   \code{cluster_id}, \code{target_households}.
+#'   \code{cluster_id}, \code{target_households}, \code{reserve_households}
+#'   (per-cluster reserve target, not a single fleet-wide value - see
+#'   \code{merge_repeated_psu_draws()}).
 #' @param mycrs Coordinate reference system used for spatial processing.
-#' @param reserve_n Integer. Maximum reserve households beyond target,
-#'   passed through to \code{draw_cluster()}.
 #'
 #' @return sf point object, one row per drawn household (primary +
 #'   reserve), same shape as \code{draw_cluster()}'s output, combined
 #'   across all clusters found in \code{building_files}.
-draw_households_from_files <- function(building_files, clusters_lookup, mycrs, reserve_n) {
+draw_households_from_files <- function(building_files, clusters_lookup, mycrs) {
 
   membership <- compute_cluster_file_membership(building_files, clusters_lookup)
   last_file_lookup <- purrr::map_int(membership, max)
@@ -218,9 +218,11 @@ draw_households_from_files <- function(building_files, clusters_lookup, mycrs, r
   finalize_cluster <- function(cluster_id_i) {
 
     acc <- get(cluster_id_i, envir = accumulator)
-    target_hh <- clusters_lookup$target_households[match(cluster_id_i, clusters_lookup$cluster_id)]
+    lookup_row <- match(cluster_id_i, clusters_lookup$cluster_id)
+    target_hh <- clusters_lookup$target_households[lookup_row]
+    reserve_n_i <- clusters_lookup$reserve_households[lookup_row]
 
-    result <- draw_cluster(acc$rows, target_hh, reserve_n)
+    result <- draw_cluster(acc$rows, target_hh, reserve_n_i)
 
     if(!is.null(result)) {
       households_list[[length(households_list) + 1]] <<- result
@@ -362,11 +364,12 @@ draw_households_from_files <- function(building_files, clusters_lookup, mycrs, r
 #' @param m Integer. Primary households per cluster.
 #'
 #' @return sf polygon object, one row per unique \code{uuid_hex_pop}, with
-#'   \code{target_households}, \code{strata_id}, \code{reallocated} (FALSE),
-#'   \code{original_uuid_hex_pop} (NA), and the location/site provenance
-#'   columns described below (all set to their Non-IDP/building-footprint
-#'   defaults here - \code{05_stage2_idp_site_assignment.R} overrides them for IDP
-#'   clusters) added.
+#'   \code{target_households}, \code{reserve_households}, \code{strata_id},
+#'   \code{reallocated} (FALSE), \code{original_uuid_hex_pop} (NA), and the
+#'   location/site provenance columns described below (all set to their
+#'   Non-IDP/building-footprint defaults here -
+#'   \code{05_stage2_idp_site_assignment.R} overrides them for IDP clusters)
+#'   added.
 merge_repeated_psu_draws <- function(clusters, m) {
 
   clusters_merged <-
@@ -384,6 +387,14 @@ merge_repeated_psu_draws <- function(clusters, m) {
     dplyr::ungroup() %>%
     dplyr::mutate(
       target_households = m * selection_count,
+      # Revision 2026-08-03: reserve list sized 1:1 with the primary target,
+      # extended consistently to repeat-drawn clusters (previously reserve
+      # stayed flat at m regardless of selection_count, so a cluster drawn
+      # 17x got the same 6 reserves as one drawn once - see CLAUDE.md for
+      # the full discussion). Actual reserve draw still caps at whatever's
+      # available in the pool (draw_cluster()'s existing min() logic), same
+      # as primary already does via below_target_cluster.
+      reserve_households = m * selection_count,
       strata_id = paste(pop_type, adm2_pcode, sep = "_"),
       # Every cluster is "not reallocated" here - only
       # reallocate_zero_building_clusters() (04_stage2_cluster_reallocation.R) ever
@@ -451,7 +462,7 @@ merge_repeated_psu_draws <- function(clusters, m) {
 #'   \code{adm1_pcode}, \code{adm1_name}, \code{adm2_pcode}, \code{adm2_name},
 #'   \code{uuid_hex}, \code{uuid}, \code{certainty_stratum},
 #'   \code{selection_type}, \code{selection_count}, \code{psu_probability},
-#'   \code{target_households}, \code{reallocated}, \code{original_uuid_hex_pop},
+#'   \code{target_households}, \code{reserve_households}, \code{reallocated}, \code{original_uuid_hex_pop},
 #'   \code{supplementary_cluster},
 #'   \code{location_source}, \code{households_in_cluster_source},
 #'   \code{site_radius_m}, \code{iom_site_id}, \code{iom_site_name},
@@ -486,6 +497,7 @@ finalize_households <- function(households, clusters_merged, wards, admin3, mycr
           selection_count,
           psu_probability,
           target_households,
+          reserve_households,
           reallocated,
           original_uuid_hex_pop,
           supplementary_cluster,
@@ -604,6 +616,7 @@ finalize_households <- function(households, clusters_merged, wards, admin3, mycr
       y_utm,
       households_in_cluster,
       target_households,
+      reserve_households,
       selection_count,
       certainty_stratum,
       selection_type,
@@ -667,10 +680,11 @@ finalize_households <- function(households, clusters_merged, wards, admin3, mycr
 #'   teams who may need to cross-reference the official identifiers.
 #' @param mycrs Coordinate reference system used for spatial processing.
 #' @param cache_directory Character. Directory for the cached RDS output.
-#' @param m Integer. Primary households per cluster. Default 6.
-#' @param reserve_n Integer. Maximum reserve/replacement households per
-#'   cluster, beyond the \code{m} primary, capped by building availability.
-#'   Default equal to \code{m}.
+#' @param m Integer. Primary households per cluster. Default 6. Reserve
+#'   households per cluster are sized 1:1 with that cluster's own primary
+#'   target (\code{m * selection_count} - see \code{merge_repeated_psu_draws()}),
+#'   not a single fleet-wide value, so a repeat-drawn cluster's reserve list
+#'   scales with it rather than staying flat at \code{m}.
 #' @param seed Integer or NULL. Random seed set before the household draw,
 #'   for reproducibility, independent of the Stage 1 PPS draw's seed.
 #'   Default 1234.
@@ -680,8 +694,9 @@ finalize_households <- function(households, clusters_merged, wards, admin3, mycr
 #'   (primary + reserve), with design and geospatial attributes, including
 #'   both UTM (\code{x_utm}/\code{y_utm}, in \code{mycrs}) and WGS84
 #'   (\code{longitude}/\code{latitude}) coordinate columns. Primary rows are
-#'   numbered \code{interview_number} 1..m; reserve rows are numbered
-#'   \code{replacement_rank} 1..reserve_n instead, ranked in draw order.
+#'   numbered \code{interview_number} 1..target_households; reserve rows are
+#'   numbered \code{replacement_rank} 1..reserve_households instead, ranked
+#'   in draw order.
 #'   \code{adm3_pcode}/\code{adm3_name} (GRID3-sourced, national coverage)
 #'   are the primary Admin-3 fields, with \code{admin3_source} recording
 #'   provenance and \code{admin3_cod_pcode}/\code{admin3_cod_name} carrying
@@ -696,7 +711,6 @@ select_stage2_households <- function(
     mycrs,
     cache_directory,
     m = 6,
-    reserve_n = m,
     seed = 1234,
     rebuild = FALSE
 ) {
@@ -777,10 +791,11 @@ select_stage2_households <- function(
     dplyr::select(
       uuid_hex_pop,
       cluster_id,
-      target_households
+      target_households,
+      reserve_households
     )
 
-  households <- draw_households_from_files(building_files, clusters_lookup, mycrs, reserve_n)
+  households <- draw_households_from_files(building_files, clusters_lookup, mycrs)
 
 
   zero_building_clusters <-

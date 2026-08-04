@@ -43,9 +43,11 @@
 #'   passed through to \code{finalize_households()}.
 #' @param mycrs Coordinate reference system used for spatial processing.
 #' @param cache_directory Character. Directory for the cached RDS output.
-#' @param m Integer. Primary households per cluster. Default 6.
-#' @param reserve_n Integer. Maximum reserve households per cluster beyond
-#'   \code{m}. Default equal to \code{m}.
+#' @param m Integer. Primary households per cluster. Default 6. Reserve
+#'   households per cluster are sized 1:1 with that cluster's own primary
+#'   target (\code{m * selection_count} - see \code{merge_repeated_psu_draws()}),
+#'   not a separate parameter, and - like the primary target itself for
+#'   IDP - never capped against the DTM-recorded population.
 #' @param site_radius_m Numeric. Fixed radius (metres) around the site GPS
 #'   point defining "this site" for field teams. Default 150 - chosen after
 #'   checking the actual national IOM DTM site spacing (median
@@ -82,7 +84,6 @@ select_stage2_idp_sites <- function(
     mycrs,
     cache_directory,
     m = 6,
-    reserve_n = m,
     site_radius_m = 150,
     dedup_radius_m = 30,
     rebuild = FALSE
@@ -281,7 +282,16 @@ select_stage2_idp_sites <- function(
   # cluster shares that cluster's single site GPS point.
   # ---------------------------------------------------------------------------
 
-  build_slots <- function(cluster_id_i, target_hh) {
+  # reserve_n_i comes straight from clusters_merged_with_sites$reserve_households
+  # (1:1 with target_hh, via merge_repeated_psu_draws() - see there for why),
+  # not the flat reserve_n this function used to close over. Deliberately
+  # NOT capped against site_households here, matching how target_hh itself
+  # is never capped for IDP either (below_target_cluster flags a shortfall,
+  # it doesn't reduce planned slots) - the real household list is built by
+  # field teams on arrival, not drawn from a pre-existing pool, so a DTM
+  # estimate below the planned total isn't grounds to plan fewer reserves
+  # than primary any more than it's grounds to plan fewer primaries.
+  build_slots <- function(cluster_id_i, target_hh, reserve_n_i) {
 
     dplyr::bind_rows(
       tibble::tibble(
@@ -294,16 +304,19 @@ select_stage2_idp_sites <- function(
         cluster_id = cluster_id_i,
         status = "reserve",
         interview_number = NA_integer_,
-        replacement_rank = seq_len(reserve_n)
+        replacement_rank = seq_len(reserve_n_i)
       )
     )
 
   }
 
   household_slots <-
-    purrr::map2(
-      clusters_merged_with_sites$cluster_id,
-      clusters_merged_with_sites$target_households,
+    purrr::pmap(
+      list(
+        clusters_merged_with_sites$cluster_id,
+        clusters_merged_with_sites$target_households,
+        clusters_merged_with_sites$reserve_households
+      ),
       build_slots
     ) %>%
     dplyr::bind_rows()
