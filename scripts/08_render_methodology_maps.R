@@ -46,7 +46,7 @@ source("temp_stage1_only.R")
 
 dir.create("output/maps", showWarnings = FALSE)
 
-households_all <- sf::st_read("_archive/2026-07-23_design_frame_pre_coverage/stage2_sampling_frame.gpkg", quiet = TRUE)
+households_all <- sf::st_read("_archive/2026-08-04_design_frame_pre_coverage/stage2_sampling_frame.gpkg", quiet = TRUE)
 
 # ---------------------------------------------------------------------------
 # Map 1: national overview - population raster + IDP sites + excluded areas
@@ -422,5 +422,59 @@ p_non_idp_closeup <- ggplot() +
 
 ggsave("output/maps/methodology_map_non_idp_closeup.png", p_non_idp_closeup, width = 7, height = 7, dpi = 130, bg = "white")
 cat("Saved Non-IDP close-up map\n")
+
+# ---- Map 4: extra-zoomed close-up for presentation use (2026-08-04) -
+# tighter crop on the dense sub-cluster of points/buildings in the top-left
+# of the Map 3 close-up above, purely to illustrate how household points
+# fall onto building footprints - doesn't need to represent the whole
+# cluster (unlike Map 3, which deliberately shows every drawn household). ----
+
+# Identified visually from methodology_map_non_idp_closeup.png (Map 3): the
+# dense top-left sub-cluster is 7 of the 12 household points, two adjacent
+# knots within ~1km of each other (confirmed against actual coordinates -
+# the small-longitude/high-latitude corner of the point cloud), not an
+# arbitrary pixel crop.
+non_idp_extra_zoom_ids <- paste0(
+  non_idp_example_id,
+  c("_HH01", "_HH02", "_HH04", "_HH05", "_R01", "_R03", "_R04")
+)
+hh_extra_zoom <- hh_wgs84 %>% dplyr::filter(survey_id %in% non_idp_extra_zoom_ids)
+stopifnot(nrow(hh_extra_zoom) == 7)
+
+hh_extra_zoom_proj <- sf::st_transform(hh_extra_zoom, mycrs)
+extra_zoom_bbox_proj <- sf::st_bbox(hh_extra_zoom_proj) + c(-25, -25, 25, 25)
+extra_zoom_extent_wgs84 <- sf::st_as_sfc(extra_zoom_bbox_proj, crs = mycrs) %>% sf::st_transform(4326)
+bbox_extra_zoom <- sf::st_bbox(extra_zoom_extent_wgs84)
+
+# zoom=19 basemap tiles aren't available for this rural area ("Map data not
+# yet available" placeholder tiles) - zoom=18 (same as Map 3) is the usable
+# max here.
+basemap_extra_zoom <- get_tiles_retry(extra_zoom_extent_wgs84, provider = "Esri.WorldImagery", zoom = 18, crop = TRUE)
+
+p_non_idp_extra_zoom <- ggplot() +
+  tidyterra::geom_spatraster_rgb(data = basemap_extra_zoom, maxcell = 4e6) +
+  geom_sf(data = buildings_wgs84, fill = NA, color = "#FFD700", linewidth = 0.7, alpha = 0.95) +
+  geom_sf(data = hh_extra_zoom, aes(fill = status, color = status, shape = status), size = 6, stroke = 1.4, alpha = 0.85) +
+  scale_fill_manual(values = marker_fill, name = "Household") +
+  scale_color_manual(values = marker_color, name = "Household") +
+  scale_shape_manual(values = marker_shape, name = "Household") +
+  coord_sf(xlim = c(bbox_extra_zoom["xmin"], bbox_extra_zoom["xmax"]), ylim = c(bbox_extra_zoom["ymin"], bbox_extra_zoom["ymax"]), expand = FALSE, crs = 4326) +
+  labs(
+    title = "Household points on building footprints",
+    subtitle = paste0(non_idp_example_id, " | yellow = eligible building footprints"),
+    caption = "Basemap: Esri World Imagery"
+  ) +
+  theme_void() +
+  theme(
+    plot.title = element_text(face = "bold", size = 15, margin = margin(b = 4)),
+    plot.subtitle = element_text(size = 9, color = "grey30", margin = margin(b = 8)),
+    plot.caption = element_text(size = 7, color = "grey50"),
+    legend.position = "bottom",
+    legend.title = element_text(size = 10),
+    legend.text = element_text(size = 9)
+  )
+
+ggsave("output/maps/methodology_map_non_idp_extra_closeup.png", p_non_idp_extra_zoom, width = 7, height = 7, dpi = 150, bg = "white")
+cat("Saved Non-IDP extra close-up (presentation) map\n")
 
 cat("ALL DONE\n")

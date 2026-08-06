@@ -1056,6 +1056,310 @@ existing required sequence (see `output/README.md`'s "If you rerun the
 pipeline" section). **Not yet committed to git** - awaiting user review
 of the regenerated frame before treating this as final.
 
+## Revision 2026-08-05 — Tier 2 backup GPS points extended to every in-camp cluster; partner data-collection KML packages built
+
+**Partner data-collection packages (new, operational deliverable, outside
+this repo).** `scripts/build_partner_dc_packages.py` builds
+`../../6. Outputs/partner_dc_files/<Partner>/<State>/<LGA>/` — KML files
+for field teams to load in Maps.me/Google Maps for tomorrow's pilot. Splits
+the WORKING household-level frame by partner using
+`input_data/boundaries/partner_coverage/Partnerscoverage.xlsx`'s per-LGA
+partner columns (same LGA-name matching/reconciliation logic as
+`analysis_partner_coverage.py`, duplicated rather than imported per this
+project's standalone-script convention). Per LGA folder: up to 3 files —
+`non_idp_households_primary.kml` (one point per primary HH survey),
+`non_idp_households_reserve.kml` (same, reserve rows — kept in a **separate
+file**, not mixed with primary, at the user's explicit request so field
+teams can't confuse the two), `idp_clusters_primary.kml` (one point per IDP
+cluster — primary and reserve HH rows share an identical site coordinate
+within a cluster, so there is no separate IDP reserve file). An LGA covered
+by >1 partner gets identical folders duplicated into each partner's tree
+(currently only Sokoto/Isa: DRC + IRC/LHI). Not git-tracked (lives outside
+`1_sampling/` entirely) and not part of the numbered pipeline.
+
+**Tier 2 backup GPS points extended from 15 to all 81 in-camp clusters**
+(`scripts/analysis_idp_camp_backup_points_part3.R`, run once, in-place
+patch of `output/data/data_collection/idp_camp_backup_points.csv`).
+Context: while building the partner KML packages, partners at the ToT
+raised concern (day before pilot start) that Tier 1 (full household
+listing) feasibility is a broader worry than the original design
+anticipated — the existing backup-point mechanism (Revision 2026-07-28,
+`analysis_idp_camp_backup_points_part{1,2}.R`) only covered the 15 largest
+camps (>2,000hh, individually reviewed via satellite imagery), on the
+rationale that only those camps' DTM point (often a registration desk, not
+a camp centroid) posed a meaningful walk-starting-point bias risk. User
+decision: extend a backup point to every in-camp cluster as a just-in-case
+safety net, using the **same fixed-radius-buffer fallback method** Part 2
+already uses for camps where imagery delineation wasn't confident (300m
+radius around the DTM point, uniform over the circle's area via `r =
+300*sqrt(u)`, `set.seed(1234)`), rather than attempting manual imagery
+delineation for 66 more camps overnight — not feasible before tomorrow's
+pilot start, and the buffer fallback is already an accepted, documented
+method in this same dataset. **Does not touch the original 15 flagged
+camps' points** (9 imagery-delineated + 6 already-fallback, from Part 2) —
+only fills in the 66 previously-`NA` `backup_gps_lat`/`lon` rows. New
+`backup_point_method` column distinguishes all three provenances
+(`imagery_delineated` / `fixed_radius_fallback_flagged_camp` /
+`fixed_radius_fallback_standard_camp`), since "has a backup point" and "was
+individually reviewed" are no longer the same thing after this change.
+`flagged_camp` itself is untouched — it still means "was in the original
+>2,000hh review subset," not "has a backup point."
+
+**Fixed a mislabeling bug found while building the KML packages**: the
+first KML-generation pass described the backup point as "use if the DTM
+point above looks wrong on the ground" — wrong framing. Per the
+methodology doc's actual Tier 1/Tier 2 design (§3), the backup point is
+specifically the **Tier 2 random-walk starting point**, used only when a
+full Tier 1 listing isn't feasible on arrival; for camps without a backup
+point, Tier 1 and Tier 2 both use the same DTM point. Corrected in both
+`build_partner_dc_packages.py`'s placemark text and this file.
+
+`build_partner_coverage_workbook.py` rerun after Part 3 so the "IDP Camp
+Backup Points" sheet reflects all 81 rows populated (was rerun already for
+Revision 2026-08-04's reserve-scaling fix; this is a second, independent
+rerun for Part 3's change).
+
+## Revision 2026-08-06 — region-differentiated Niger border buffer, via TARGETED resample (not a full rerun)
+
+**Decision.** Following the border-buffer scenario test-runs earlier the same
+day (see the two entries above this one — full-pipeline reruns of "5km on
+all borders" and "5km IDP / current Non-IDP"), the user made a third,
+different decision: keep the **20km Niger buffer in NE** (Borno/Yobe),
+reduce it to **5km in NC/NW**. Checked precisely before doing anything: only
+**31 LGAs nationally are within 20km of the Niger border** (7 in NE, 24 in
+NW, **zero in NC** — Niger State's only border-adjacent LGA, Borgu, borders
+Benin, not the Niger republic, so "5km in NC" has no practical effect).
+Chad/Cameroon/Benin buffers are unchanged (5km) everywhere, always.
+
+**Explicitly NOT a full pipeline rerun.** The user was clear after the day's
+earlier scenario work that a full national rerun for a change this scoped
+was the wrong call in principle — it churns every LGA's specific drawn
+points (buildings/IDP sites) even where nothing about that LGA's accessible
+area changed at all, invalidating already-distributed partner field
+material nationwide for a change that only affects 4 states. Instead: a
+**targeted resample of only the 24 NW LGAs**, spliced into the existing,
+already-delivered design frame; the other 299 LGAs (including the 7 Niger-
+adjacent NE LGAs, which keep 20km unchanged) are byte-identical to before —
+verified directly (all 97,012 unaffected household-level rows compared
+field-by-field against a pre-change snapshot, zero differences).
+
+**24 targeted LGAs**: Katsina (Batsari, Baure, Daura, Jibia, Kaita, Katsina,
+Mai'adua, Mashi, Sandamu, Zango — 10), Kebbi (Arewa-Dandi, Bagudo, Bunza,
+Dandi — 4), Sokoto (Gada, Goronyo, Gudu, Gwadabawa, Illela, Isa, Sabon
+Birni, Tangaza — 8), Zamfara (Shinkafi, Zurmi — 2).
+
+**Mechanism**:
+1. A throwaway, fully isolated copy of the project (`1_sampling_targeted_
+   resample_nw24/`, outside the tracked repo, junctioned to the live
+   project's static input data) ran the *unmodified* Stage 1/2 selection
+   code with two changes: `NGA_shapes_all_cleaned$nga_admin2` filtered to
+   just the 24 target pcodes (inserted right after that object is built,
+   before the IDP DTM join and before the hex grid is constructed — this
+   single filter cascades correctly through every downstream step using the
+   exact same unmodified functions, not a reimplementation), and the
+   international-buffer rule set to a uniform 5000m (correct here since
+   every LGA remaining after the filter *is* one of the 24 getting 5km).
+   Its own `set.seed(1234)` gives a fresh, independent, reproducible draw
+   for just these 24 LGAs.
+2. Why isolated-and-spliced rather than "rerun the national script with a
+   smarter buffer condition": R's PPS/building/site draws all consume a
+   single shared, sequential RNG stream. Even with an accessible-area
+   change correctly scoped to only the 24 LGAs, a national rerun would let
+   an earlier-processed affected stratum consuming a different number of
+   random calls than before silently shift *every later stratum's* draw —
+   including LGAs whose own accessible area never changed. An isolated
+   resample with its own seed, spliced in afterward, has no such risk by
+   construction.
+3. Two in-camp IDP clusters were newly selected by the resample and not
+   already in the 81-site national in-camp list (`analysis_idp_camp_backup_
+   points_part1-3.R`) — Sabon Birni's Tsamaye Primary School (267hh) and
+   Unguwar Lalle Primary School (781hh). Two other newly-drawn in-camp
+   cluster IDs coincidentally matched existing site_ids by chance of
+   cluster-numbering position, but were checked and confirmed to be the
+   *same actual physical site* (identical iom_site_id/name/coordinates) —
+   not new, no action needed. The two genuinely new sites got a Tier 2
+   backup point via `analysis_idp_camp_backup_points_part4_targeted_
+   resample_additions.R`, same fixed-radius-buffer fallback method as
+   Part 3 (300m, uniform over the circle's area) — now 83 in-camp sites
+   with a backup point (was 81).
+4. `merge_targeted_resample_nw24.py` and `merge_selected_clusters_final_
+   nw24.R` spliced the resample's 24-LGA rows into the live design frame —
+   dropped the 24 LGAs' old rows from `_archive/2026-08-04_design_frame_
+   pre_coverage/{stage2_sampling_frame.csv,strata_level_sampling_frame.csv,
+   selected_clusters_final.rds}`, appended the resample's rows for those
+   LGAs, wrote the result to a new dated archive,
+   `_archive/2026-08-06_design_frame_post_nw_targeted_resample/` — this is
+   now the current design-frame source of truth, same role
+   `2026-08-04_design_frame_pre_coverage/` played before it.
+5. `analysis_partner_coverage.py`'s `STRATA_CSV`/`STAGE2_CSV` (and
+   `build_partner_dc_packages.py`'s `STRATA_CSV`) repointed to the new
+   archive folder, rerun — this is a deterministic, no-randomness join, so
+   safe to rerun wholesale on the merged frame; reproduces identical
+   `coverage_status`/`exclusion_reason` for all 299 untouched LGAs and
+   correct new values for the 24. `patch_site_radius_and_tier2_flag.R` and
+   `build_partner_coverage_workbook.py` rerun after, per the existing
+   required sequence.
+6. **International-buffer logic in `01_sampling_pipeline_main.R` itself
+   updated** to the new region-differentiated rule (NE 20km / NC+NW 5km),
+   as the script's permanent, documented behaviour going forward — but this
+   was a documentation/future-rerun-accuracy update to the deterministic
+   boundary/buffer section only (well before `set.seed(1234)`), **not** how
+   the actually-delivered design was produced (that was the isolated
+   resample above). Implementation: buffers Niger's border line at both
+   20km and 5km, intersects the 20km version with NE's admin1 union and the
+   5km version with NC+NW's admin1 union, and unions the two pieces
+   together — verified directly (a known NW point 12km from the border,
+   Sandamu town, now falls outside the buffer; Mobbar, NE, correctly still
+   has zero IDP sample since NE's 20km rule is unchanged there).
+7. **Cache gotcha, same class as the buildings/idp_sites ones already
+   documented above**: `input_data/boundaries/nga_hexagons/accessible_hex.
+   rds` is keyed by a fixed path, not by buffer distance — deleted so it
+   regenerates fresh against the new buffer logic rather than silently
+   serving the stale pre-2026-08-06 result. `hexa_by_admin2.rds` (the
+   pre-accessibility hex grid) is buffer-independent and was correctly left
+   alone/reused throughout.
+
+**Maps**: `analysis_coverage_map1.R` needed no changes (LGA-level only,
+reads `coverage_summary` which was already correctly regenerated).
+`analysis_coverage_map2.R` previously re-sourced the *entire* pipeline
+script through Stage 1 selection (`temp_stage1_map2.R`) to get hex
+geometries — safe only when that reproduced the exact national draw every
+time; now that the delivered design is a splice rather than one national
+draw, this was changed to source only the deterministic boundary/buffer
+prefix (through `hex_access`, no randomness anywhere in that range) and
+load hex geometries directly from the merged archive's
+`selected_clusters_final.rds` instead of re-deriving them. Both maps
+regenerated. Methodology example maps (`08_render_methodology_maps.R`,
+`analysis_idp_tor_maps_part1/2.R`) checked and confirmed **not** affected —
+none of their fixed example-cluster IDs (`non_idp_NG023010_1` Kogi,
+`idp_NG008013_17` Borno, `idp_NG021005_2` Katsina/Bindawa) fall within the
+24 targeted LGAs.
+
+**Partner resources**: `build_partner_dc_packages.py` — output root moved
+2026-08-06 by the user from `6. Outputs\partner_dc_files` to
+`3. External coordination\NGA MSNA 2026 Package` (same structure, script
+updated to match). IDP Tier 2 backup points now get their **own KML file**
+per LGA folder (`idp_clusters_tier2_backup.kml`, separate from `idp_
+clusters_primary.kml`) rather than being bundled as extra placemarks inside
+the primary file — the points were always present, just not separately
+discoverable, which is what prompted this split. Per-partner summary
+workbook restructured from a single sheet to two: **README** (Point Type/
+column definitions, plus a per-State/LGA target-sample summary table
+computed straight from that partner's own points) and **Sampling Points**
+(the full row-level table, unchanged from before). Regenerated for all 19
+partners; DRC's was skipped (file open/locked at run time) — rerun
+`build_partner_dc_packages.py` once it's closed.
+
+**National achieved sample (WORKING, post-coverage)**: 31,051 → 31,559
+(+508 interviews, entirely IDP — Non-IDP total is materially unchanged
+since Non-IDP sample size is precision-driven and saturates well before
+these LGAs' population scale). Newly-reportable IDP LGAs (zero achieved
+sample before, real sample now): Sandamu (84), Illela (84), Baure (84),
+Jibia (78), Mai'adua (60) — Zango and the NE's Mobbar remain unreportable
+even at 5km (their DTM sites are within 5km of the border too, not just
+20km — a full buffer removal, not tested here, would be needed to reach
+them). None of the 18 already-excluded small-population IDP strata (Kano
+×14, Kaduna/Markafi, Kebbi/Gwandu, Niger/Katcha, Niger/Lapai) are affected —
+none border Niger within 20km.
+
+**Safety copies, not superseded by this change**: `_archive/2026-08-06_
+pre_border_buffer_scenario_test/output/` — a full copy of `output/` taken
+before any of this day's work (both the earlier full-national scenario test
+runs and this targeted resample) — kept as the pre-2026-08-06 reference
+point if ever needed. `1_sampling_scenario1_5km_all/` and `1_sampling_
+scenario2_asymmetric/` (the day's earlier full-rerun test scenarios,
+superseded by this targeted approach) are left on disk outside the tracked
+repo, not cleaned up automatically.
+
+**Update 2026-08-06b — methodology doc brought in line, a map rendering bug
+fixed, DRC's partner workbook regenerated.**
+
+- `msna_methodology_summary_portable.md` updated: Section 1's assessment-
+  area map caption and Section 4's border-buffer paragraph now describe the
+  region-differentiated rule; Sections 7 and 8's national/North-West tables
+  (design and WORKING) updated to the merged frame's real figures, MoE
+  ranges recomputed directly from the CSVs (North-West/National WORKING MoE
+  range 6.1%–9.3% → 7.1%–9.3%; North-Central/North-East rows and Section
+  7's design-frame MoE ranges are unchanged at displayed precision, since
+  those regions' underlying strata didn't change); the below-target-cluster
+  count (§4) corrected 85/5,779 → 88/5,864.
+
+**Update 2026-08-06c — the "28 below-target Non-IDP strata" open item
+resolved.** Checked directly against `supplementary_cluster == TRUE` rows
+in the current merged household frame (not the log line originally cited,
+which turned out to be misremembered — see below): exactly **one** LGA
+swap happened, not a net change in count. **Sokoto/Tangaza** no longer
+needs a supplementary cluster (the buffer relaxation freed enough
+additional building pool in Sokoto generally that Tangaza's own gap closed
+without one); **Kebbi/Arewa-Dandi** now needs one it didn't before (one
+standard 6-household supplementary cluster, achieved sample 99→105,
+realized MoE 9.41%→9.13%, computed with the identical `realized_moe()`
+formula and cross-checked exactly against the strata CSV's own value).
+Net effect: total count stays at **28**, total additional interviews stays
+at **254** (both LGAs needed exactly one cluster), and the realized-MoE
+range across all 28 stays **9.03–9.27%** (the min/max, Mafa/Kaga, are both
+Borno — nowhere near this change). Only the **state list** changes:
+Sokoto drops out, Kebbi enters — "Benue, Borno, Kogi, Nasarawa, Niger,
+Plateau, Sokoto, Yobe, Zamfara" → "Benue, Borno, Kebbi, Kogi, Nasarawa,
+Niger, Plateau, Yobe, Zamfara". `msna_methodology_summary_portable.md` §4
+updated (prose + the per-LGA table row) to match; the ToR-update prompt
+file's "please don't independently resolve this" caveat replaced with the
+resolved figures.
+
+**Root cause of the original miscue, worth remembering**: the "28
+stratum/strata" figure first cited as uncertain came from conflating two
+different log files — a `grep`/memory slip pulled the number from the
+**earlier, unrelated, full-national Scenario 2 test run's** log ("49
+supplementary cluster(s) added across 27 stratum/strata" — a superseded
+test run, never part of the delivered design) rather than the actual
+targeted 24-LGA resample's own log ("2 supplementary cluster(s) added
+across 2 stratum/strata" — the real number for that scoped run, which the
+Arewa-Dandi finding above traces back to correctly). Always re-derive a
+figure like this from the current on-disk data (`supplementary_cluster`
+flag) rather than trusting a remembered log line, especially after several
+different runs have produced similarly-shaped log output in the same
+session.
+- `output/data/data_collection/DRC_sampling_points_summary.xlsx`-equivalent
+  (in the partner package, not this folder) was skipped in the first
+  `build_partner_dc_packages.py` run (file open/locked) — closed by the
+  user and rerun; all 19 partner workbooks now current.
+- `analysis_coverage_map1.R` given the same NC/NE/NW region-code labels
+  `analysis_coverage_map2.R` already carries (`region_labels_focus`, same
+  point-on-surface + NC nudge technique) — map1 previously had the region
+  boundary line and legend entry but no text label. Re-rendered.
+- **Map bug found and fixed**: `analysis_coverage_map2.R`'s
+  `coverage_map2_alt2_popgroup_all_hexes.png` rendered every **IDP-only**
+  hex as a point marker instead of a filled hexagon, while Non-IDP-only and
+  mixed hexes rendered correctly. Root cause: `selected_clusters_final.rds`
+  (the object this map now reads hex geometry from, since the 2026-08-06a
+  fix above) does NOT carry a uniform geometry type — Non-IDP rows carry
+  the hex polygon, but IDP rows (`idp_sites$clusters_final`, from
+  `05_stage2_idp_site_assignment.R`) carry the DTM site's own POINT
+  geometry instead, which is what Stage 2 actually needs for IDP but is
+  wrong for a hex-fill map. The old Stage-1-only `selected_clusters` this
+  script used to re-derive via sourcing never had this problem (Stage 1
+  hex selection assigns proper hex-grid geometry regardless of pop_type),
+  so the bug only surfaced now that hex geometry comes from the post-
+  Stage-2 merged archive. Fixed generically, not just for this one map: a
+  new `hex_polygons` object (canonical hex geometry, keyed by `uuid_hex`,
+  sourced from `hex_access`, `st_make_valid()`'d both before and after the
+  projected→geographic CRS transform since one pre-existing degenerate
+  ring only surfaced as invalid after reprojecting) is now the *only*
+  source of hex geometry anywhere in this script — every join that used to
+  pull geometry from `selected_clusters` itself now pulls attributes only
+  from it and geometry from `hex_polygons`. Verified directly: 0 POINT
+  geometries remain anywhere in the map's hex layers (was 552 for the
+  IDP-only category alone). Re-rendered; `coverage_map2_alt2_popgroup_
+  all_hexes.png` and `coverage_map1_partner_coverage.png` both current.
+- `claude_web_prompt_2026-08-06_border_buffer_tor_update.md` (project
+  root) — a self-contained prompt for the separate Claude web session
+  working from the ToR document, summarising this revision and the
+  updated figures for that document to be brought into line, same relay
+  pattern already used for the 2026-07-28 IDP methodology decision.
+
+**Still not yet done**: `output/README.md` not updated for the new archive
+folder name. Not committed to git — awaiting user review.
+
 ## Rules for extending or rerunning this pipeline
 
 - **Don't rerun this pipeline casually.** The frame is submitted and

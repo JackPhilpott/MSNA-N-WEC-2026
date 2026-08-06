@@ -1,7 +1,7 @@
 # ==============================================================================
 # Partner coverage layer - join partner_coverage/Partnerscoverage.xlsx onto the
-# live sampling frame (_archive/2026-08-04_design_frame_pre_coverage/strata_level_sampling_frame.csv +
-# _archive/2026-08-04_design_frame_pre_coverage/stage2_sampling_frame.csv), add coverage_status/exclusion_reason,
+# live sampling frame (_archive/2026-08-06_design_frame_post_nw_targeted_resample/strata_level_sampling_frame.csv +
+# _archive/2026-08-06_design_frame_post_nw_targeted_resample/stage2_sampling_frame.csv), add coverage_status/exclusion_reason,
 # produce FULL + WORKING frames, before/after summaries, and a standalone
 # coverage-summary CSV for the ToR narrative.
 #
@@ -11,18 +11,21 @@
 # ==============================================================================
 import csv
 import difflib
+import os
 import re
 from collections import defaultdict, Counter
 
 import openpyxl
 
 PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling"
-STRATA_CSV = PROJECT_DIR + r"\_archive\2026-08-04_design_frame_pre_coverage\strata_level_sampling_frame.csv"
-STAGE2_CSV = PROJECT_DIR + r"\_archive\2026-08-04_design_frame_pre_coverage\stage2_sampling_frame.csv"
+STRATA_CSV = PROJECT_DIR + r"\_archive\2026-08-06_design_frame_post_nw_targeted_resample\strata_level_sampling_frame.csv"
+STAGE2_CSV = PROJECT_DIR + r"\_archive\2026-08-06_design_frame_post_nw_targeted_resample\stage2_sampling_frame.csv"
 COVERAGE_XLSX = PROJECT_DIR + r"\input_data\boundaries\partner_coverage\Partnerscoverage.xlsx"
+if os.path.exists(r"C:\Users\JACKPH~1\AppData\Local\Temp\claude\Partnerscoverage_copy.xlsx"):
+    # Source file was open/locked in Excel at run time - use the just-taken copy instead (2026-08-06).
+    COVERAGE_XLSX = r"C:\Users\JACKPH~1\AppData\Local\Temp\claude\Partnerscoverage_copy.xlsx"
 OUT_DIR = PROJECT_DIR + r"\output\data\data_collection"
 
-import os
 os.makedirs(OUT_DIR, exist_ok=True)
 
 # In-scope states for this assessment (from the pipeline's own admin1 focus

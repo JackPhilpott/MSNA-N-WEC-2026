@@ -10,6 +10,7 @@ input_data/
 
 # Derived/cached outputs - reproducible from input_data + scripts
 output/
+_cache/
 testing.csv
 MSNA_NGA_samplingframe_cluster_2026.csv
 Rplots.pdf

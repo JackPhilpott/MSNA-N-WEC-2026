@@ -468,20 +468,38 @@ bound_hex_clip <- cache_rds(
 # focused admin1s by region as defined by IMPACT and FACT
 
 # ---- 4.1.1 international buffer ----
-# create a buffer 20km from the Niger country border, and 5km from the Chad, Cameroon and Benin border
+# REVISION 2026-08-06: the Niger border buffer is now region-differentiated -
+# 20km kept in NE (Borno/Yobe's Niger-adjacent LGAs), reduced to 5km in
+# NC/NW (Katsina/Kebbi/Sokoto/Zamfara's Niger-adjacent LGAs; NC has no
+# Niger-border LGA at all in practice, so this has no effect there). Chad/
+# Cameroon/Benin stay at 5km everywhere, unchanged. See CLAUDE.md "Revision
+# 2026-08-06" for the full rationale and the targeted-resample mechanism
+# that applied this change to the delivered design (this buffer logic was
+# updated here for documentation/future-rerun accuracy, but the live design
+# itself was NOT produced by a full rerun of this script - see CLAUDE.md).
 admin0_cast <- st_cast(admin0_wa_proj, to = "MULTILINESTRING")
 
-admin0_wa_buff <- admin0_cast %>%
-  mutate(
-    buffer_m = case_when(
-      adm0_name %in% c("Chad", "Cameroon", "Benin") ~ 5000,
-      adm0_name == "Niger" ~ 20000,
-      TRUE ~ NA_real_
-    )) %>%
-  filter(!is.na(buffer_m))
+niger_line <- admin0_cast %>% filter(adm0_name == "Niger")
+other_buffer_borders <- admin0_cast %>% filter(adm0_name %in% c("Chad", "Cameroon", "Benin"))
 
-# 3. Apply st_buffer with per-feature distances
-nga_buffered <- st_buffer(admin0_wa_buff, dist = admin0_wa_buff$buffer_m)
+ne_states_union <- NGA_shapes_all_cleaned$nga_admin1 %>%
+  filter(adm1_pcode %in% nga_admin1_pcodes_ne) %>%
+  st_make_valid() %>% st_union()
+ncnw_states_union <- NGA_shapes_all_cleaned$nga_admin1 %>%
+  filter(adm1_pcode %in% c(nga_admin1_pcodes_nc, nga_admin1_pcodes_nw)) %>%
+  st_make_valid() %>% st_union()
+
+niger_buffer_20km <- st_buffer(niger_line, dist = 20000) %>% st_union() %>% st_make_valid()
+niger_buffer_5km  <- st_buffer(niger_line, dist = 5000)  %>% st_union() %>% st_make_valid()
+
+niger_buffer_final <- st_union(
+  st_intersection(niger_buffer_20km, ne_states_union),
+  st_intersection(niger_buffer_5km, ncnw_states_union)
+) %>% st_make_valid()
+
+other_buffer_final <- st_buffer(other_buffer_borders, dist = 5000) %>% st_union() %>% st_make_valid()
+
+nga_buffered <- st_sf(geometry = c(st_geometry(niger_buffer_final), st_geometry(other_buffer_final)))
 
 # 4. Example: plot original vs buffered for a subset
 # ggplot() +
