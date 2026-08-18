@@ -14,6 +14,7 @@ _cache/
 testing.csv
 MSNA_NGA_samplingframe_cluster_2026.csv
 Rplots.pdf
+__pycache__/
 
 # Scratch/diagnostic scripts and their run logs from debugging sessions
 diag_*.R

@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang xml:lang>
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>How to use this partner package - NGA MSNA 2026</title>
+  <style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+
+ul.task-list[class]{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+font-size: inherit;
+width: 0.8em;
+margin: 0 0.8em 0.2em -1.6em;
+vertical-align: middle;
+}
+.display.math{display: block; text-align: center; margin: 0.5rem auto;}
+</style>
+  <style type="text/css">body { font-family: "Segoe UI", Arial, sans-serif; font-size: 11pt; line-height: 1.45; color: #1a1a1a; max-width: 800px; margin: 30px auto; padding: 0 20px; }
+h1 { color: #1B2A4A; font-size: 20pt; border-bottom: 2px solid #1B2A4A; padding-bottom: 6px; }
+h2 { color: #1B2A4A; font-size: 14pt; margin-top: 26px; border-bottom: 1px solid #ccc; padding-bottom: 3px; }
+table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 9.5pt; }
+th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: left; vertical-align: top; }
+th { background: #2C5F8A; color: white; }
+tr:nth-child(even) { background: #f7f7f7; }
+code { background: #f0f0f0; padding: 1px 4px; border-radius: 3px; font-size: 9.5pt; }
+ul { margin: 6px 0; }
+li { margin-bottom: 4px; }
+hr { border: none; border-top: 1px solid #ccc; margin: 24px 0 8px; }
+em { color: #555; }
+</style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">How to use this partner package - NGA MSNA 2026</h1>
+</header>
+<p>This folder contains everything you need to locate and conduct your
+assigned household and IDP-site interviews for the NGA MSNA 2026. It’s
+organised by <strong>State → LGA</strong>, matching the areas your
+organisation has confirmed coverage for.</p>
+<h2 id="whats-in-each-lga-folder">What’s in each LGA folder</h2>
+<p>As of this version, each LGA folder is split by population group, so KML points
+and cluster factsheets for Non-IDP and IDP work don’t sit mixed together in one
+folder:</p>
+<pre><code>&lt;Partner&gt;/&lt;State&gt;/&lt;LGA&gt;/
+  [LGA_name]_map.png                     - whole-LGA overview (see below)
+  Non_IDP/
+    KML/
+      non_idp_households_primary.kml
+      non_idp_households_reserve.kml
+    Cluster_guide/
+      [cluster_id]_factsheet.docx        - one per Non-IDP cluster in this LGA
+  IDP/
+    KML/
+      idp_clusters_primary.kml
+      idp_clusters_tier2_backup.kml
+    Cluster_guide/
+      [cluster_id]_factsheet.docx        - one per IDP cluster in this LGA
+</code></pre>
+<p>If a population group doesn’t apply in a given LGA (e.g. no IDP presence there),
+that whole <code>Non_IDP/</code> or <code>IDP/</code> branch simply won’t be present
+— that’s expected, not an error.</p>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th>File</th>
+<th>What it is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>non_idp_households_primary.kml</code> (in <code>Non_IDP/KML/</code>)</td>
+<td>Your primary Non-IDP household interview points — one GPS point per
+household.</td>
+</tr>
+<tr>
+<td><code>non_idp_households_reserve.kml</code> (in <code>Non_IDP/KML/</code>)</td>
+<td>Backup Non-IDP households, ranked in order. Use strictly in rank
+order if a primary household can’t be reached or declines.</td>
+</tr>
+<tr>
+<td><code>idp_clusters_primary.kml</code> (in <code>IDP/KML/</code>)</td>
+<td>Your primary IDP site(s) — one point per cluster (not per
+household). See that cluster’s factsheet (below) for full instructions
+on building the household list on arrival.</td>
+</tr>
+<tr>
+<td><code>idp_clusters_tier2_backup.kml</code> (in <code>IDP/KML/</code>)</td>
+<td><strong>In-camp clusters only.</strong> A second point to use
+<em>only if</em> a full household listing proves infeasible on arrival
+at the primary point (Tier 2 fallback). Not an alternate or corrected
+location — always start at the primary point.</td>
+</tr>
+<tr>
+<td><code>[LGA_name]_map.png</code> (at the plain <code>&lt;LGA&gt;/</code> level, not inside <code>Non_IDP/</code>/<code>IDP/</code>)</td>
+<td>A zoomed-out map of the whole LGA showing every cluster assigned to
+you there, coloured by population group (Non-IDP / IDP / both). For
+orientation only — use the KML points above for exact navigation, or the
+closer-in maps inside each cluster’s factsheet.</td>
+</tr>
+<tr>
+<td><code>[cluster_id]_factsheet.docx</code> (in <code>Non_IDP/Cluster_guide/</code> or <code>IDP/Cluster_guide/</code>)</td>
+<td>A field sheet for that specific cluster: location, your task
+(building list / Tier 1–Tier 2 / chief listing as applicable), target
+and reserve counts, any relevant flags (below-target, multiple draws
+combined, priority supervision), a household interview log grid, and —
+at the end of the document — a large cluster-level map (hexagon/point
+layout, roads, buildings, and any known nearby points of interest)
+followed by an LGA-context map showing where this cluster sits within
+the wider LGA. One per cluster, named by cluster ID. The first two
+pages of every factsheet are a general field guide (replacement rules,
+the accepted GPS-offset range, who to contact) - the same content
+repeats in every cluster's document so each one is self-contained in
+the field.</td>
+</tr>
+</tbody>
+</table>
+<p><strong><code>LGA_boundaries.kml</code></strong> (at the top level of your folder, not
+inside any State/LGA subfolder) — the outline of every LGA you're covering, in one file.
+Load it in Maps.me alongside your points to visually check that a sample point's GPS
+location genuinely falls within the LGA it's assigned to — a quick sanity check if a
+point ever looks like it might be sitting near, or across, an LGA line. It's drawn as an
+outline only (no fill), so it won't hide the points underneath. This is the same
+official LGA boundary (OCHA/COD) used to assign every point in this package — if a point
+looks like it's outside the boundary line in Maps.me, treat that as worth flagging to
+your focal point rather than resampling on your own (see "Ward is approximate" above for
+a related, separate note about ward — not LGA — boundaries specifically).</p>
+<h2 id="opening-the-kml-files">Opening the KML files</h2>
+<p><strong>For the full illustrated walkthrough — installing the app itself, then
+importing and navigating to a KML point — see <code>MSNA_NGA_MapsMe_Guide.pdf</code>,
+at the top level of your folder.</strong> It covers installing Maps.me on Android and
+iOS, importing a cluster's KML file, and getting a turn-by-turn route to a sample
+point, all with annotated phone screenshots. The steps below are the quick-reference
+version.</p>
+<p><strong>On a phone (Maps.me — recommended for fieldwork):</strong> 1.
+Download the KML file(s) for your LGA — from its <code>Non_IDP/KML/</code> or <code>IDP/KML/</code> subfolder, depending which you need — to your phone (via email,
+WhatsApp, or a shared drive — whatever your team normally uses). 2. Open
+Maps.me, tap the bookmarks/menu icon, and choose “Import” or “Open file”
+— select the downloaded KML. 3. Each point will appear as a labelled
+pin. Tap a pin to see its full details (cluster ID, ward, status, and
+any other relevant information).</p>
+<p><strong>On a computer (Google Earth or Google My Maps):</strong> 1.
+Open <a href="https://earth.google.com">Google Earth</a> or <a href="https://mymaps.google.com">Google My Maps</a>. 2. Choose “Import”
+and select the KML file. 3. All points load as a layer you can view,
+print, or export.</p>
+<p>You can load more than one KML file at once (e.g. primary + reserve
+together) if it’s useful to see them side by side — just keep track of
+which pin belongs to which file so you don’t accidentally treat a
+reserve point as primary.</p>
+<h2 id="key-things-to-know-before-you-go">Key things to know before you
+go</h2>
+<ul>
+<li><strong>Primary before reserve, always.</strong> Reserve
+households/sites are only used if a primary one can’t be reached,
+refuses, or turns out ineligible — and always in the ranked order given,
+not whichever is most convenient.</li>
+<li><strong>Tier 1 before Tier 2, always</strong> (in-camp IDP clusters
+only). Attempt the full household listing at the primary point first.
+Only use the Tier 2 backup point if that genuinely isn’t feasible on
+arrival.</li>
+<li><strong>Full household listing is mandatory for every IDP
+cluster</strong> — in-camp (Tier 1, or Tier 2 fallback) and
+host-community alike. If it isn’t done, that cluster’s data cannot be
+accepted.</li>
+<li><strong>Host-community IDP clusters have no Tier 2</strong> — if a
+listing isn’t feasible there, the fallback is the
+chief/head-of-settlement approach described in the point’s own
+description, not a backup GPS point.</li>
+<li><strong>Reserves are a backup only, not a free substitute
+list.</strong> Using them beyond the replacement rules in the general
+Field Guide (inside each cluster’s factsheet) requires prior approval
+from your FACT Foundation / IMPACT Initiatives focal point.</li>
+<li><strong>Ward is approximate, for orientation only.</strong> Every
+point’s GPS location is anchored to its LGA, not to the ward boundary
+shown — don’t second-guess a point’s location based on the ward name.
+See “A note on data sources” below for why ward and LGA sometimes come
+from different datasets.</li>
+<li><strong>Maps are for orientation, not navigation.</strong> Both the
+whole-LGA overview map and the maps inside each cluster’s factsheet show
+roughly where your clusters sit — always navigate using the exact KML
+points, not a map image.</li>
+</ul>
+<h2 id="a-note-on-data-sources-lga-vs.-ward">A note on data sources (LGA
+vs. Ward)</h2>
+<p>Every point’s <strong>LGA</strong> comes from OCHA/COD, the
+officially-endorsed humanitarian boundary dataset, and is authoritative
+throughout this assessment. <strong>Ward</strong> detail comes from
+GRID3 (the only ward-level product with national coverage; North-East
+clusters additionally show OCHA/COD’s own ward product for
+cross-reference — see the “Ward (GRID3)” / “Ward (OCHA/COD)” columns in
+your summary workbook). These two datasets occasionally disagree by a
+few tens of metres right at LGA borders — this is a known, expected
+discrepancy between two real datasets, not a data error, and does not
+change which LGA a point belongs to. Full detail is in your summary
+workbook’s README sheet, under “A note on LGA vs Ward data sources.” If
+your team identifies more strongly with a different LGA in the field,
+flag it to your focal point with the specific point(s) — don’t resample
+based on your own read of the boundary.</p>
+<h2 id="your-targeted-sample-numbers">Your targeted sample numbers</h2>
+<p>Your organisation’s Excel summary workbook
+(<code>[Partner]_sampling_points_summary.xlsx</code>, at the top level
+of your folder) has two sheets: - <strong>README</strong> — definitions
+of every point type, the LGA/Ward data-source note above in full, plus a
+table of your targeted primary/reserve sample by State and LGA. -
+<strong>Sampling Points</strong> — every single point assigned to you,
+in one table, with full metadata (useful if you prefer a spreadsheet
+view over opening individual KML files).</p>
+<h2 id="questions-or-issues">Questions or issues — who to contact, and how</h2>
+<p>Full detail (roles, contact list, and the daily data-cleaning workflow)
+is in <code>NGA_MSNA_2026_Data_Collection_SOP.pdf</code>, also at the top
+level of your folder. In brief, which channel to use depends on the
+urgency of the issue:</p>
+<table>
+<colgroup>
+<col style="width: 12%" />
+<col style="width: 30%" />
+<col style="width: 38%" />
+<col style="width: 20%" />
+</colgroup>
+<thead>
+<tr>
+<th>Tier</th>
+<th>Example issues</th>
+<th>Channel</th>
+<th>Response</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>1 — Safety / Security</strong></td>
+<td>Insecure area, incident, evacuation</td>
+<td>Phone call <strong>+</strong> WhatsApp direct message, to your
+Regional FACT Coordinator <strong>and</strong> the IMPACT focal point,
+simultaneously</td>
+<td>Immediate</td>
+</tr>
+<tr>
+<td><strong>2 — Operational</strong></td>
+<td>Reserve list exhausted, site/hexagon mismatch, population not
+found</td>
+<td>WhatsApp regional group</td>
+<td>Same day</td>
+</tr>
+<tr>
+<td><strong>3 — Data quality / cleaning log</strong></td>
+<td>Flagged records, cleaning log responses</td>
+<td>Email (formal, tracked)</td>
+<td>~1 day</td>
+</tr>
+</tbody>
+</table>
+<p>A GPS point that looks wrong, a building that doesn’t exist, or a
+cluster that needs flagging is normally a Tier 2 (operational) issue —
+use the WhatsApp regional group unless it’s more urgent than that.</p>
+<hr />
+<p><em>Version 1.4 — 2026-08-17.</em></p>
+</body>
+</html>
