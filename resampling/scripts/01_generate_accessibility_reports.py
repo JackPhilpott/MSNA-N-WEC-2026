@@ -29,7 +29,7 @@
 # specific LGA+Ward combination, so there's no free-floating ward-name join
 # anywhere that could cross-contaminate another partner's area.
 #
-# Reads: output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v2_WORKING.csv
+# Reads: output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v5_WORKING.csv
 # - the same per-household delivered frame build_partner_dc_packages.py reads,
 # which already carries a resolved `partners_covering` column (comma-separated
 # for multi-partner LGAs, e.g. "DRC, IRC, LHI") and per-row ward attribution
@@ -52,13 +52,26 @@ import csv
 import os
 import re
 from collections import defaultdict
+from datetime import date
 
 import openpyxl
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
+# "Date reported" used to be plain free text - no validation at all - which is
+# how we ended up with 3 different date formats across returned files and
+# ~450 FACT rows corrupted by an Excel autofill-drag up to the year 2261
+# (04_build_master_accessibility_status.py's parse_date_flexible() handles
+# that mess downstream, but this stops new instances of it at the source
+# instead). DATE_REPORTED_MIN is the reporting cycle's start with a small
+# margin; anything before it typed into the cell is almost certainly a typo,
+# and Excel's native date validation now rejects it outright rather than us
+# silently discovering it months later. Decided 2026-08-28 - see CLAUDE.md.
+DATE_REPORTED_MIN = date(2026, 7, 1)
+DATE_REPORTED_FORMAT = "dd-mmm-yyyy"  # unambiguous regardless of the partner's locale (e.g. "27-Aug-2026")
+
 PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling"
-STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v2_WORKING.csv"
+STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v5_WORKING.csv"
 OUT_DIR = PROJECT_DIR + r"\resampling\input\accessibility_reports_generated"
 
 ACCESSIBLE_OPTIONS = ["Yes", "No"]
@@ -72,13 +85,21 @@ REASON_OPTIONS = [
     "Other",
 ]
 
+PROVENANCE_COLUMNS = ["Reported by (Partner / IMPACT-default)", "Source channel"]
+REPORTED_BY_COL, SOURCE_CHANNEL_COL = PROVENANCE_COLUMNS
+REPORTED_BY_OPTIONS = ["Partner", "IMPACT (default - accessible until reported otherwise)"]
+SOURCE_CHANNEL_OPTIONS = [
+    "Partner's own template", "Email", "WhatsApp/verbal (coordinator-transcribed)",
+    "Point-level file annotation", "N/A",
+]
+
 WARD_COLUMNS = [
     "State", "LGA", "Ward (GRID3)", "Ward (OCHA/COD)",
     "Ward spans multiple LGAs (Y/N)", "Other LGA(s) sharing this ward", "Note",
     "Non-IDP clusters", "IDP clusters", "Total target HHs (primary)",
     "Accessible (Y/N)", "Reason category", "Reason notes",
     "% of target achieved so far", "Date reported",
-]
+] + PROVENANCE_COLUMNS
 
 MULTI_LGA_WARD_NOTE = (
     "This ward's GRID3 polygon spans more than one LGA - you only need to report on the part of the ward that "
@@ -90,8 +111,11 @@ CLUSTER_COLUMNS = [
     "Target HHs (primary)", "Reserve HHs",
     "Accessible (Y/N)", "Reason category", "Reason notes",
     "% of target achieved so far", "Date reported",
-]
-INPUT_COLUMNS = {"Accessible (Y/N)", "Reason category", "Reason notes", "% of target achieved so far", "Date reported"}
+] + PROVENANCE_COLUMNS
+INPUT_COLUMNS = {
+    "Accessible (Y/N)", "Reason category", "Reason notes", "% of target achieved so far", "Date reported",
+    REPORTED_BY_COL, SOURCE_CHANNEL_COL,
+}
 
 README_OVERVIEW = (
     "This file lists every ward (and, on the second sheet, every individual cluster) currently assigned to your "
@@ -117,11 +141,17 @@ README_STEPS = [
     "past week' is far more useful to us than just 'insecure'.",
     "If you know it, fill in roughly what % of the target sample you were able to achieve in that ward before "
     "stopping - even a rough estimate helps, and please don't leave this blank if the true answer is 0%.",
+    "The last two columns ('Reported by' and 'Source channel') are for our own internal record-keeping - please "
+    "leave them blank unless we've asked you to fill in a specific row on our behalf (e.g. transcribing a "
+    "WhatsApp/verbal report into this sheet).",
     "Only use the 'Cluster Accessibility' sheet (second tab) for a problem specific to ONE site/HH within an "
     "otherwise-fine ward - and only once you've already worked through that cluster's reserve/replacement "
     "households and they weren't enough to cover it. Don't use this sheet before exhausting your reserve list "
     "for that cluster, and don't use it as a second way to report the same ward-wide issue already captured on "
     "the first sheet.",
+    "Date reported must be an actual date, not typed text - click the cell and use Excel's date picker, or "
+    "type it as e.g. 27-Aug-2026. The cell will reject anything that isn't a real date, or a date before "
+    f"{DATE_REPORTED_MIN:%d %b %Y}/after today.",
     "IMPORTANT: please review your ENTIRE coverage area in one pass before sending this back to us, rather "
     "than reporting a few wards now and more later - this significantly cuts down the back-and-forth rounds "
     "we need with you. If genuinely new information comes in afterwards, send an updated copy of the FULL "
@@ -304,6 +334,33 @@ def add_input_sheet(wb, sheet_name, table_name, columns, rows):
     ws.add_data_validation(dv_reason)
     dv_access.add(f"{openpyxl.utils.get_column_letter(accessible_col)}2:{openpyxl.utils.get_column_letter(accessible_col)}{n_rows + 1}")
     dv_reason.add(f"{openpyxl.utils.get_column_letter(reason_col)}2:{openpyxl.utils.get_column_letter(reason_col)}{n_rows + 1}")
+
+    if REPORTED_BY_COL in columns:
+        reported_by_col = columns.index(REPORTED_BY_COL) + 1
+        source_channel_col = columns.index(SOURCE_CHANNEL_COL) + 1
+        dv_reported_by = DataValidation(type="list", formula1=f'"{",".join(REPORTED_BY_OPTIONS)}"', allow_blank=True)
+        dv_source_channel = DataValidation(type="list", formula1=f'"{",".join(SOURCE_CHANNEL_OPTIONS)}"', allow_blank=True)
+        ws.add_data_validation(dv_reported_by)
+        ws.add_data_validation(dv_source_channel)
+        dv_reported_by.add(f"{openpyxl.utils.get_column_letter(reported_by_col)}2:{openpyxl.utils.get_column_letter(reported_by_col)}{n_rows + 1}")
+        dv_source_channel.add(f"{openpyxl.utils.get_column_letter(source_channel_col)}2:{openpyxl.utils.get_column_letter(source_channel_col)}{n_rows + 1}")
+
+    if "Date reported" in columns:
+        date_col = columns.index("Date reported") + 1
+        date_col_letter = openpyxl.utils.get_column_letter(date_col)
+        dv_date = DataValidation(
+            type="date", operator="between",
+            formula1=DATE_REPORTED_MIN, formula2=date.today(),
+            allow_blank=True, showErrorMessage=True,
+            errorTitle="Invalid date",
+            error=(f"Enter an actual date between {DATE_REPORTED_MIN:%d %b %Y} and today - click the cell and "
+                   "use the date picker, or type e.g. 27-Aug-2026. Free text and out-of-range dates (including "
+                   "future dates) are rejected here so they don't need to be caught and excluded later."),
+        )
+        ws.add_data_validation(dv_date)
+        dv_date.add(f"{date_col_letter}2:{date_col_letter}{n_rows + 1}")
+        for row_idx in range(2, n_rows + 2):
+            ws.cell(row=row_idx, column=date_col).number_format = DATE_REPORTED_FORMAT
 
     ws.freeze_panes = "A2"
     for i, col_name in enumerate(columns, start=1):

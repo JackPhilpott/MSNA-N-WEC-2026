@@ -1360,6 +1360,815 @@ session.
 **Still not yet done**: `output/README.md` not updated for the new archive
 folder name. Not committed to git — awaiting user review.
 
+## Revision 2026-08-27 — accessibility-workflow provenance columns + Solidarités partner-name fix (resampling/, not the core pipeline)
+
+Two independent fixes inside `resampling/` (see `resampling/README.md` for
+full operational detail — this entry is a summary/pointer, not the primary
+record), plus one cross-cutting data-integrity fix that touched the core
+sampling-frame outputs directly.
+
+**1. Provenance tracking added to the accessibility-report workflow.**
+Closes the `resampling/README.md` "Not yet done" item that flagged
+`source_channel` as hardcoded to `"partner_excel_return"` regardless of
+whether a partner or a coordinator actually typed a given answer. Two new
+columns — `Reported by (Partner / IMPACT-default)` and `Source channel` —
+added to `01_generate_accessibility_reports.py`'s Ward/Cluster Accessibility
+sheets (dropdown-validated `INPUT_COLUMNS`, standardised choice lists) and
+to `02_ingest_accessibility_reports.py`'s `LOG_FIELDS` (read from the sheet
+if filled in, defaulting to `Partner` / `Partner's own template` otherwise
+— true for most returns, since these columns are for internal use, not
+something partners normally touch). The master log's existing 2,052 rows
+were migrated (`scripts/patch_add_reported_by_column.py`, git-tracked,
+idempotent) — NOT by defaulting everything to `Partner`, since that's
+known to be wrong for specific rows (Save the Children's 42 "Yes" rows
+were coordinator-assumed, not partner-typed). 1,866 rows confirmed and
+backfilled; 186 left deliberately blank ("needs review") rather than
+guessed — IMC (102), FHI 360 (22), Save the Children's 42 unverified "Yes"
+rows, and 20 rows tied to FACT's 11 coordinator-corrected wards. **Still
+open**: those 186 rows' actual provenance hasn't been individually
+verified — do that before treating the master log's `reported_by` column
+as complete. `02_ingest_accessibility_reports.py` now also prints an
+explicit NOTE whenever a returned file predates these columns (expected
+for every partner's already-distributed copy, since the columns were only
+added today) instead of silently applying the default with no visibility.
+
+**2. Solidarités partner-name fix.** Root cause: the raw
+`input_data/boundaries/partner_coverage/Partnerscoverage.xlsx` (NW sheet,
+header cell J1) stored the org's name truncated to `Solidarité` (missing
+the trailing "s") — genuinely valid UTF-8 throughout, NOT mojibake, despite
+that being the first (wrong) diagnosis on record (see the now-corrected
+`resampling/scripts/analysis_sanity_check_accessibility_workflow.py`
+"6. Encoding" check). Fixed at the source, then propagated through every
+derived file carrying a partner-name column or filename: the WORKING/FULL
+sampling frame CSVs (household + strata level, 1,233 cell-level
+occurrences), the coverage summary,
+`NGA_MSNA_2026_sampling_frame_workbook_v2.xlsx` (616 cells), and
+`resampling`'s master log / GIS layer / generated+returned report files /
+raw-comms folder — plus the live External-coordination partner package
+folder (KML, LGA maps, summary workbook, and all 35 per-cluster field
+guides, via `build_partner_dc_packages.py` and `build_cluster_factsheets.py`).
+
+**`Rscript` was not on PATH in this session's shells**, which at the time
+was read as "R unavailable" and ruled out the documented "rerun
+`analysis_partner_coverage.py` + `build_partner_coverage_workbook.py`,
+then reapply `patch_site_radius_and_tier2_flag.R`" sequence for refreshing
+`output/data/data_collection/` — direct-patching the already-generated
+CSV/xlsx files was used instead (see the new bullet under "Rules for
+extending or rerunning this pipeline" below). `_frame_version.txt` was
+refreshed by manually replicating `stamp_frame_version.R`'s
+hash/mtime/row-count logic in Python (same output shape, just not R).
+**CORRECTED same day**: R is in fact installed
+(`C:\Users\JackPHILPOTT\AppData\Local\Programs\R\R-4.6.0\bin\x64\
+Rscript.exe`, all needed packages present) - just not on PATH for this
+session. The patches above were still the right call at the time (small,
+targeted, git-diffable, and already verified correct) and don't need
+redoing, but a future session hitting an R script should call the full
+path above rather than assuming R is unavailable - see the "Rules" bullet
+below.
+
+**Two new, permanent, opt-in single-partner scoping hooks** were added,
+both default OFF (normal full-19-partner behaviour is unchanged unless the
+var is set): a `BUILD_DC_ONLY_PARTNER` env var, read by both
+`scripts/field_guide_production/build_partner_dc_packages.py` and
+`build_cluster_factsheets.py`. Useful again any time a fix needs to touch
+one partner's live package folder without regenerating/re-touching the
+other 18's already-delivered files.
+
+**Mistake made and corrected mid-fix, worth remembering before ever
+touching a partner's top-level package folder again**:
+`resampling/scripts/distribute_to_partner_folders.py`'s own header
+comment states a hard constraint — a partner's top-level folder in
+`3. External coordination\NGA MSNA 2026 Package\` must NEVER be deleted
+or recreated, only renamed/written into in place, since SharePoint
+sharing is tied to the folder's item ID, not its path/name. The first
+attempt at this fix created a **new** `Solidarités` folder alongside the
+existing (still-shared) `Solidarité` one, rather than renaming the
+existing one in place — exactly the dangerous pattern that comment warns
+against. Caught before anything was shared/communicated externally; fixed
+by deleting the mistakenly-created new folder and renaming the original
+in place instead. A plain filesystem rename preserves OneDrive/SharePoint
+item identity; delete+recreate does not.
+
+`resampling/output/distribution_log.csv` was deliberately left with its
+old (2026-08-20) truncated partner-name entries — it's a historical audit
+log of what literally happened at the time, not a live join key, so
+correcting it would falsify the record rather than fix anything.
+
+## Update 2026-08-27b — accessible-area ward-universe bug: wrong scope, not just wrong values
+
+Found by the user (via Damasak wrongly showing "Accessible" in the
+monitoring dashboard), same day as the fixes above, and materially bigger:
+`analysis_accessible_area_layer.R` was pulling **every GRID3 ward
+geometrically touching a covered LGA** for the accessibility GIS layer -
+not the actual sampling universe - and defaulting anything that didn't
+match the master status file to "Accessible". **1,977 of 4,047 rows (49%)
+nationally were spurious**, and **all 176 of 176 LGAs** had at least one -
+this wasn't a Mobbar-specific glitch. Worst distortions: Damboa reported
+62.6% accessible (should exclude non-universe wards entirely), Mobbar
+28.8% (should be 0% under the narrow definition). This also silently
+corrupted the "Strata Level" sheet's "% of population remaining" figures -
+the ones the monitoring dashboard displays directly to users - not just an
+internal workbook sheet, since both are fed by the same
+`load_lga_area_pop_fractions()`.
+
+**The real fix isn't "narrow the universe to wards with actual clusters"
+either** - the user's own correction, argued through explicitly before any
+code changed: random PPS sampling can, by chance, not draw a hexagon in a
+ward that was fully eligible, and that ward's accessibility still needs
+tracking (it's exactly the kind of ward a future resample would draw from -
+see `analysis_remaining_eligible_pool.R`). The universe is now "eligible at
+Stage 1" (post-border-buffer, pre-random-draw) - neither raw geography nor
+actually-drawn-clusters-only:
+- **Non-IDP eligibility**: a ward-portion is included if it intersects
+  `input_data/boundaries/nga_hexagons/accessible_hex.rds` (Stage 1's own
+  border-buffer-filtered candidate hex grid - already reused by
+  `analysis_remaining_eligible_pool.R` for a closely related purpose).
+- **IDP eligibility**: a ward-portion is included if it contains at least
+  one raw DTM site (same IOM source `analysis_remaining_eligible_pool.R`
+  reads).
+- Both restricted to LGAs with **WORKING coverage for that specific
+  pop_type** (not blanket LGA coverage) - a related, previously-unnoticed
+  bug found while implementing this: Gwandu (Kebbi) has real Non-IDP
+  coverage (Solidarités, 204 households) but its IDP stratum was
+  certainty-excluded before this design was ever fielded (Revision
+  2026-07-23) - the OLD blanket-LGA `covered_pcodes` check in
+  `analysis_remaining_eligible_pool.R` would have (and, checked directly,
+  DID) treat Gwandu's raw DTM sites as part of the "remaining eligible IDP
+  pool" with zero real IDP design presence there at all.
+- **Split by pop_type** (user's explicit choice, see the two-question
+  discussion this session): one row per (State, LGA, Ward, Pop Type), not
+  one blended row per ward - because eligibility genuinely differs by
+  pop_type (Gwandu again). The Non-IDP and IDP rows of a dual-eligible ward
+  share IDENTICAL geometry (IDP eligibility is a site-presence test, not a
+  different shape) - intentional, not a duplication bug, but any consumer
+  summing area/population per LGA MUST group by pop_type first or double-
+  counts a dual-eligible ward (`05_build_accessibility_impact_workbook.py`'s
+  `load_lga_area_pop_fractions()` now keys by `(adm2_pcode, pop_type)` for
+  exactly this reason - the LGA Summary sheet's area columns are now two
+  separate "Non-IDP: ..." / "IDP: ..." pairs instead of one blended figure).
+
+**Verified precisely, not assumed**: Damasak (the original finding) is now
+correctly excluded - confirmed 0% geometric overlap with the accessible hex
+area. Two other originally-spurious Mobbar wards (Bogum, Gudumbali West)
+still show as eligible after the fix - checked directly, not waved away:
+Gudumbali West is 100% within the accessible hex area, Bogum 72% - both
+genuinely eligible, just never drawn by chance, exactly the case the
+broader universe definition is supposed to preserve. Damboa's 25 wards are
+IDENTICAL before/after the fix (checked ward-by-ward) - it isn't a border
+LGA, so none of its "extra" wards were ever actually spurious, only
+undrawn - explains why its % figure barely moved.
+
+**R access resolved mid-investigation**: `scripts/run_accessibility_
+refresh.py` already had the correct full Rscript path hardcoded
+(`C:\Users\JackPHILPOTT\AppData\Local\Programs\R\R-4.6.0\bin\Rscript.exe`)
+from earlier project history - this fix was implemented and run as proper
+R, not direct-patched like the Solidarités fix earlier the same day.
+
+**Scripts touched**: `analysis_accessible_area_layer.R` (the core fix),
+`analysis_remaining_eligible_pool.R` (same per-pop_type coverage fix),
+`05_build_accessibility_impact_workbook.py` (`load_lga_area_pop_fractions()`
+pop_type-aware; LGA Summary sheet's area columns split), `analysis_
+sanity_check_accessibility_workflow.py` (added the missing reverse-
+direction check - the OLD section 2 only ever verified "every master ward
+has a GIS polygon," never "every GIS polygon is a real ward," which is
+exactly how the 49%-spurious bug passed 15/0/3 clean for a full day;
+also fixed a check that asserted Non-IDP/IDP area must be IDENTICAL per
+LGA - true only under the old blended design, would have produced a wall
+of false FAILs against the new, deliberately-different-per-pop_type
+figures), `2_monitoring/dashboard_app/global.R` (added the `pop_type =
+pop_typ` rename for the now-larger shapefile schema - checked the actual
+map-rendering code first; harmless, since the popup content doesn't
+reference pop_type and a dual-eligible ward's two stacked identical-
+geometry features render as one visually indistinguishable shape).
+
+**2_monitoring's own copy refreshed** via its existing `cleaning/prep/
+prep_accessibility_layer.R` (also just needed the same full Rscript path -
+no content changes needed, it's a plain file-copy script). Found but not
+fixed (pre-existing, not caused by this session): a stale, unrefreshed
+duplicate copy at `2_monitoring/dashboard_app/input_data/accessibility/`
+alongside the real one at `2_monitoring/input_data/accessibility/` -
+harmless (`global.R`'s `INPUT_DIR` resolution prefers the correct one) but
+worth cleaning up if ever touching this area again.
+
+Full backup of `resampling/output/` and the five scripts touched was taken
+to the session scratchpad before any of this started, given `resampling/`
+(scripts and output alike) is almost entirely outside git (`output/` is
+gitignored at every depth; the two R scripts specifically were never
+`git add`ed either) - no version-control safety net for any of this.
+
+**Dashboard deployed live 2026-08-28** with the fix above (`2_monitoring/
+deploy_dashboard.R` - also caught and fixed a separate, pre-existing stale
+sampling-frame copy in `2_monitoring/input_data/sampling_frame/`, unrelated
+to this fix, dating back to yesterday's Solidarités patch never having been
+re-copied there).
+
+**A second, independent Solidarités staleness gap found and fixed the same
+night**, this time entirely inside `2_monitoring/dashboard_app/global.R`:
+`ACCESSIBILITY_PARTNER_TO_ORG` (a hardcoded partner-name-to-org_id lookup
+table, unrelated to anything touched during yesterday's propagation sweep
+since that sweep never had reason to look inside 2_monitoring) still had
+`"Solidarité"` as a dropdown key. Confirmed via live data this was
+silently producing the literal string "NA" in the Coverage Map's
+Accessibility-layer hover popup for Solidarités' ward, and miscounting
+their entry in the "X of 19 partners reported" total (masked today only
+by a 1-for-1 coincidence - one phantom NA swapping for one real entry).
+Fixed, re-verified against live data, redeployed. **Lesson for next time
+a partner name changes**: search `2_monitoring/` too, not just
+`1_sampling/` - the two projects duplicate partner-name handling in
+several independent places with no shared source of truth between them.
+
+## Update 2026-08-28 — "Reported by" / "Last reported date" at every grain
+
+Added throughout the accessibility workflow (ward grain computed directly
+in `04_build_master_accessibility_status.py`; cluster/strata/LGA grain
+aggregated in `05_build_accessibility_impact_workbook.py` from the wards
+each one covers) - three categories (`Partner` / `Needs review` / `Not yet
+reported`), semicolon-joined when a cluster/stratum/LGA's covered wards
+mix categories (the normal case above ward grain, not an error). Dates
+parsed from whatever format a partner used; anything parsing to AFTER
+today is treated as unparseable, not real - excludes ~450 FACT rows with
+the known Excel-autofill-drag date corruption (drifting as far as 2261)
+from ever winning a "most recent" comparison. Full explanation lives in
+the impact workbook's own README sheet and `resampling/README.md` - not
+repeated here. Added a sanity-check pass verifying every "Reported by"
+value is built only from the three known categories.
+
+## Revision 2026-09-03 — Mobbar ward-level border-buffer override (Damasak + Zanna Umarti), first use of a targeted "carve a hole in the buffer for specific wards" mechanism
+
+**Decision.** FHI 360 (assigned partner for Mobbar LGA, Borno) confirmed
+on-ground access to Damasak and Zanna Umarti wards - two of the ~10 wards
+excluded from the whole design since Stage 1 by the blanket 20km Niger
+border buffer (a security-planning rule FACT itself originally recommended,
+not a judgement on these specific places - see "Revision 2026-08-06").
+Jack's call: since a willing, on-ground-confirmed partner now exists for
+these two specific wards, they should be added to the sampling universe -
+this is the first time this project has reopened part of a border-buffer
+exclusion for a *specific ward* (as opposed to 2026-08-06's *region-wide
+distance* relaxation). Corroborating evidence checked directly before
+proceeding: FACT's own ward-level accessibility file
+(`NGA_Sampling_accessibility_FACT_admin3_NE.csv`) independently rates
+Damasak, Zulum Umarti (OCHA/COD's spelling of Zanna Umarti - not a boundary
+error, just naming variation across GRID3/OCHA/DTM, same recurring pattern
+as Funtua's Maska/Nasarawa) and the specific communities inside them
+"Fully Accessible" - confirming the buffer, not an accessibility judgement,
+was the only thing keeping these wards out.
+
+**Scale, found before committing to a build.** Raw DTM data (previously
+never processed for these wards, since they were never inside `accessible_
+hex`) showed substantially more population than a routine "add two wards"
+framing suggested: Non-IDP (WorldPop) 65,516 individuals / 10,919 households
+across 16 eligible hexes; IDP (DTM, 10 real distinct sites, all >386m
+apart) 89,388 individuals / **15,913 households**, dominated by one massive
+camp (Gsss Camp Damasak, 69,794 individuals / 12,243 households). Mobbar
+had **zero IDP stratum at all** before today - fully border-buffer-excluded
+at Stage 1, on top of its existing Non-IDP stratum (which itself has been
+separately `coverage_status = excluded` /
+`accessibility_loss_below_population_threshold` since 2026-08-31, for an
+unrelated reason - the other 8 wards' real insecurity, not the buffer).
+Flagged to Jack before building anything; confirmed to proceed with full
+build for both Non-IDP and IDP.
+
+**Target-sample sizing - a genuine, useful finding, not just a formality.**
+Independently recomputed via `build_sampling_plan()`'s exact formula
+(Z=qnorm(0.95), p=0.5, e=0.10, m=6, ICC=0.06, buffer=0.10) both with
+Mobbar Non-IDP's old-only N_hh (24,508.81) and the combined old+new total
+(35,428.15) - **identical result, 17 clusters/102 households either way**.
+At this population scale the FPC-adjusted formula has already saturated;
+adding 10,919 more households doesn't move the target. This meant the
+existing stratum's `target_sample` (102) didn't need recalculating at
+all - the shortfall to close is simply the stratum's full existing target,
+since 0 of it is currently achievable in WORKING (all 17 existing clusters
+are `ward_accessible_status = Inaccessible` for the unrelated 2026-08-31
+reason). The brand-new IDP stratum was sized fresh off its own real
+15,913-household population - also 17 clusters/102 households (same
+saturation).
+
+**Mechanism - reused existing infrastructure, did not build parallel code.**
+- **IDP**: extended the canonical site-level PSU candidate frame
+  (`input_data/population/sampling_frame/idp_site_level_psu_frame_2026-09-02.rds`,
+  the "Option B" mechanism from "Revision"/project-memory "IDP site-level
+  PSU redesign") with these 10 real sites
+  (`scripts/one_off_analyses/extend_idp_site_level_psu_mobbar_2026-09-03.R`),
+  backed up first, then ran `draw_supplementary_idp_sites_batch.R`
+  **completely unmodified** - exactly matching Jack's explicit instruction
+  to "use the updated IDP cluster drawing mechanism." All 10 real sites got
+  real coverage (target scaled per site's own PPS weight - Gsss Camp alone
+  absorbed target_households=12 via selection_count=2, the smallest sites
+  got the floor of 6).
+- **Non-IDP**: adapted `draw_supplementary_clusters_batch.R` (kept as the
+  proven, unmodified mechanism for every other partner's supplementary
+  Non-IDP draws this round) with one necessary addition - since Damasak/
+  Zanna Umarti were never in `hex_access` at all (zero intersection,
+  confirmed directly), they don't exist in `non_idp_sampling$sampling_
+  frame` for `add_supplementary_clusters()` to draw from. A new "Stage A0"
+  (`resampling/scripts/draw_mobbar_expansion_non_idp_2026-09-03.R`) builds
+  the 16 newly-eligible hexes (same `st_make_grid(cellsize=5000)` + WorldPop
+  extraction method as Stage 1) and injects them into the sampling_frame
+  object in memory, restricted to ONLY these 16 hexes for Mobbar by
+  explicitly zeroing MOS on every other Mobbar hex (an allow-list, not the
+  ward-accessibility-shapefile join other supplementary scripts use - safer
+  near a small border-buffer LGA boundary, and the other 8 wards are
+  excluded for an unrelated reason anyway). Real Google Open Buildings
+  footprint draw, same Tier 1/Tier 2 mechanism as every other partner this
+  round. Result: 15 clusters (one of the 16 hexes never got drawn - normal
+  PPS variance, still available for a future draw), 106 real achieved
+  households (nominal target summed to 114 - the two-uncoordinated-tiers
+  overshoot this mechanism has always been prone to, same as documented in
+  `draw_supplementary_clusters_batch.R`'s own header).
+- **Merge**: `merge_partner_resample_batch.R`, unmodified, run once for
+  both batches together (it already supports Non-IDP + hex-IDP + site-IDP
+  in one call). A **pre-merge strata patch**
+  (`scripts/one_off_analyses/patch_mobbar_strata_pre_merge_2026-09-03.R`)
+  was needed first, since that script only *recomputes* achieved figures
+  for strata that already have a row - it doesn't create new rows or touch
+  `coverage_status`/N_hh: flipped `non_idp_NG008023` from `excluded`/
+  `accessibility_loss_below_population_threshold` back to `covered`/`none`
+  (real, substantial accessible population now exists), updated its N_hh/
+  n_hex to the true combined total, and inserted a brand-new `idp_NG008023`
+  strata row into both FULL and WORKING (didn't exist before today).
+  `output/data/data_collection/` backed up first to
+  `_archive/2026-09-03_pre_mobbar_fhi360_expansion/`, per this project's
+  standing convention. Final verified result: non_idp_NG008023
+  achieved_clusters=15/achieved_sample=106/realized_moe=9.09%;
+  idp_NG008023 achieved_clusters=10/achieved_sample=102/realized_moe=9.26%
+  - both within the 10% target. The pre-existing 17 inaccessible Mobbar
+  Non-IDP clusters confirmed still absent from WORKING (unaffected).
+
+**Bug found and fixed during the build (data-quality, not logic)**: the raw
+DTM source file's own `lga_pcode` column uses a 9-character "NGA..."
+convention (`NGA008023`) - this project's frame uses 8-character "NG..."
+(`NG008023`) throughout, normally reconciled by the national site-level
+builder's spatial join against `hex_access` (which silently overwrites the
+raw DTM pcode). Since these 10 Mobbar sites skip that join entirely (never
+intersected `hex_access`, being border-buffer-excluded), the mismatch had
+to be corrected explicitly. First draw attempt silently produced "0 fresh
+candidate sites" - not a real accessibility/distance problem (checked
+directly: genuine ~75km separation from the nearest live IDP cluster) but
+the shortfalls CSV's `adm2_pcode` join failing on the pcode-format
+mismatch. Fixed in `extend_idp_site_level_psu_mobbar_2026-09-03.R`
+(`sub("^NGA", "NG", ...)`) before redrawing.
+
+**Partner-package cleanup, found while regenerating FHI 360's package**:
+`build_cluster_factsheets.py` writes/copies a docx per cluster but never
+deletes one for a cluster that's since left WORKING - FHI 360's Mobbar
+`Cluster_guide/` folder still had all 17 of the original (dated 13 Aug,
+pre-dating even the 2026-08-31 exclusion) now-inaccessible clusters'
+factsheets sitting alongside today's 15 new valid ones. Manually removed
+the 17 stale files (`non_idp_NG008023_{1-17}_factsheet.docx`, the plain-
+numbered original IDs - today's new ones are all `_supp*`) before telling
+FHI 360 they can proceed, so the delivered package can't be misread as
+including wards that are still off-limits. **This is a pre-existing gap in
+`build_cluster_factsheets.py`, not something this build introduced** - any
+other partner whose assignment has shrunk since original delivery likely
+has the same stale-file problem in their package folder; not checked/fixed
+project-wide today, flagged for a future pass if worth doing systematically.
+
+**Update, same evening**: initially left un-renamed ("v4" hardcoded across
+too many scripts to touch unprompted, see below) - Jack then explicitly
+asked for the v4->v5 cutover before handing off to Arnold. Done properly:
+current (post-Mobbar) v4-named files copied to new v5-named files; v4
+files then restored to their pre-Mobbar-build state (from the backup this
+build already took) and left frozen as the historical baseline, matching
+the 2026-08-31 v2->v3 precedent exactly. All ~23 *durable, reusable*
+scripts referencing `_v4_` (every `field_guide_production/*` script, the
+`resampling/scripts/` mechanism scripts - `draw_supplementary_*`,
+`merge_partner_resample_batch.R`, `analysis_*`, the accessibility-workflow
+`0N_*.py` scripts - `stamp_frame_version.R`, `build_partner_coverage_
+workbook.py`) repointed to `_v5_` via a scripted sed pass, verified zero
+`_v4_` references remain in any of them. **Dated one-off/patch scripts were
+deliberately left referencing `_v4_`** (they already ran, already produced
+delivered output, and are historically accurate as written - e.g.
+`build_v4_frame_2026-08-31.R`, every `patch_*_2026-09-0N.R`, the FACT/DRC
+report-builder scripts) - matches this project's own long-standing
+convention of not retroactively rewriting completed one-off scripts.
+`scripts/stamp_frame_version.R`'s own pre-existing (2026-09-01) archiving
+logic then automatically moved the now-superseded v4 CSVs + build log into
+`output/data/data_collection/_archive_superseded_versions/` on its next
+run - exactly its documented job, not something new added tonight.
+
+**Found and fixed while rebuilding the combined workbook for v5**:
+`NGA_MSNA_2026_sampling_frame_workbook_v2.xlsx`'s Strata-Level Summary
+sheet was silently reading from `_pipeline_state.pkl`, dated **2026-08-19**
+- predating this entire resampling round (FACT/DRC/CARE reviews, the
+2026-08-31 accessibility-loss exclusion mechanism, tonight's Mobbar
+addition). Its Mobbar row still showed the original pre-exclusion design
+figures (coverage_status=covered, achieved_sample=102) as if none of the
+last two weeks had happened. Fixed the same way the household-level sheet
+was already fixed once before (2026-08-01/02, for the site_radius_m/
+tier2_fallback_used patch): read live from the current strata-level FULL
+CSV on disk instead of the stale pickle. Coverage Summary sheet
+deliberately left sourced from the pickle - its own scope (the one-time
+partner-LGA name-matching decision, `match_method` column) genuinely
+hasn't changed since 2026-07-30/08-06, unlike Strata-Level Summary which
+explicitly claims to be "a rollup of the household-level sheet" and needs
+to actually be one. New workbook: `NGA_MSNA_2026_sampling_frame_workbook_
+v5.xlsx`; the old `_v2.xlsx` is left in place as the frozen historical
+copy, same convention as the CSVs. Full verification (zero content
+differences on any row/column common to both v4 and v5, across household
+and strata level alike, beyond the intended Mobbar rows) and the partner-
+impact breakdown: `resampling/output/resample_runs/FHI360_Mobbar/
+2026-09-03/v4_vs_v5_change_summary_2026-09-03.md`.
+
+**Precedent this sets, worth remembering if a similar ask comes up again**:
+a ward-level (not LGA-level, not a distance-threshold change) border-buffer
+override is now a proven, repeatable pattern - build the specific ward's
+hex/site candidates by hand (matching Stage 1's own construction method
+exactly), inject them into the relevant `*_sampling`/candidate-frame object
+in memory (Non-IDP) or the canonical on-disk frame (IDP site-level), then
+run the existing supplementary-draw and merge scripts completely
+unmodified. Does not require touching `01_sampling_pipeline_main.R` itself
+or rerunning anything nationally.
+
+## Update 2026-09-04 — FACT site-level IDP geometry backfill + Musawa exclusion check (both flagged by 2_monitoring)
+
+Two items 2_monitoring's cleaning-log digest surfaced, worked through the
+same day.
+
+**1. FACT site-level IDP geometry gap — same root cause as Mobbar's,
+backfilled the same way.** FACT's two site-level IDP batches
+(`resampling/output/resample_runs/FACT/2026-09-02_sitelevel/` and
+`.../2026-09-03/`) both predate the 2026-09-03 fix to
+`draw_supplementary_idp_sites_batch.R` (the one that now writes
+`new_clusters_idp.gpkg` automatically — see "Revision 2026-09-03" above),
+so neither had ever written geometry: 29 of their 30 drawn clusters were
+covered but invisible on the Coverage Map (the 30th, `idp_NG021001_supp1`,
+already had geometry from elsewhere — checked directly before backfilling,
+not assumed). Fixed via `scripts/one_off_analyses/backfill_fact_sitelevel_
+idp_geometry_2026-09-04.R` (same no-redraw, build-from-already-drawn-CSV
+pattern as `write_mobbar_idp_geometry_gpkg_2026-09-03.R`) — reran
+2_monitoring's `prep_psu_geometries.R` afterward and confirmed 100% (3724
+of 3724) of covered cluster_ids now resolve to geometry, up from ~99%.
+
+**Caveat, not yet true "end-to-end" verified**: the 2026-09-03 fix to
+`draw_supplementary_idp_sites_batch.R` itself has still never been
+exercised by an actual live draw — every site-level IDP batch that has run
+(Mobbar, and both FACT batches above) predates it. The fix's code is
+verified correct by structural comparison (it's the identical `st_write()`
+block, proven twice now via manual backfill), but confirm it produces a
+`.gpkg` automatically the next time a real site-level IDP batch is drawn,
+rather than assuming it's covered.
+
+**Added, per 2_monitoring's request**: a per-batch completeness check in
+`2_monitoring/cleaning/prep/prep_psu_geometries.R` (2026-09-04 block) —
+scans every `resample_runs/*/*/` directory directly for a `new_clusters`/
+`new_households` CSV with no matching `new_clusters*.gpkg`, and writes a
+named, per-directory warning to `SANITY_WARNINGS.txt` if found. This is a
+stricter, earlier signal than the pre-existing aggregate overlap-rate
+check (which only fires once enough clusters are missing frame-wide) —
+verified it correctly reports clean against all 14 real batch directories
+after the backfill above, with no false positives against COOPI/INTERSOS/
+ZOA/DRC/IMC's differently-named batches.
+
+**2. Musawa LGA (Katsina, `idp_NG021029`) exclusion — checked and
+confirmed still accurate, not stale.** 2_monitoring flagged that FACT has
+47 real, completed, matched interviews against `idp_NG021029_2` (Sabuwar
+Unguwa site, Musawa ward) despite the LGA being `coverage_status =
+excluded` / `accessibility_loss_below_population_threshold` since
+2026-08-31 (see "Revision" — this mechanism, `build_v3_frame_2026-08-31.R`)
+— asked whether the exclusion is stale or FACT needs to be told to stop.
+Checked both directly:
+- **Not stale**: FACT's own 2026-09-03 accessibility follow-up
+  (`resampling/output/resample_runs/FACT/2026-09-03/fact_followup_ward_
+  reconciled.csv`) reaffirms all 16 of Musawa's insecure wards as
+  `Accessible = No`, reason "Banditry and kidnappings," same 2026-08-24
+  report date as the original — unchanged, not a new/updated report. The
+  master log (`master_accessibility_status_ward_level.csv`) matches
+  exactly, `status_source = confirmed_by_partner_report`. This was a
+  direct, partner-confirmed security assessment at exclusion time
+  (idp_NG021029 showed **0.0% population remaining** — full exclusion, not
+  a marginal call) — not a default-unreported artifact like Damasak was.
+- **FACT is not "still actively fielding" there**: checked submission
+  dates directly, not assumed. Every real submission across every Musawa
+  cluster (`idp_NG021029_2`, `_10`, `_14`, `non_idp_NG021029_5`, `_6`,
+  `_12` — 83 rows total) falls between **2026-08-27 and 2026-08-30**,
+  entirely before the 2026-08-31 exclusion took effect. Zero submissions
+  in Musawa on or after 2026-08-31. The 47 (48 raw, 1 quality-excluded)
+  interviews correctly count toward Collected but not Achieved — that's
+  the intended behaviour for real pre-exclusion fieldwork under a design
+  that later closed the LGA, not a bug or an ongoing violation. No frame
+  change made; none needed.
+- **Worth relaying to FACT, not acted on unilaterally**: their field team
+  kept collecting in Musawa through 2026-08-30 — six days after their own
+  2026-08-24 security report. Possibly an internal comms lag between
+  FACT's access/security reporting and their field operations team, or an
+  already-in-progress round finishing out before the report was acted on
+  — worth FACT knowing this gap exists, not something this project can
+  explain from the data alone.
+
+## Revision 2026-09-05 — daily partner sampling-points workflow, and a real national achieved-tracking bug found and fixed along the way
+
+**Context.** Jack asked for a new, repeatable (daily/every-other-day) refresh of each partner's `<Partner>_sampling_points_summary.xlsx` (lives in `3. External coordination\NGA MSNA 2026 Package\<Partner>\`), so partners can tell what they've already collected vs. what's still needed without relying on the dashboard/KML alone (direct trigger: a FACT phone call). Built and prototyped on FACT first, per Jack's explicit rollout choice, before this expanded into something much bigger (see below) — the other 18 partners have **not** been regenerated with the new mechanism yet, pending that review.
+
+**New/changed mechanism, part 1 — the workbook itself**
+(`scripts/field_guide_production/build_partner_dc_packages.py`):
+- **"Sampling Points" sheet** now sourced from FULL (not WORKING, which the KML files still correctly use) with three new columns: `Achieved`, `Date Collected`, `Collection Status`. Non-IDP rows use an exact `survey_id` join against `real_submissions.csv` (a specific pre-assigned building was or wasn't visited — a real per-point fact). IDP rows are cluster-grain (no fixed physical building per slot — see the IDP field-methodology sections above): `Achieved` is a count ("8 of 12"), not Yes/No.
+- **New "Needs Collecting" sheet** — same rows, filtered to `Collection Status` not in (Complete, Inaccessible — see below).
+- **New "Cluster Summary" sheet** — one row per cluster (Non-IDP + IDP unified): Target/Reserve/Collected/Achieved/Still Needed/% Achieved/Collection Status/Last Collection Date, with conditional-formatting traffic lights.
+- **README** gained a "Last refreshed" timestamp and a partner-level headline block (target/achieved/still-needed/% complete/inaccessible-cluster count) at the top, before the existing per-LGA target table.
+- Achieved/is_achieved logic is mirrored (duplicated, not imported — this project's standalone-script convention) from `2_monitoring/dashboard_app/global.R`'s canonical `is_achieved()`/`is_collected()`, so this workbook and the live dashboard are never computing "achieved" two different ways.
+
+**New/changed mechanism, part 2 — daily WORKING refresh**
+(`scripts/field_guide_production/refresh_working_frame_daily.R`, new): generalises the one-off achieved-row-drop from `build_v3_frame_2026-08-31.R` into a repeatable step, run before the workbook script. Rebuilds household-level WORKING **fresh from FULL every run** (never chains off yesterday's WORKING — idempotent by construction; if a submission is later invalidated, its point correctly reappears next run rather than staying dropped forever). Non-IDP: exact `survey_id` drop. IDP: count-based per (cluster, primary/reserve), same logic as the Aug-31 script's IDP branch. No version bump — FULL is untouched, only WORKING is overwritten in place. **Also now keeps strata-level WORKING's `achieved_clusters`/`achieved_sample`/`realized_moe_pct` fresh every run** (see the bug below for why this was added) — computed from a *different* intermediate than the household-level output (see terminology note below), not just left to whichever merge script last touched a given stratum.
+
+**The bug this surfaced, and why it matters far beyond one workbook.** While building the above, Jack noticed this workbook's FACT "achieved" total (7,118) didn't match the live dashboard's (6,946) — flagged with "this is exactly the sort of issue I'm persistently seeing across this current workflow" and asked for a full trace before any fix. Traced precisely:
+
+1. **Root bug**: `resampling/scripts/merge_partner_resample_batch.R`'s `recompute_strata()` computed a stratum's `achieved_clusters`/`achieved_sample` by counting every `status=="primary"` row for that `strata_id` in the household-level frame — **with no `ward_accessible_status` filter at all**. A *separate* line in the same script (the `working_new_rows` filter, ~line 196) *does* correctly exclude a row from WORKING if it's already `ward_accessible_status == "Inaccessible"` **at the moment it's first merged in** — but nothing ever rechecked *existing* WORKING rows when their cluster's ward was marked inaccessible *later*, independent of any merge (a ward-level accessibility update, not a resample). Once a row like that was in, it stayed counted in `achieved_sample` forever after, even though its own row correctly carried `ward_accessible_status = "Inaccessible"`.
+2. **Scale, verified nationally, not assumed**: `achieved_sample` exceeding `target_sample` is structurally impossible under a correctly-capped supplementary-draw mechanism (supplementary clusters exist to approach a fixed target, never exceed it) — yet 75 of 314 covered strata showed exactly that, some by ~2x (e.g. one FACT IDP stratum: target 96, stated achieved_sample 204). Total overstatement: 2,897 households, across 12 partners (FACT hardest hit, 52 strata). Confirmed via a `2026-09-03` diagnostic snapshot (`patch_fix_working_achieved_sample_staleness_2026-09-03.R`, a *different*, already-partially-applied fix for a related-but-distinct mechanical staleness — WORKING's row **count** not matching its own stated achieved figures — that patch deliberately left `target_sample` untouched, citing "Jack has a separate, already-planned single deliberate target/achieved recalibration pass for after this round" — a plan referenced twice in the codebase and, until today, never executed) that the gap already existed then (74 strata / 2,791 households) — this predates 2026-09-05, it wasn't introduced this session.
+3. **Ruled out before fixing**: recomputed `target_sample` fresh via `build_sampling_plan()`'s exact MoE formula (Z=qnorm(0.95), p=0.5, e=0.10, m=6, ICC=0.06, buffer=0.10) against each affected stratum's *current* `N_hh` — **identical to the stated value for all 75 strata, zero exceptions**. So this was never a Mobbar-style "the accessible population genuinely grew, target_sample needs recalibrating" situation — `N_hh` hasn't materially moved for any of them. The apparent "achieved" overshoot was pure miscounting, not real extra fieldwork nor a stale target.
+4. **Fix applied**: `recompute_strata()` now takes a `filter_ward_accessible` argument — `TRUE` for the WORKING call (adds `is.na(ward_accessible_status) | ward_accessible_status != "Inaccessible"`, same condition as the existing new-row filter, applied to *every* eligible row on every run, not just newly-merged ones), `FALSE` for the FULL call. `refresh_working_frame_daily.R` mirrors this: strata-level `achieved_clusters`/`achieved_sample` recomputed from `covered_accessible` (covered, not excluded, ward-accessible — **before** the field-achieved-row drop), every covered stratum, every run.
+5. **Verified nationally after the fix**: 63 of the 75 affected strata resolved completely; national overstatement 2,897 → 51 households across a small residual of 12 strata. Recomputed `target_sample` for those 12 too — again identical to stated in every case; the residual is normal supplementary-cluster-granularity noise (1–18 households over a clean multiple-of-6 target), not a data problem. **No `target_sample` value was changed anywhere, for any stratum, nationally** — the fix was entirely to the (mis-tracked) achieved side.
+6. **FULL deliberately left unfiltered** — checked directly first (0 mismatches nationally between FULL's stated and actual primary-row counts, both before and unaffected by this fix). FULL's `achieved_clusters`/`achieved_sample` is, and should stay, "every row ever drawn for this stratum, regardless of current accessibility" — the complete historical record. Only WORKING's copy of these columns is meant to mean "currently fieldable right now," which is what needed the filter.
+
+**IMPORTANT TERMINOLOGY, worth restating precisely if this area is touched again** — strata-level `achieved_clusters`/`achieved_sample` has *never* meant "how many real interviews have been completed." It's a **design metric**: how many primary slots has the sampling design successfully assigned (compared against `target_sample`, the MoE-driven need). This is completely different from the **field-completion** "achieved" concept (`is_achieved()` against `real_submissions.csv`) that decides which household-level rows to drop from WORKING and what the workbook's `Achieved`/`Collection Status` columns show. `refresh_working_frame_daily.R` computes both, from two different intermediates, on purpose — using the field-achieved-row-dropped household output to recompute strata-level `achieved_sample` would silently invert its meaning into "how many are still outstanding."
+
+**A related design decision, made deliberately, not a bug**: should a cluster's real, already-completed interviews stop counting toward `Achieved` once its ward becomes inaccessible? Checked directly before deciding — 417 real completed interviews nationally (159 Non-IDP + 258 IDP) sit in clusters currently marked inaccessible. **No** — `Achieved`/`Collected` (workbook and Cluster Summary) keep full credit for real completed work regardless of current accessibility; only `Still Needed` floors to 0 and `Needs Collecting` excludes such clusters. This needed a 4th `Collection Status` value, `Inaccessible`, alongside the existing Complete/Partial/Not started — distinct from Complete (so a partner doesn't mistake "we don't need more here because it's unsafe" for "we don't need more here because it's done") and distinct from Not started (so nobody is told to go somewhere currently unreachable). The README headline block splits accordingly: "Total target"/"Still needed" exclude inaccessible clusters (your active, currently-askable workload); "Achieved so far" doesn't (real work isn't erased by an area becoming unreachable afterward); a transparency line discloses the inaccessible-cluster count and how much achieved credit sits inside it, so nothing is silently dropped either direction.
+
+**A genuine (non-bug) wrinkle found and worth remembering**: a Non-IDP hexagon can straddle two wards with *different* current accessibility status — verified directly, 221 clusters do (e.g. `non_idp_NG008010_16`'s 12 household rows split 5 "Aduwa"/Inaccessible, 7 "Guzamala West"/Accessible). `ward_accessible_status` correctly varies **per row** (per building) in this case, not per cluster — always check the specific row/cluster in hand, never aggregate a cluster's status to one value (an early verification pass in this same session got this wrong and produced a false-positive "4,358 inaccessible rows still showing" alarm before this was understood).
+
+**Downstream propagation**: `scripts/stamp_frame_version.R` rerun; corrected `NGA_MSNA_2026_stage2_sampling_frame_v5_WORKING.csv` and `NGA_MSNA_2026_strata_level_sampling_frame_v5_WORKING.csv` copied into `2_monitoring/input_data/sampling_frame/` (old copies archived to `_archive_2026-09-05_pre_ward_filter_fix/`, matching this project's established downstream-copy convention). **Checked, doesn't change what the dashboard displays**: `TOTAL_PLANNED_INTERVIEWS`/`partner_progress_by_lga`'s `target_sample` comes from `strata_frame`, which was never wrong (see point 3 above) — unaffected. The dashboard's own `achieved_n` was *always* computed independently, fresh from `real_submissions.csv` via `compute_progress_by_stratum()`/`cluster_targets` (from `psu_hexagons_sf`/`psu_sites_sf`, itself FULL-derived and unaffected by this fix) — never read the strata CSV's `achieved_sample` column at all, so it was never actually wrong on its own terms either. The propagation matters for anything that *does* read strata-level `achieved_sample`/`achieved_clusters` directly (the internal partner digest, any future report), and so the next partner merge starts from a correct baseline instead of an inflated one.
+
+**Update, same evening — both remaining residuals chased down and resolved, per Jack's explicit follow-up ask ("likely happening across different partners as well").** Diffed the workbook against the dashboard at STRATUM grain (not just national totals) for FACT — found two separate, genuine causes, one a real bug and one a legitimate metric difference:
+
+1. **The 172-household achieved gap was a real, distinct bug** — in `build_partner_dc_packages.py`'s `idp_cluster_summary_row()` (the Cluster Summary sheet only — `idp_primary_metadata_row()`, the Sampling Points sheet's IDP `Achieved` column, was already correct). It computed `Achieved` from `cluster_collected_n` (`is_collected()` — just `interview_outcome == "completed"`, no other check) instead of the stricter `cluster_achieved_n` (`is_achieved()` — also non-duplicate, matched, not quality-excluded), silently letting duplicate/unmatched/quality-excluded submissions inflate Achieved. Every single affected stratum in the diff was IDP; zero were Non-IDP (whose Achieved was always computed from the strict per-`survey_id` `achieved_date_by_survey_id`, never from either cluster counter). Fixed by using `cluster_achieved_n` for IDP's Achieved, same as the Sampling Points sheet already did — `Collected` correctly keeps `cluster_collected_n` (its own definition genuinely calls for the loose count). **Verified nationally, not just for FACT**: after the fix, FACT's workbook achieved total is 6,946 — an **exact** match to the dashboard, and the strata-level diff shows **zero** remaining achieved discrepancy anywhere, not just in aggregate. While in there, found and fixed the mirror-image mislabeling on the Non-IDP side: Cluster Summary's `Collected` column was reusing the strict achieved-only count too (didn't affect `Achieved`'s own correctness there, but meant `Collected` wasn't showing what its own definition promises) — now uses `cluster_collected_n` like IDP's.
+2. **The target gap is not a bug** — confirmed by tracing the per-stratum diff precisely: before this fix, differences went both directions and partly canceled (net −10); a real remaining imprecision was found and fixed along the way (below), after which every single per-stratum difference is negative and the pattern is fully coherent with current ward-inaccessibility, not noise. Dashboard's `target_sample` is a fixed, MoE-driven design ceiling that has never accounted for ward-level accessibility at all (see point 3 above — recomputing it against current `N_hh` reproduces the exact same figure). This workbook's `Total target (your currently active clusters)` is deliberately a live, accessibility-aware "what are we currently actually asking you to do" figure — necessarily smaller wherever a stratum has substantial current inaccessibility (e.g. `non_idp_NG008001`/Abadam, Borno: only 53 of 161 primary rows nationally-ward-accessible, most of its original 17 Stage-1 clusters now inaccessible — target_sample stays frozen at 102 regardless). These are legitimate, different metrics answering different questions, not the same number computed two ways — forcing them to match would mean discarding real information one way or the other. The README's headline block already frames this explicitly (separate "Total target (active)" vs "Achieved so far (all real interviews, including any since become inaccessible)" lines, plus an inaccessible-cluster disclosure line) precisely so this isn't confusing to a partner reading it.
+3. **Real imprecision found and fixed while chasing #2**: `non_idp_cluster_summary_rows()`'s `Target HHs (primary)` used to count a straddling cluster's FULL nominal row count (all 6, say), not just its currently-accessible portion — inflating "Total target (active)" for the ~221 clusters whose hexagon spans two wards with different status (see the straddling-ward note above). Fixed: `Target HHs (primary)` in Cluster Summary is now the accessible-primary-row count specifically; `Achieved` still caps against the NOMINAL (full-cluster) target so real credit already earned is never reduced just because the accessible-portion cap shrank; `Still Needed` is computed directly as "accessible primary rows not yet achieved" (not `target − achieved` arithmetic, which would have been ambiguous once `achieved` can legitimately exceed the now-smaller `target` for a partially-credited straddling cluster); `Collection Status` = Complete is now driven by `Still Needed == 0`, not by comparing achieved against a target that no longer means what it used to. This fix is why FACT's active target moved from 14,714 → 14,073 (more accurate, not a regression) while the gap against the dashboard's fixed 14,724 widened slightly — expected, since making the "active" figure more precise necessarily pulls it further from a metric that was never trying to measure the same thing.
+4. **One benign non-finding, checked and ruled out**: exactly one IDP cluster nationally (`idp_NG021001_9`) has mixed per-row `ward_accessible_status` — but it's `Accessible` vs `NA` (a later-added supplementary batch whose accessibility hadn't been classified yet at the time), not a real ward split. `NA` already correctly defaults to accessible (the project's established "unclassified defaults to accessible" convention) — no fix needed, this doesn't behave like the Non-IDP straddling case at all.
+
+## Update 2026-09-05b — same-day follow-through: the <4-accessible-household threshold, national representativity check, and the weekend supplementary-draw plan
+
+Continuing straight on from "Revision 2026-09-05" above (the ward-
+accessibility achieved-tracking bug and its fix) - same evening, working
+through the consequences with Jack in real time rather than as a separate
+session.
+
+**Decision: straddling Non-IDP clusters with fewer than 4 accessible
+primary households are treated as fully inaccessible, not just the
+literal 0-accessible case.** Discussed at length before deciding (not
+picked unilaterally): the alternative of resampling the missing 1-2
+households from the SAME hex's accessible remainder was considered and
+rejected - checked directly, 217 of 220 straddling Non-IDP clusters
+nationally still have spare eligible-building pool for this to even be
+possible, but Jack's own instinct (asked, not assumed) was that same-hex
+replacements skew toward the inaccessible ward's boundary, i.e. exactly
+the least reliable/highest-risk households to actually collect - the same
+concern that already argued for stratum-level (not same-hex) supplementary
+draws being the right compensation mechanism. A blanket "any straddling
+cluster is inaccessible" rule was checked and rejected too - of 184
+straddling Non-IDP clusters, 46 have 5 of 6 (or equivalent) STILL
+accessible, clearly still worth collecting. The threshold (4) is Jack's
+own explicit call after seeing the shape of the distribution (0-20%
+accessible: 47 clusters; 80-100%: 46 clusters - not lopsided, a genuine
+threshold decision, not derivable from the data alone).
+
+**Implementation - same threshold, same counting basis, in all three
+places that needed to agree** (the exact class of "different mechanisms
+computing the same thing differently" problem this whole evening has been
+about - deliberately not repeated here):
+- `build_partner_dc_packages.py`: `NON_IDP_MIN_ACCESSIBLE_PRIMARY_HH = 4`,
+  `cluster_accessible_primary_n` (count of ward-accessible primary rows
+  per Non-IDP cluster, computed once nationally), `_row_effectively_
+  inaccessible(r)` (the shared check every call site now uses - a row is
+  effectively inaccessible if its OWN ward is inaccessible, OR - Non-IDP
+  only - its whole cluster has fallen below the threshold). IDP is
+  deliberately unaffected: `_row_effectively_inaccessible()` only invokes
+  the threshold for `pop_type == "non_idp"` - IDP sites are single-point
+  (a DTM GPS location, not a hexagon), so there's no "proportion
+  accessible" concept for them at all, just the same binary check that's
+  always existed. Confirmed directly with Jack, who'd independently
+  reasoned through the same distinction and wanted it verified in the code
+  rather than just asserted.
+  - Applied consistently to Sampling Points (`non_idp_metadata_row`,
+    `idp_primary_metadata_row`), Cluster Summary (`non_idp_cluster_
+    summary_rows`, `idp_cluster_summary_row`) - Target HHs and Still
+    Needed both show 0 for a below-threshold or fully-inaccessible
+    cluster (not the true small accessible count) so the row reads
+    consistently; Achieved/Collected keep full real credit regardless
+    (capped at the NOMINAL, not accessible-reduced, target - real work
+    already done is never erased by a cluster later falling below
+    threshold or losing accessibility entirely).
+  - **Bug fixed in the same pass, predates today's threshold discussion**:
+    `idp_cluster_summary_row()`'s "Target HHs (primary)" used to still
+    show the full nominal target next to a "Complete"/"Inaccessible"
+    status - inconsistent, since Still Needed already correctly zeroed.
+    Found while checking IDP wasn't wrongly picking up the Non-IDP-only
+    threshold logic. Now zeroes Target HHs too when inaccessible, matching
+    the Non-IDP side.
+- `refresh_working_frame_daily.R`: same threshold constant and counting
+  basis, applied when building `covered_accessible` (drops the WHOLE
+  cluster's rows, not just its individually-inaccessible ones, for any
+  Non-IDP cluster below 4 accessible primary households) - both the
+  household-level WORKING output and the strata-level achieved_sample
+  recompute inherit this correctly since both are derived from
+  `covered_accessible`. Rerun nationally: 145 clusters dropped entirely
+  (480 rows), household-level WORKING 46,362 -> 45,924 rows. Verified: 0
+  duplicate survey_ids, Musawa still correctly excluded.
+- `merge_partner_resample_batch.R`: same threshold applied to
+  `working_new_rows` (computed from `full_hh_new` - existing + this
+  batch's rows together, so a repeat-site merge pushing an EXISTING
+  cluster below threshold is caught, not just brand-new clusters). This
+  is defense-in-depth, not the sole enforcement point - refresh_working_
+  frame_daily.R rebuilds WORKING wholesale on its own cadence regardless
+  and would catch this the next time it runs either way.
+
+Propagated: `stamp_frame_version.R` rerun, corrected WORKING files (both
+levels) copied to `2_monitoring/input_data/sampling_frame/` (previous
+copies archived), FACT's workbook rebuilt and reverified clean (0 rows
+inconsistent between Collection Status and Target/Still Needed, both pop
+types).
+
+**National representativity check, requested explicitly by Jack after
+seeing the fix's effect** (314 covered strata):
+- **Undersampling**: 89 strata (28%) currently short of `target_sample`,
+  1,346 households total - concentrated overwhelmingly in FACT (66 strata,
+  1,002 households, 74% of the national gap); the rest spread thinly
+  across IMC, INTERSOS, Save the Children, FHI 360 (one stratum, Mafa,
+  carrying 74hh alone), CARE, COOPI, ZOA, PLAN, Street Child, Solidarités.
+- **Oversampling**: only 4 strata, trivially (4-18 households over a
+  102/96-household target) - down from 12 before the threshold fix, reads
+  as ordinary cluster-rounding, not a systemic problem.
+- **Realized-MoE outlook** (if everything CURRENTLY accessible were fully
+  collected): 285 of 314 strata (91%) would meet the 10% target; 29 (9%)
+  would not, even at 100% success on what's currently accessible.
+- **Of those 29, checked against `analysis_remaining_eligible_pool.R`'s
+  live remaining-candidate-pool output** (the project's own existing
+  mechanism for exactly this question, rerun fresh rather than assumed
+  stale): only **3 are genuinely population-exhausted** - `idp_NG034010`
+  (Kebbe), `idp_NG037010` (Maru), `idp_NG021025` (Malumfashi-IDP), all
+  IDP, all with zero remaining accessible-and-unselected DTM sites. **23
+  have a comfortable remaining pool** (a supplementary draw should close
+  them). **3 are marginal** - some pool exists but even the full remaining
+  pool's upper bound falls short of the gap (`non_idp_NG008001`/Abadam,
+  `idp_NG037009`/Maradun, `idp_NG021003`/Batsari-IDP - would improve, likely
+  still land above 10%). The 3 exhausted strata have no path forward
+  through ordinary supplementary drawing - only a Mobbar-style targeted
+  ward reopening (a partner confirming access to a currently-inaccessible
+  ward there) could add new eligible population; otherwise this is a real,
+  disclosed design limitation, not something fixable by drawing harder
+  against the same known universe.
+
+**Decision: hold off on running the supplementary draw tonight.** Jack has
+multiple new partner accessibility reports and recovery-workbook
+deletion decisions landing tomorrow (2026-09-06) - both would materially
+change the exact inputs this whole analysis is built on (new reports
+change `ward_accessible_status`, i.e. everything above; recovery-workbook
+deletions directly reduce `achieved_sample` for whatever gets confirmed
+invalid/duplicate). Running the supplementary draw tonight risked being
+based on a picture that's superseded within a day, and - concretely -
+FACT alone has already had four separate resample batches this week;
+landing a fifth tonight and a sixth tomorrow was judged not worth it
+against waiting one day for a single, comprehensive batch. **Plan, as
+agreed: hold off, then run ONE comprehensive supplementary-draw batch over
+the weekend of 2026-09-06/07, incorporating tomorrow's new accessibility
+reports, the recovery-workbook deletions, and everything already fixed
+tonight, sequenced FACT first (74% of the gap) then a combined batch for
+the other partners.** Same reasoning extends to partner-facing rollout of
+the new daily workbook mechanism itself: FACT's workbook is built,
+verified, and ready, but reflects tonight's fixes only - holding off
+sharing it (with FACT or rolling out the other 18) until after the weekend
+batch too, so partners get one accurate update rather than two within
+days of each other. **Nothing partner-facing has been sent as a result of
+tonight's session** - all changes are local/internal (frame files, 2_
+monitoring's copies, the not-yet-distributed FACT workbook prototype).
+
+**For whoever picks this up next** (this session or a fresh one): before
+running the weekend batch, re-run this same representativity check first
+(strata-level WORKING's `achieved_sample` vs `target_sample`, plus
+`analysis_remaining_eligible_pool.R`) against whatever tomorrow's
+accessibility reports and recovery-workbook deletions actually change -
+the 89/1,346/29/3 figures above are a 2026-09-05 snapshot, not guaranteed
+current by the weekend. **Superseded already, same evening - see
+"stranded-achieved" below, which changes these to 80/1,128/29/3 before
+tomorrow's new information is even factored in.**
+
+## Update 2026-09-05c — "stranded-achieved" credit: real collected data was being double-asked-for once its area became inaccessible
+
+**Context.** Before agreeing to run the weekend supplementary-draw batch,
+Jack raised a concern worth pausing on: for clusters that become fully
+inaccessible, or straddling clusters dropped by the <4-accessible-household
+threshold just added, what happens to real data ALREADY collected there?
+Two cases asked about specifically: (1) a whole area with substantial
+collected data later becomes inaccessible - are those samples just lost?
+(2) a straddling cluster has 1-3 accessible households remaining and gets
+dropped entirely by the threshold rule - if those 1-3 were already
+collected, do they still get discarded even though the data itself is
+fine?
+
+**Finding: partner-facing reporting was already correct; the actual gap
+was one level down, in the design metric that sizes the supplementary
+draw.** Checked directly before concluding either way (this project's
+standing "verify, don't defend" practice) - the workbook's Achieved/
+Collected columns and the dashboard already preserve full credit for real
+completed interviews regardless of current accessibility (the "Update, same
+evening" achieved-credit-preservation decision earlier tonight covers
+this). Nothing there needed fixing. But strata-level `achieved_sample` -
+the DESIGN metric compared against `target_sample` to decide how many
+households the supplementary draw should ask for - is a pure row-count of
+*currently accessible* design slots, blind to whether an excluded row
+already produced a real completed interview. Both of Jack's cases are the
+same underlying mechanism at different scopes (Case 1: a row excluded
+directly via `ward_accessible_status`; Case 2: a whole cluster's rows
+excluded via the threshold rule) - a real completed interview sitting in
+either kind of excluded row was being silently treated as still-
+outstanding capacity, inflating the shortfall the weekend batch would size
+its supplementary draws against. Not a data-loss bug - a double-ask risk:
+asking partners for new households to replace work that's already done.
+
+**Quantified nationally before implementing, not assumed:**
+- 341 real completed interviews nationally are "stranded" this way - 147
+  Non-IDP (exact `survey_id` match against currently-excluded rows), 194
+  IDP (cluster/status count-based, capped at `min(excluded rows in that
+  cluster, real achieved count)` so it can never over-credit past what's
+  real).
+- Of the 89 strata then on the shortfall list (1,346 households), 25 had
+  overlap, totaling 254 stranded households.
+- 9 strata needed **zero** supplementary draw at all once corrected - they
+  were only on the list because of this undercounting (e.g. `idp_NG021003`:
+  target 102, showed shortfall 30, but had 35 stranded-achieved sitting in
+  excluded rows).
+
+**Fix - Jack approved implementing immediately ("yes go ahead and make
+this change now"), same evening, ahead of the weekend batch:**
+- `refresh_working_frame_daily.R`: `strata_agg` (feeds strata-level
+  WORKING's `achieved_clusters`/`achieved_sample`) now unions
+  `covered_accessible`'s primary rows with a `stranded_rows` set - rows
+  excluded from `covered_accessible` (ward-inaccessible directly, or
+  below-threshold Non-IDP cluster) that ALREADY have a real completed
+  interview. Non-IDP: exact `survey_id` join against
+  `achieved_non_idp_survey_ids` (already computed for the household-level
+  drop). IDP: count-based per cluster, capped the same way as the national
+  quantification above, specific rows picked deterministically (lowest
+  `interview_number` first, since IDP achieved is inherently count-based,
+  not tied to one physical slot). Household-level WORKING (the to-do list)
+  is deliberately untouched by this - a stranded-achieved row correctly
+  stays OUT of the to-do list, nobody should be sent to an inaccessible
+  building; this fix only restores its credit to the design-capacity
+  count.
+- `merge_partner_resample_batch.R`'s `recompute_strata()`: same principle,
+  Non-IDP/IDP logic identical. **Also fixed a related, previously-
+  unnoticed issue found while implementing this**: the function's WORKING
+  call used to read from `working_hh_new`, but `working_hh` (loaded fresh
+  from the on-disk WORKING CSV) already has field-achieved rows dropped by
+  the last daily refresh - counting achieved_sample from it silently
+  UNDER-counted current design capacity by however many rows that to-do-
+  list drop had already removed, the opposite-direction sibling of the
+  stranded-achieved bug this section fixes. In practice transient (the next
+  daily refresh always overwrote it), but there's no reason to leave a
+  merge's own immediate output wrong in the meantime. Fixed by having
+  `recompute_strata()` read from `full_hh_new` (every row ever drawn,
+  achieved or not, accessible or not) for BOTH calls, and do its own
+  complete ward-accessible filtering plus stranded-achieved crediting
+  internally - self-contained, matching `refresh_working_frame_daily.R`'s
+  approach exactly. **Deliberately scoped to `ward_accessible_status` only,
+  not the <4 threshold rule** - matches this script's existing, already-
+  documented defense-in-depth split (the threshold rule's full enforcement
+  lives in `refresh_working_frame_daily.R`'s repeatable cadence; this
+  script only applies it to brand-new `working_new_rows` at merge time,
+  same as before). Not exercised end-to-end yet (no real merge has run
+  since) - verified only by a clean parse/syntax check (`Rscript` with no
+  args reaches the expected usage-error `stop()`, confirming the whole file
+  parses); the underlying algorithm is identical to
+  `refresh_working_frame_daily.R`'s version, which IS fully verified below.
+
+**Verified after running `refresh_working_frame_daily.R` with the fix:**
+household-level WORKING unchanged (45,924 rows, byte-identical md5 to
+before - confirms this fix is correctly scoped to the strata-level design
+metric only, doesn't touch the to-do list). Strata-level WORKING: 27
+strata changed `achieved_sample`. National shortfall recomputed fresh from
+the corrected file: **80 strata short (was 89), 1,128 households total
+(was 1,346) - exactly the predicted 218-household/16.2% reduction**, first
+computed as a diagnostic, then reproduced exactly by the actual fix once
+applied. 9 strata now show `achieved_sample` slightly over `target_sample`
+(was 4) - expected and fine, not a new problem: this is real stranded
+credit that turned out to already exceed target once properly counted, the
+same "ordinary cluster-rounding" character as the pre-existing 4, not
+systemic over-collection asked of anyone.
+
+**Checked, doesn't affect the FACT workbook or the dashboard**:
+`build_partner_dc_packages.py` never reads strata-level `achieved_sample`
+for its Target/Achieved/Collected figures (its only strata-level CSV
+reference, `STRATA_CSV`, is a frozen 2026-08-06 archive used purely for the
+`adm2_pcode` → state/LGA name lookup) - both are computed fresh from
+household-level FULL/WORKING + `real_submissions.csv` directly, same as
+already established in "Revision 2026-09-05". So this fix changes the
+supplementary-draw sizing only, not anything already shown to a partner or
+on the dashboard.
+
+**Propagated**: `stamp_frame_version.R` rerun; corrected strata-level
+WORKING (household-level unchanged, re-copied anyway for consistency)
+copied to `2_monitoring/input_data/sampling_frame/` (previous copies
+archived to `_archive_2026-09-05_pre_stranded_achieved_fix/`).
+
+**For whoever picks this up next**: the weekend batch's shortfall
+generation should use the corrected 80-strata/1,128-household baseline (or
+re-derive it fresh from strata-level WORKING, which now already has this
+fix baked in) - not the 89/1,346 figures from earlier tonight. Top
+remaining shortfalls after this fix: `non_idp_NG008019` (74hh),
+`non_idp_NG008001`/Abadam (54hh), `idp_NG037010`/Maru (36hh - one of the 3
+genuinely population-exhausted strata), `idp_NG034010`/Kebbe (30hh - also
+exhausted), `non_idp_NG008026` (25hh), `idp_NG021025`/Malumfashi-IDP (24hh
+- also exhausted), `idp_NG037009`/Maradun (24hh - one of the 3 marginal
+strata).
+
 ## Rules for extending or rerunning this pipeline
 
 - **Don't rerun this pipeline casually.** The frame is submitted and
@@ -1374,6 +2183,22 @@ folder name. Not committed to git — awaiting user review.
 - Downstream projects (`../2_monitoring/`, `../3_analysis/`) should treat
   this project's outputs as **static input files** to copy into their own
   `input_data/`, never as code to `source()` or a live path to read from.
+  Since 2026-08-22: run `scripts/stamp_frame_version.R` after any refresh
+  of `output/data/data_collection/` (see `output/README.md`) — writes
+  `_frame_version.txt`, which downstream sanity checks compare their own
+  copied version against to catch a stale copy automatically, since the
+  static-copy rule above otherwise gives them no way to tell.
+- **`Rscript` is not on PATH in this session's shells (bash or PowerShell)
+  - check for this specifically before concluding R is unavailable.** R
+  IS installed: `C:\Users\JackPHILPOTT\AppData\Local\Programs\R\R-4.6.0\
+  bin\x64\Rscript.exe`, confirmed 2026-08-27 with all packages this
+  project's R scripts need (sf, terra, dplyr, exactextractr, readr)
+  present and working. Call that full path directly instead of bare
+  `Rscript`. Earlier the same day, before this was found, "R not
+  available" led to direct-patching already-generated CSV/xlsx files
+  instead of properly rerunning the R sequence (see Revision 2026-08-27's
+  Solidarités fix) - those patches are correct and don't need redoing,
+  but don't repeat that workaround now that the real path is known.
 - `reference_data_dir` in `scripts/01_sampling_pipeline_main.R` points to
   `C:/Users/JackPHILPOTT/Personal - Documents/GIS` (Google Open Buildings
   source) — genuinely external to this project, unaffected by moving this

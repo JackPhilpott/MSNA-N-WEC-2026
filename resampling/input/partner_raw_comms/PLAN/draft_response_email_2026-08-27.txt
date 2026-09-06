@@ -1,0 +1,31 @@
+To: Halima Abdullahi
+Cc: Emmanuel Nuhu; Gloria Ema Ayal; John Yinusa Obetule; talatu; jugudum; Arnold KIRUI; Lina CAMPEROS
+Subject: RE: PLAN_MSNA: KML points, enumerators ID & Kobo user
+
+Dear Halima,
+
+Thank you so much for flagging the situation in Bama LGA, and for following up today with the fuller picture - we really appreciate you and your team staying on top of this so early into data collection.
+
+Rather than working from the summary you've sent so far, we'd like to ask your team to fill in your organisation's official Accessibility Report directly - please find it attached, covering every ward and cluster currently assigned to PLAN. It captures a few things we need that we don't yet have from what's been shared, and filling it in on your end will make sure everything is captured accurately and completely in one place.
+
+A few specific things worth double-checking as your team goes through it, based on what's been sent so far:
+
+1. Zageri - this matches the ward listed on the attached sheet as "Magarta" (Zageri is the alternate/OCHA name for the same ward) - please report against that row.
+2. "GSS Camp" - this looks like it corresponds to one specific IDP camp (Gssss Camp Bama) sitting within the "Shehuri" ward on the attached sheet, rather than being a separate ward of its own. One thing to flag: Shehuri's row on the sheet shows "Kasugula" as its alternate/OCHA name, but this specific camp's own alternate name is actually "Kumshe" - the ward boundary is split between the two, which the sheet can't show at a glance, so please go by the ward name "Shehuri" itself rather than the OCHA name shown next to it. Shehuri also has two other (Non-IDP) clusters that weren't mentioned - could you confirm on the sheet whether the whole ward is affected, or just this one camp? (see the note below on ward vs. cluster reporting - this is exactly the kind of case it's meant for.)
+3. Soye - this was added in today's email but isn't in the relocation list sent on the 26th, so we don't yet have a relocation destination for it. Could you add this when completing the sheet?
+4. Gulumba - this matches the ward of the same name on the sheet, but part of the neighbouring "Abbaram" ward also carries "Gulumba" as its alternate name. Could you confirm which one this refers to, in case it's actually Abbaram?
+5. The four relocation locations named (New extension Camp, Gidan Taki Camp, Goniri Camp, Goniri) don't match anywhere in our current records - these look like genuinely new sites that have sprung up. If your team has GPS coordinates or any other identifying detail for these locations, that would really help us plan the right response for your team.
+
+One quick note on how to use the attached sheet, since a lot of this process is still new for your team: the first tab, "Ward Accessibility," is your main report - one row per ward, for anything affecting a ward generally, like the relocation situation above. The second tab, "Cluster Accessibility," is only for a problem specific to one site or household within an otherwise-fine ward, and only once that cluster's reserve/backup households have already been tried and weren't enough. It's best to avoid using the cluster tab as a first resort, or as a second way of reporting the same ward-wide issue already captured on the first sheet - this just helps us avoid double-counting when we bring everything together on our end.
+
+We understand you're also working through this together with Isa from FACT - hopefully having this filled in properly on your side will help support that conversation too, alongside our own review here.
+
+Please don't hesitate to reach out if anything about the sheet or this process is unclear at any point - we're very happy to jump on a quick call if that's easier than going back and forth by email.
+
+Thank you again for your patience as you settle into this process, and for the great work so far.
+
+Warm regards,
+Jack
+
+Jack Philpott | Senior Research Analyst
+Dakar, Senegal

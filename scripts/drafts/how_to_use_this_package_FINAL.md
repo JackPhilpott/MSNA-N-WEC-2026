@@ -36,16 +36,33 @@ whole `Non_IDP/` or `IDP/` branch simply won't be present — that's expected, n
 | `[LGA_name]_map.png` (at the plain `<LGA>/` level, not inside `Non_IDP/`/`IDP/`) | A zoomed-out map of the whole LGA showing every cluster assigned to you there, coloured by population group (Non-IDP / IDP / both). For orientation only — use the KML points above for exact navigation, or the closer-in maps inside each cluster's factsheet. |
 | `[cluster_id]_factsheet.docx` (in `Non_IDP/Cluster_guide/` or `IDP/Cluster_guide/`) | A field sheet for that specific cluster: location, your task (building list / Tier 1–Tier 2 / chief listing as applicable), target and reserve counts, any relevant flags (below-target, multiple draws combined, priority supervision), a household interview log grid, and — at the end of the document — a large cluster-level map (hexagon/point layout, roads, buildings, and any known nearby points of interest) followed by an LGA-context map showing where this cluster sits within the wider LGA. One per cluster, named by cluster ID. The first two pages of every factsheet are a general field guide (replacement rules, the accepted GPS-offset range, who to contact) — the same content repeats in every cluster's document so each one is self-contained in the field.
 
-**`LGA_boundaries.kml`** (at the top level of your folder, not inside any State/LGA
-subfolder) — the outline of every LGA you're covering, in one file. Load it in Maps.me
-alongside your points to visually check that a sample point's GPS location genuinely
-falls within the LGA it's assigned to — a quick sanity check if a point ever looks like
-it might be sitting near, or across, an LGA line. It's drawn as an outline only (no
-fill), so it won't hide the points underneath. This is the same official LGA boundary
-(OCHA/COD) used to assign every point in this package — if a point looks like it's
-outside the boundary line in Maps.me, treat that as worth flagging to your focal point
-rather than resampling on your own (see "Ward is approximate" above for a related,
-separate note about ward — not LGA — boundaries specifically).
+**`LGA_boundaries_[Partner].kml`** (at the top level of your folder, not inside any State/LGA
+subfolder) — every LGA boundary line across all 14 assessment states, in one file: **your
+own assigned LGA(s) in thick red**, every other LGA in thinner blue for context. Load it
+in Maps.me alongside your points to visually check that a sample point's GPS location
+genuinely falls within the (red) LGA it's assigned to — a quick sanity check if a point
+ever looks like it might be sitting near, or across, an LGA line, and the wider blue
+context helps make sense of *which* neighbouring LGA it might actually be closer to. This
+is the same official LGA boundary (OCHA/COD) used to assign every point in this package —
+if a point looks like it's outside its red boundary line in Maps.me, treat that as worth
+flagging to your focal point rather than resampling on your own (see "Ward is approximate"
+above for a related, separate note about ward — not LGA — boundaries specifically).
+
+## Pin colors
+
+Each KML file's points now load with their own color, so if you load more than one file
+into Maps.me at once you can tell them apart at a glance:
+
+| File | Pin color |
+|---|---|
+| `non_idp_households_primary.kml` | Green |
+| `non_idp_households_reserve.kml` | Yellow |
+| `idp_clusters_primary.kml` | Blue |
+| `idp_clusters_tier2_backup.kml` | Red |
+
+If your phone has no signal the very first time you open a file, pins may briefly show as
+a generic marker until the color loads — this resolves itself once the phone has any
+internet connection, and doesn't affect the point's location or details.
 
 ## Opening the KML files
 
@@ -120,6 +137,14 @@ the top level of your folder) has two sheets:
 - **Sampling Points** — every single point assigned to you, in one table, with full
   metadata (useful if you prefer a spreadsheet view over opening individual KML files).
 
+## Reporting accessibility issues
+
+Your folder also includes `[Partner]_accessibility_report.xlsx`. Use it to tell us about
+any ward or cluster your team is unable to collect data in — for example due to insecurity,
+physical access, or the population no longer being present — so we can respond
+appropriately, including drawing a replacement sample where needed. See the file's own
+README tab for how to fill it in.
+
 ## Questions or issues — who to contact, and how
 
 Full detail (roles, contact list, and the daily data-cleaning workflow) is in
@@ -137,4 +162,4 @@ flagging is normally a Tier 2 (operational) issue — use the WhatsApp regional 
 it's more urgent than that.
 
 ---
-*Version 1.4 — 2026-08-17.*
+*Version 1.8 — 2026-08-20.*

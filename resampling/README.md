@@ -6,6 +6,12 @@ and the field-guide production layer (`../scripts/field_guide_production/`).
 Scaffolded 2026-08-20; first real partner data (Save the Children)
 processed 2026-08-21.
 
+**Deciding what happens to each stratum during the 2026-08-29 resampling
+push** (drop vs. attempt, representativity-vs-target logic, partner
+rollout order) is documented separately in
+[`RESAMPLING_DECISION_RULES.md`](RESAMPLING_DECISION_RULES.md) — this
+README covers how the scripts work, that file covers the policy calls.
+
 ## Canonical live data sources (always these paths/filenames)
 
 Two files outside this folder are the source of truth for this workflow
@@ -81,6 +87,15 @@ produces) is the first genuine output.
     `output/distribution_log.csv`. **Run 2026-08-20: all 19 partners'
     reports distributed successfully**, confirmed via a direct read of the
     destination content, not just the script's own success message.
+    **HARD CONSTRAINT (see this script's own header comment): a partner's
+    top-level package folder must NEVER be deleted or recreated, only
+    renamed/written into in place — SharePoint sharing is tied to the
+    folder's item ID, not its path/name.** A 2026-08-27 fix nearly violated
+    this by creating a new correctly-named folder instead of renaming the
+    existing shared one; caught and corrected before anything was shared
+    externally (see `../CLAUDE.md`'s Revision 2026-08-27). Read that
+    comment in full before writing anything that touches a partner's
+    top-level folder path.
 - `input/`
   - `accessibility_reports_generated/` - script 01's output, but
     functionally an input to the rest of the workflow (the blank template
@@ -106,7 +121,24 @@ produces) is the first genuine output.
     (pulled from their SharePoint folder, saved from an email attachment,
     hand-transcribed from a WhatsApp/verbal report into a copy of the
     template, or promoted from a verified `accessibility_reports_drafts/`
-    copy) before running script 02.
+    copy) before running script 02. A draft is "verified" for this purpose
+    once every row traces back to either the partner's own submitted
+    material or an explicit partner confirmation (email/verbal relayed by
+    the user) - a coordinator's own inference of what's *probably* fine
+    (e.g. defaulting an unreported ward to accessible given a partner's
+    otherwise-comprehensive review) is a real, useful answer but is not
+    itself "verified" in this sense, since it isn't traceable to the
+    partner - it can still be promoted, just knowingly, not by the same
+    rule as a directly-confirmed row.
+    **Convention (2026-08-23): keep the canonical `<Partner>_accessibility_
+    report.xlsx` (needed as-is - `02`'s glob matches only that exact
+    suffix, so a date inside this filename would silently stop it being
+    picked up) alongside a dated snapshot copy,
+    `<Partner>_accessibility_report_YYYY-MM-DD.xlsx`, for the audit trail**
+    - the snapshot is never read by `02` (it doesn't match the glob), it's
+    purely a historical record of what was returned and when, since a
+    later re-return for the same partner overwrites the canonical copy
+    with no trail otherwise.
 - `output/`
   - `resampling_requests_log.csv` - the master, append-only request log,
     and the first true output of this workflow. Never hand-edit; only
@@ -116,6 +148,19 @@ produces) is the first genuine output.
     Written only by `distribute_to_partner_folders.py --execute`.
   - Future outputs (routing/resolution results, revised frame archives)
     land here too, once `03` is built.
+
+**Housekeeping convention (2026-08-27)**: once a partner's draft in
+`accessibility_reports_drafts/` is confirmed identical to (or superseded
+by) their real file in `accessibility_reports_returned/`, or a generated
+file in `accessibility_reports_generated/` is superseded by a later
+approach, move it into a `_superseded_YYYY-MM-DD/` subfolder within that
+same directory rather than deleting it or leaving it sitting alongside
+active files. First done 2026-08-27 clearing out FHI 360/IMC/Save the
+Children's now-redundant drafts (verified byte-identical to their real
+returns before moving, not assumed), PLAN's abandoned draft, and a stray
+superseded FACT gap-fill file. If either `accessibility_reports_drafts/`
+or the `_superseded_*` convention itself looks emptier/different than
+expected, check here before assuming something's missing.
 
 ## The accessibility report (per partner, two sheets)
 
@@ -177,9 +222,32 @@ request has been triaged and acted on.
 
 ## Decision framework (for `03_route_and_flag.py`, once built)
 
-Every reported issue gets resampled (donor/management decision, 2026-08-20
-- see below); the framework routes to *which* mechanism, and separately
-determines the representative/indicative flag:
+**Geospatial/map-identification claims are triaged BEFORE the table below,
+not routed to resampling at all (policy, 2026-08-21).** A ward-level claim
+whose stated reason is that a point/ward "isn't on the map," doesn't match
+the partner's own KML/maps.me rendering, or that a ward belongs to a
+different LGA/name than what's assigned - as opposed to insecurity,
+population absence, or actual denied access - is a recurring pattern across
+partner reports (not specific to one partner) that has, every time it's
+been checked so far, turned out to be the partner's own map/GPS-tool usage
+rather than a genuine sampling-frame or accessibility problem. Per user
+decision 2026-08-21: **do not mark such a ward Accessible=No or log it as a
+resampling request** - leave it as a normal (blank/available) row, and
+address it operationally by continuing to coach partners toward using the
+GPS point itself rather than ward names to locate their sample (per-cluster
+detail, not a ward-wide read). This is a triage rule based on the STATED
+REASON, not the partner or the ward - the same partner's genuine insecurity
+or access-denial claim (e.g. Save the Children's Bingi South/Gada Karakai/
+Samawa/Tofa, all confirmed independently via zero real Kobo submissions,
+2026-08-21) is still logged and resampled normally. If real submission data
+(`2_monitoring/dashboard_app/data/real_submissions.csv`) or other evidence
+later shows a genuine map/frame defect behind a specific claim like this,
+revisit that specific case - this is a default triage rule, not a blanket
+dismissal of every geospatial complaint forever.
+
+Every other reported issue gets resampled (donor/management decision,
+2026-08-20 - see below); the framework routes to *which* mechanism, and
+separately determines the representative/indicative flag:
 
 | Reason category | Mechanism |
 |---|---|
@@ -267,7 +335,15 @@ number(s) behind it must be real, current figures at the point of
 reporting (revised MoE, % of stratum resampled) - same standard the rest
 of this project holds itself to, not an assertion.
 
-## Known bug (found 2026-08-21, not yet fixed) - clusters spanning >1 ward silently drop the extra ward(s)
+## Known bug (found 2026-08-21) - clusters spanning >1 ward silently drop the extra ward(s)
+
+**FIXED 2026-08-21**, same day it was found - this section's heading
+previously said "not yet fixed" but that went stale; left the rest of the
+write-up below as-is since it's still the accurate root-cause record.
+`load_cluster_rows_by_partner()` was rewritten to key by `(cluster_id,
+ward)` pairs instead of collapsing to one row per cluster - see that
+function's own current docstring in `01_generate_accessibility_reports.py`
+for the fix detail.
 
 `load_cluster_rows_by_partner()` in `01_generate_accessibility_reports.py`
 (lines 139-143) picks one "representative" row per `cluster_id` to
@@ -306,12 +382,53 @@ ward, leaving **1,210 distinct (partner, State, LGA, Ward) combinations
 missing** from the generated Ward Accessibility sheets - **all 19
 partners affected**, not a Save the Children-specific issue.
 
-**Not fixed yet** - the generated reports have already been distributed
-(some may already carry partner-filled input), so per the "don't rerun
-script 01 casually" rule above, this needs a merge-preserving patch (add
-only the missing ward rows to each partner's *existing* distributed copy)
-rather than a full regenerate, and needs the user's sign-off on approach
-before either script or distributed files are touched.
+**FIXED and redistributed same day (2026-08-21)** - this paragraph
+previously said "not fixed yet," which went stale. Confirmed directly
+against `output/distribution_log.csv`: all 19 partners were redistributed
+at 2026-08-21T12:56 via `distribute_to_partner_folders.py --execute
+--replace-existing`, with COOPI (2 rows) and INTERSOS (34 rows) going
+through the merge-preserving path described in that script's own header
+comment - genuine partner-filled answers were carried over, not
+overwritten blind.
+
+## "Reported by" and "Last reported date" (added 2026-08-28)
+
+Every level of the accessibility workflow now carries who reported (three
+categories: `Partner`, `Needs review` - an unclassified log row, see the
+provenance-columns work above - or `Not yet reported`) and when, most
+recently. Ward grain (`04_build_master_accessibility_status.py`'s output)
+computes these directly; cluster/strata/LGA grain (the impact workbook)
+aggregates them from the wards each one actually covers - a cluster
+spanning >1 ward, or any stratum/LGA, commonly shows a semicolon-joined
+mix (e.g. "Not yet reported; Partner") - this is the expected, normal case
+above ward level, not an inconsistency. Dates are parsed from whatever
+format a partner actually used (checked directly: 1,749 DD/MM/YYYY, 239
+YYYY-MM-DD, 31 with a time component) and a parsed date after today is
+treated as unparseable rather than real - this excludes ~450 FACT rows
+with a known Excel-autofill-drag corruption (dates drifting as far as the
+year 2261) from ever being reported as a "most recent" date. See the
+impact workbook's own README sheet for the full explanation shown to
+anyone opening the file.
+
+## Bug found and fixed 2026-08-27 - "confirmed by blank row" was applying per-PARTNER, not per-ward
+
+`04_build_master_accessibility_status.py`'s "confirmed_by_partner_report
+(blank row - not flagged)" status previously fired for a ward the moment
+*any* partner covering it had returned *any* report at all, regardless of
+whether that specific ward was ever actually a row in what they returned.
+Wrong whenever a partner's current assignment has grown since their last
+return (frame changes, or - the confirmed real case - a genuinely
+incomplete first submission): FACT's 189 wards missing from their returned
+file (see "Issues to Review" on the FACT cleaned-listing workbook) were
+showing as reviewed-and-clear, when FACT had never seen those rows at all.
+Fixed: `wards_present_in_returned_files()` now reads each partner's actual
+returned `.xlsx` directly and checks per-(partner, ward), not per-partner -
+confirmed-by-blank-row dropped 1,423 -> 1,234 (the exact 189-row FACT gap,
+verified directly against 3 sample wards before and after). The other 8
+returned files were already 100% row-complete against their current
+assignment, so this was a no-op for them - checked directly, not assumed.
+**Rerun `04` and `05` after any refresh of `accessibility_reports_returned/`
+or the WORKING frame** - this check reads the returned files live each run.
 
 ## Not yet done
 
@@ -323,14 +440,82 @@ before either script or distributed files are touched.
 - A generalized, parameterized version of the 2026-08-06 targeted-resample
   scripts (currently written for that specific 24-LGA run)
 - Scoped map/factsheet/KML regeneration + robocopy-mirror redistribution for
-  only the clusters a resolved request actually changed
-- `source_channel` in the master log is hardcoded to `"partner_excel_return"`
-  by `02_ingest_accessibility_reports.py` for every row, regardless of
-  whether the returned file was actually filled in by the partner
-  themselves or hand-transcribed by a coordinator from raw
-  `partner_raw_comms/` material (email/WhatsApp/call) via an
-  `accessibility_reports_drafts/` copy. Flagged 2026-08-21, not fixed -
-  would need either a real provenance column in the template itself
-  (touches the 19 already-distributed files) or some other per-file
-  convention; needs a user decision before changing, not a call to make
-  solo.
+  only the clusters a resolved request actually changed - though
+  `BUILD_DC_ONLY_PARTNER` (added 2026-08-27, see below) now gets most of
+  the way there for a single-partner scope.
+- **DONE 2026-08-27** (previously listed here as not fixed): `source_channel`
+  being hardcoded regardless of who actually typed a given answer. Two
+  real provenance columns (`Reported by (Partner / IMPACT-default)`,
+  `Source channel`) now exist on both sheets of every generated report,
+  and `02_ingest_accessibility_reports.py` reads them instead of
+  hardcoding. See `../CLAUDE.md`'s Revision 2026-08-27 for full detail,
+  including the master-log backfill and the 186 rows still marked "needs
+  review" rather than guessed.
+
+## Ad-hoc reports (added 2026-08-27)
+
+`input/ad_hoc_reports/` - for a one-off, non-recurring supplement outside
+the normal 19-partner cycle (e.g. `FHI 360_Mobbar_ADHOC_accessibility_
+report_2026-08-27.xlsx` - asking FHI 360 specifically about 7 Mobbar wards
+excluded by the international border buffer, not the normal per-partner
+template). Deliberately NOT in `accessibility_reports_generated/` or
+`_returned/` - those folders and their naming convention belong to `01`/
+`02`'s standard `*_accessibility_report.xlsx` glob; dropping a differently-
+scoped file in there risks it being silently mismatched to the wrong
+partner key on ingest. When an ad-hoc report like this comes back filled
+in, it needs a small dedicated one-off ingestion step (not `02_ingest`
+directly), since its rows describe wards outside the partner's normal
+WORKING-frame assignment.
+
+## Partner-matching constants consistency check (added 2026-08-28)
+
+`IN_SCOPE_STATES`, `PROPOSED_RECONCILIATION`, and `COMBINED_PARTNER_SPLITS`
+are hand-copied into 5 separate scripts (4 Python, 1 R - see the header of
+`../scripts/partner_coverage/analysis_sanity_check_partner_matching_
+constants.py` for the full list and reasoning) rather than imported from one
+shared module, per this project's deliberate standalone-script convention.
+Flagged by the comprehensive sweep as a drift risk (currently all 5 copies
+ARE in sync, verified) - decided 2026-08-28 to keep the duplication as-is
+for now (given the same-day resampling push) but add a script that actually
+checks the 5 stay identical, rather than relying on someone remembering to
+update all 5 by hand. Run `analysis_sanity_check_partner_matching_
+constants.py` any time one of the 5 is touched, or periodically. Revisit
+consolidating to a single shared data file after the resampling push, per
+Jack's own call.
+
+## Pending ad-hoc proposal override (added 2026-08-28)
+
+`ad_hoc_reports/pending_adhoc_proposals.csv` is a small, hand-maintained
+registry for one specific case: a ward that's genuinely eligible and
+unreported (so it would normally get the universal default-Accessible
+status - see the ward-universe fix above) but where we've made a live,
+specific, still-unanswered ask to a partner about it (i.e. via an
+`ad_hoc_reports/*.xlsx` proposal). Showing that ward as "Accessible" while
+the ask is still outstanding overstates what's actually confirmed.
+`analysis_accessible_area_layer.R` reads this file after computing the
+normal default and overrides just the listed (state, LGA, ward) rows from
+Accessible/default_unreported to Inaccessible/pending_adhoc_proposal_
+response - a narrow, explicit exception, NOT a change to the general
+default rule, which is untouched everywhere else. First used 2026-08-28 for
+Mobbar/Bogum and Mobbar/Gudumbali West (the FHI 360 Mobbar supplement, see
+`ad_hoc_reports/FHI 360_accessibility_report_MOBBAR_SUPPLEMENT_2026-08-27.
+xlsx`) - Jack's own call, confirmed a genuine definitional decision rather
+than a bug. Once a proposal is resolved (accepted or declined), remove its
+row(s) from this CSV and rerun `run_accessibility_refresh.py` - an accepted
+ward then flows through the normal reporting path once a report exists for
+it; a declined one goes back to whatever its normal default would be.
+
+## Single-partner scoping (added 2026-08-27, extended 2026-08-28)
+
+`BUILD_DC_ONLY_PARTNER` (env var, unset by default = normal full-19-partner
+behaviour) is read by `../scripts/field_guide_production/
+build_partner_dc_packages.py`, `build_cluster_factsheets.py`, and (as of
+2026-08-28 - flagged as a gap by the comprehensive sweep, since it's the
+one sibling script that touches a partner's live SharePoint folder without
+this hook) `build_partner_lga_boundary_kml.R`. Set it to one partner's
+exact name to regenerate/redistribute only that partner's own
+KML/maps/summary-workbook/cluster-factsheet/LGA-boundary-KML files, without
+touching the other 18 partners' already-delivered material. Added for the
+Solidarités partner-name fix (`../CLAUDE.md`'s Revision 2026-08-27) but is a
+permanent, reusable hook - reach for it whenever a fix is genuinely scoped
+to one partner, rather than rerunning any of these scripts for all 19.

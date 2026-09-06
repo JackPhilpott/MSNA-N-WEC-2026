@@ -24,6 +24,7 @@ import csv
 import os
 import re
 import shutil
+import time
 from collections import defaultdict
 
 from PIL import Image
@@ -35,7 +36,7 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
 PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling"
-STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v2_WORKING.csv"
+STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v5_WORKING.csv"
 BACKUP_POINTS_CSV = PROJECT_DIR + r"\output\data\data_collection\idp_camp_backup_points.csv"
 HOST_FEASIBILITY_CSV = PROJECT_DIR + r"\output\data\supporting_analysis\idp_host_feasibility\idp_host_community_feasibility_flags.csv"
 POI_NEAREST_CSV = PROJECT_DIR + r"\output\data\supporting_analysis\poi\poi_nearest_non_idp.csv"
@@ -53,8 +54,29 @@ LGA_CONTEXT_MAPS_DIR = PROJECT_DIR + r"\output\maps\cluster_lga_context_v1"
 OUT_ROOT = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\3. External coordination\NGA MSNA 2026 Package"
 TEMP_DIR = PROJECT_DIR + r"\output\cluster_factsheets_tmp"
 
-if os.path.exists(r"C:\Users\JACKPH~1\AppData\Local\Temp\claude\Partnerscoverage_copy.xlsx"):
-    COVERAGE_XLSX = r"C:\Users\JACKPH~1\AppData\Local\Temp\claude\Partnerscoverage_copy.xlsx"
+_LOCKED_FALLBACK_COPY = r"C:\Users\JACKPH~1\AppData\Local\Temp\claude\Partnerscoverage_copy.xlsx"
+if os.path.exists(_LOCKED_FALLBACK_COPY):
+    # Source file was open/locked in Excel at run time - fall back to a
+    # just-taken copy instead (2026-08-06). Hardened 2026-08-19: this
+    # fallback previously had no staleness check, and a copy left over from
+    # 2026-08-06 silently got reused 13 days later during the Dange-Shuni
+    # partner reallocation, overriding a just-made edit with no warning.
+    # Now: refuse to use the copy at all if it's more than an hour old (too
+    # old to plausibly be "just taken" by this run's own lock event), and
+    # loudly warn even when it's fresh, so this is never silent again.
+    _copy_age_s = time.time() - os.path.getmtime(_LOCKED_FALLBACK_COPY)
+    if _copy_age_s > 3600:
+        raise SystemExit(
+            f"ERROR: {_LOCKED_FALLBACK_COPY} exists but is "
+            f"{_copy_age_s / 3600:.1f} hour(s) old - too stale to trust as "
+            f"a fresh locked-file fallback. Close Partnerscoverage.xlsx if "
+            f"it's open in Excel, delete this stale copy, and rerun."
+        )
+    print(
+        f"WARNING: Partnerscoverage.xlsx appears locked - using a "
+        f"{_copy_age_s / 60:.0f}-minute-old fallback copy instead: {_LOCKED_FALLBACK_COPY}"
+    )
+    COVERAGE_XLSX = _LOCKED_FALLBACK_COPY
 
 NAVY = "1F3864"
 GREY = "666666"
@@ -202,8 +224,10 @@ def load_partner_lga_map():
     for r in strata_rows:
         master_lgas[r["adm2_pcode"]] = {"adm1_name": r["adm1_name"], "adm2_name": r["adm2_name"]}
     lga_index = {}
+    master_by_state = defaultdict(list)
     for pcode, v in master_lgas.items():
         lga_index[(norm(v["adm1_name"]), norm(v["adm2_name"]))] = pcode
+        master_by_state[v["adm1_name"]].append(v["adm2_name"])
 
     PROPOSED_RECONCILIATION = {
         ("Zamfara", "Birnin Magaji/Kiyaw"): "NG037003", ("Zamfara", "Kauran Namoda"): "NG037008",
@@ -222,9 +246,18 @@ def load_partner_lga_map():
     IN_SCOPE_STATES = {"Adamawa", "Borno", "Yobe", "Kaduna", "Kano", "Katsina", "Kebbi", "Sokoto",
                         "Zamfara", "Benue", "Kogi", "Nasarawa", "Niger", "Plateau"}
 
+    import difflib
     import openpyxl
     wb = openpyxl.load_workbook(COVERAGE_XLSX, data_only=True)
     partners_by_pcode = defaultdict(set)
+    # FIXED 2026-08-28 (found via the comprehensive sweep): unlike its
+    # sibling build_partner_dc_packages.py, this silently dropped any
+    # coverage row that failed to match a master LGA - correct in outcome
+    # (an unmatched row can't be assigned a partner), but with zero visible
+    # signal if a real mismatch ever occurs (a typo'd LGA name would just
+    # silently lose that partner's coverage from every factsheet, with no
+    # warning anywhere). Now reports the same way the sibling script does.
+    unmatched_coverage_rows = []
     for sheet_name in wb.sheetnames:
         ws = wb[sheet_name]
         rows = list(ws.iter_rows(values_only=True))
@@ -244,10 +277,17 @@ def load_partner_lga_map():
             key = (norm(state), norm(lga))
             pcode = lga_index.get(key) or PROPOSED_RECONCILIATION.get((state, lga))
             if pcode is None:
+                candidates = master_by_state.get(state, [])
+                suggestion = difflib.get_close_matches(lga, candidates, n=1, cutoff=0.6)
+                unmatched_coverage_rows.append((state, lga, suggestion[0] if suggestion else None))
                 continue
             for p in partners_here:
                 for expanded in COMBINED_PARTNER_SPLITS.get(p, [p]):
                     partners_by_pcode[pcode].add(expanded)
+    if unmatched_coverage_rows:
+        print(f"WARNING: {len(unmatched_coverage_rows)} partner-coverage rows with a partner assigned did not match any master LGA:")
+        for state, lga, sugg in unmatched_coverage_rows:
+            print(f"  {state} \\ {lga!r}  fuzzy suggestion: {sugg}")
     return partners_by_pcode, master_lgas
 
 
@@ -267,14 +307,36 @@ print(f"  {len(backup_by_cluster)} in-camp clusters with a Tier 2 backup point")
 
 with open(HOST_FEASIBILITY_CSV, encoding="utf-8") as f:
     host_flag_rows = list(csv.DictReader(f))
-priority_host_clusters = {r["cluster_id"] for r in host_flag_rows if r.get("combined_flag_both_p95_200") == "TRUE"}
-print(f"  {len(priority_host_clusters)} host-community clusters flagged for priority supervision "
-      f"(note: keyed to the original design's cluster_ids - the 2026-08-06 NW targeted resample changed "
-      f"cluster_ids for 24 LGAs, so this flag may under-match there; not recomputed - low volume, host-community "
-      f"only, flagged here for awareness)")
+# FIXED 2026-08-28 (found via the comprehensive sweep): this was keyed to
+# cluster_id, computed before the 2026-08-06 NW targeted resample re-ran PPS
+# draws and reassigned cluster_ids for 24 LGAs - so a flagged site whose LGA
+# got resampled silently lost its flag if its cluster_id changed, with no
+# warning to the field team (the factsheet just printed normally, minus the
+# box). Checked directly: of the 18 nationally-flagged sites, 2 were dropped
+# from the design entirely by the resample (nothing to fix - the flag
+# correctly no longer applies), but 1 (Kofar Marusa, Katsina, iom_site_id
+# KT_H105) is still a live selected cluster today under a new cluster_id
+# (idp_NG021021_9 -> idp_NG021021_13) and was silently missing its box.
+# iom_site_id identifies the physical site, not a specific sampling run's
+# numbering, and is stable across a resample - keying on it here instead
+# fixes this permanently, not just for the one site found today.
+priority_host_site_ids = {r["iom_site_id"] for r in host_flag_rows if r.get("combined_flag_both_p95_200") == "TRUE"}
+print(f"  {len(priority_host_site_ids)} host-community sites flagged for priority supervision "
+      f"(keyed to iom_site_id, stable across a resample - see 2026-08-28 fix note above)")
 
 partners_by_pcode, master_lgas = load_partner_lga_map()
 print(f"  Partner coverage resolved for {len(partners_by_pcode)} LGAs")
+
+# Opt-in single-partner scoping (env var, unset by default) - matches the
+# same hook in build_partner_dc_packages.py, so a targeted fix (e.g. a
+# corrected partner name) only rebuilds/redistributes that partner's own
+# cluster factsheets instead of all ~3,400 nationally. Normal/default
+# behaviour (env var unset) is unchanged: every partner.
+_only_partner = os.environ.get("BUILD_DC_ONLY_PARTNER")
+if _only_partner:
+    partners_by_pcode = {pcode: {p for p in partners if p == _only_partner} for pcode, partners in partners_by_pcode.items()}
+    partners_by_pcode = {pcode: partners for pcode, partners in partners_by_pcode.items() if partners}
+    print(f"BUILD_DC_ONLY_PARTNER set - scoped to '{_only_partner}' only ({len(partners_by_pcode)} LGA(s)).")
 
 poi_by_cluster = {}
 if os.path.exists(POI_NEAREST_CSV):
@@ -304,6 +366,11 @@ print(f"  POI legend tables: {len(poi_legend_cluster_map)} cluster maps, {len(po
 clusters = defaultdict(list)
 for r in frame_rows:
     clusters[r["cluster_id"]].append(r)
+
+if _only_partner:
+    clusters = {cid: rows for cid, rows in clusters.items() if rows[0]["adm2_pcode"] in partners_by_pcode}
+    print(f"BUILD_DC_ONLY_PARTNER set - scoped to {len(clusters)} cluster(s) in {_only_partner}'s LGA(s).")
+
 print(f"  {len(clusters)} distinct clusters")
 
 os.makedirs(TEMP_DIR, exist_ok=True)
@@ -819,7 +886,7 @@ def build_cluster_doc(cluster_id, rows, maps_dir=CLUSTER_VECTOR_MAPS_DIR, includ
         n_other_sites = int(r0.get("n_other_sites_in_hex", "0"))
     except (TypeError, ValueError):
         n_other_sites = 0
-    is_priority_host = cluster_id in priority_host_clusters
+    is_priority_host = r0.get("iom_site_id") in priority_host_site_ids
 
     def label_sort_key(s):
         digits = re.sub(r"\D", "", s)

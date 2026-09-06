@@ -1,0 +1,83 @@
+<html><head><meta charset="utf-8"><style>
+body { font-family: Calibri, Arial, sans-serif; font-size: 11pt; color: #1a1a1a; max-width: 700px; margin: 24px auto; line-height: 1.5; }
+.subject-box { background: #f2f2f2; border: 1px solid #ccc; padding: 8px 12px; margin-bottom: 12px; }
+.copy-note { color: #888; font-style: italic; font-size: 9pt; margin-bottom: 20px; }
+table { border-collapse: collapse; margin: 8px 0 14px 0; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 10px; text-align: left; font-size: 10.5pt; vertical-align: top; }
+th { background: #f2f2f2; }
+code { background: #f2f2f2; padding: 1px 4px; border-radius: 2px; font-size: 10pt; }
+.action-box { background: #fdecea; border: 2px solid #c0392b; padding: 10px 14px; margin: 14px 0 18px 0; font-size: 10.5pt; }
+.action-box strong { color: #a5281b; }
+</style></head><body>
+
+<div class="subject-box">
+<b>To:</b> Monday Sunday (msunday@fhi360.org); Muhammad Adam (MUAdam@fhi360.org); Bashir Ngubdo (BNgubdo@fhi360.org); Onesmus Langat (OLangat@fhi360.org)<br>
+<b>Cc:</b> Arnold Kirui (arnold.kirui@impact-initiatives.org); Lina Camperos (lina.camperos@impact-initiatives.org)<br>
+<b>Subject:</b> RE: FHI360_MSNA: KML points, enumerators ID &amp; Kobo user - Damasak &amp; Zanna Umarti confirmed, new points attached
+</div>
+<div class="copy-note">(Reply-all to the thread. Everything below the line is the body - select from "Dear" onward, copy, and paste into your reply.)</div>
+
+<hr>
+
+<p>Dear Monday, Muhammad, Bashir and Onesmus,</p>
+
+<p>Thank you for confirming your team can reach Damasak and Zanna Umarti - this is genuinely valuable, and we've now built and checked everything needed to bring both wards properly into the design rather than just noting your confirmation informally.</p>
+
+<div class="action-box">
+<strong>ACTION NEEDED - FIRST THING TOMORROW MORNING, BEFORE ANY INTERVIEWS:</strong>
+these 25 new points are already reflected in the latest KoBo data collection tool
+update. Your field team must download/update to the latest version of the
+tool before starting work tomorrow - this is what actually adds the new
+points and makes them selectable. The KML files described below are for
+navigation only; updating them alone is not enough on their own.
+</div>
+
+<p><b>WHY THESE TWO WERE EXCLUDED IN THE FIRST PLACE</b><br>
+As background, in case it's useful for your own team: both wards were excluded at the design stage purely by a blanket 20km Niger-border buffer, recommended by FACT for general security-planning purposes - not a judgement on these specific places. We checked FACT's own ward-level accessibility assessment directly, and it independently rates Damasak, Zanna Umarti (recorded there as "Zulum Umarti" - same ward, different source spelling) and the named communities inside them as "Fully Accessible" on their own merits. Your team's on-ground confirmation is what actually lets us act on that.</p>
+
+<p><b>WHAT WE'VE ADDED</b><br>
+25 new clusters, drawn the same way as the rest of your assignment (real building-footprint draws for Non-IDP, real DTM community/camp sites for IDP - not placeholders):</p>
+
+<table>
+<tr><th>Ward</th><th>Non-IDP clusters</th><th>Non-IDP households</th><th>IDP clusters</th><th>IDP households</th></tr>
+<tr><td>Damasak</td><td>3</td><td>22</td><td>5</td><td>54</td></tr>
+<tr><td>Zanna Umarti</td><td>14</td><td>84</td><td>5</td><td>48</td></tr>
+<tr><td><b>Total</b></td><td><b>15</b></td><td><b>106</b></td><td><b>10</b></td><td><b>102</b></td></tr>
+</table>
+
+<p>The 10 IDP clusters map directly onto the community/camp sites your team's own submission referenced: Lawanti, Damasak Central, Kairi and Chunguluski in Damasak, plus Gsss Camp Damasak - a very large site (~12,200 households) that's carrying a larger share of the target than the other nine sites combined. In Zanna Umarti: Bulama A Modu, Bulama Koyumbe, Bulama Kyari, Masakale and Bayan Secretariat HC.</p>
+
+<p><b>A NOTE ON GSSS CAMP DAMASAK SPECIFICALLY</b><br>
+Because of its size (~12,200 households, one of the largest camps in the whole assessment), this site also gets a Tier 2 fallback GPS point - a pre-randomised backup starting point for a walk-based listing, used only if a full household listing at the main DTM point genuinely isn't feasible on arrival. It's included in <code>idp_clusters_tier2_backup.kml</code> (new file, same IDP KML folder) and on the cluster's own factsheet. As with every other flagged camp in your assignment, Tier 1 (full listing at the main point) is always the default - the backup point is only a fallback.</p>
+
+<p><b>WHAT'S NEW IN YOUR PACKAGE</b><br>
+Your Mobbar package folder has been refreshed - nothing elsewhere in your package (Mafa, or Mobbar's other 8 wards, which remain excluded) has changed. Inside <code>FHI 360\Borno\Mobbar\</code>:</p>
+<ul>
+<li><b>KML folders</b> (<code>Non_IDP\KML\</code> and <code>IDP\KML\</code>) - <code>non_idp_households_primary.kml</code>, <code>non_idp_households_reserve.kml</code>, <code>idp_clusters_primary.kml</code>, and <code>idp_clusters_tier2_backup.kml</code> (new - see the Gsss Camp Damasak note above) have been regenerated to show <b>only points that still need an interview</b> - since this is a first delivery for both wards, that's all 25 new points.</li>
+<li><b>Cluster guide folders</b> (<code>Non_IDP\Cluster_guide\</code> and <code>IDP\Cluster_guide\</code>) - a new factsheet (.docx) for each of the 25 new points.</li>
+<li><code>FHI 360_sampling_points_summary.xlsx</code> (same folder) has also been refreshed with all 25 new points.</li>
+</ul>
+
+<p><b>HOW TO UPDATE YOUR KML - PLEASE DELETE THE OLD FILES, DON'T MERGE THEM</b><br>
+Because each KML file shows only outstanding points for that population type rather than a running historical set, please replace rather than add to what you're already using:</p>
+<ol>
+<li>In whatever app your field team uses to navigate to points (e.g. MAPS.ME), <b>remove/delete the existing imported layer(s)</b> for Mobbar's Non-IDP and IDP KML files.</li>
+<li>Download the refreshed files from the KML folders above (they'll show today's date).</li>
+<li>Import each one fresh in place of what you deleted.</li>
+</ol>
+<p>If you skip the delete step and just import the new files on top of the old ones, you may end up with duplicate pins - please delete first. Going forward, each refreshed KML will only ever show what's still outstanding at that time.</p>
+
+<p><b>HOW TO TELL WHICH POINTS ARE NEW</b><br>
+Every one of tonight's cluster IDs ends in <code>_suppN</code> - useful going forward if we ever add more points to Mobbar later. Tonight's 25:</p>
+<p style="font-size:10pt; color:#444;">Non-IDP: <code>non_idp_NG008023_supp1</code> through <code>_supp15</code> (15 points)<br>
+IDP: <code>idp_NG008023_supp1</code> through <code>_supp10</code> (10 points)</p>
+
+<p><b>YOUR TEAM IS CLEAR TO PROCEED ON THESE FROM TOMORROW</b> (once the KoBo tool is updated, per the note above). If anything about the new points looks off on the ground - a site that's moved, a community harder to reach than expected - flag it the same way as always and we'll work through it together.</p>
+
+<p>Thanks again for pushing on this rather than just working around it - it's meant real additional coverage for a population (close to 90,000 people across these two wards alone) that would otherwise have been missed entirely. Happy to get on a call this week if useful.</p>
+
+<p>Best,<br>
+Jack<br>
+MSNA N-WEC 2026 Sampling Team</p>
+
+</body></html>

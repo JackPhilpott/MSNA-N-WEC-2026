@@ -117,9 +117,16 @@ writeLines(lines[1:end_idx], "temp_boundaries_mapex.R")
 source("temp_boundaries_mapex.R")
 file.remove("temp_boundaries_mapex.R")
 
-selected_clusters <- readRDS(here::here(
-  "_archive", "2026-08-06_design_frame_post_nw_targeted_resample", "selected_clusters_final.rds"
-))
+# 2026-09-01 fix: the Aug-6 archive predates this week's entire resampling
+# round (~356 new clusters simply absent - confirmed the direct cause of
+# every "uuid_hex == uuid_hex_i" size-0 error this batch hit). Replaced
+# with a consolidated, current geometry source built by
+# scripts/one_off_analyses/build_consolidated_selected_clusters_2026-09-01.R
+# (unions the archive with every partner batch's new_clusters_*.gpkg,
+# joined via uuid_hex rather than trusting a staged file's cluster_id
+# label - see that script's own header for why). Same schema/shape as the
+# archive, drop-in compatible with everything below.
+selected_clusters <- readRDS(here::here("output", "gis", "selected_clusters_v5_current.rds"))
 
 # hex_polygons: canonical hex geometry, keyed by uuid_hex. Two known gaps in
 # hex_access alone, found while running this batch (2026-08-12) - both
@@ -155,7 +162,7 @@ selected_clusters_hex <- selected_clusters %>%
 missing_uuid_hex <- setdiff(selected_clusters_hex$uuid_hex, hex_access_dedup$uuid_hex)
 hex_polygons <- bind_rows(hex_access_dedup, selected_clusters_hex %>% filter(uuid_hex %in% missing_uuid_hex))
 if (length(missing_uuid_hex) > 0) {
-  cat(sprintf("hex_polygons: supplemented %d uuid_hex value(s) missing from hex_access, from selected_clusters_final.rds.\n", length(missing_uuid_hex)))
+  cat(sprintf("hex_polygons: supplemented %d uuid_hex value(s) missing from hex_access, from selected_clusters_v5_current.rds.\n", length(missing_uuid_hex)))
 }
 
 iom_idp_wgs84 <- st_transform(iom_idp_df, 4326)
@@ -178,7 +185,7 @@ fn_end <- fn_start - 1 + which(grepl("^\\}$", lines2[fn_start:length(lines2)]))[
 eval(parse(text = paste(lines2[fn_start:fn_end], collapse = "\n")))
 
 stage2 <- read_csv(
-  here::here(output_dir, "data", "data_collection", "NGA_MSNA_2026_stage2_sampling_frame_v2_WORKING.csv"),
+  here::here(output_dir, "data", "data_collection", "NGA_MSNA_2026_stage2_sampling_frame_v5_WORKING.csv"),
   show_col_types = FALSE
 )
 backup_pts <- read_csv(

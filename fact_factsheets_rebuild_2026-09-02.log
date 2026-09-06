@@ -1,0 +1,22 @@
+Loading data...
+  46563 household-level rows
+  85 in-camp clusters with a Tier 2 backup point
+  18 host-community sites flagged for priority supervision (keyed to iom_site_id, stable across a resample - see 2026-08-28 fix note above)
+  Partner coverage resolved for 176 LGAs
+BUILD_DC_ONLY_PARTNER set - scoped to 'FACT' only (92 LGA(s)).
+  2587 Non-IDP clusters with a nearest-POI lookup
+  POI legend tables: 1242 cluster maps, 3308 LGA maps
+BUILD_DC_ONLY_PARTNER set - scoped to 1629 cluster(s) in FACT's LGA(s).
+  1629 distinct clusters
+
+Building 1629 cluster factsheets...
+  ... 200/1629 clusters processed
+  ... 400/1629 clusters processed
+  ... 600/1629 clusters processed
+  ... 800/1629 clusters processed
+  ... 1000/1629 clusters processed
+  ... 1200/1629 clusters processed
+  ... 1400/1629 clusters processed
+  ... 1600/1629 clusters processed
+
+DONE. Built: 1629  Copied into partner folders: 1629  Clusters with no matching partner folder: 0  Failed: 0

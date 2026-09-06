@@ -1,17 +1,35 @@
 # ==============================================================================
 # LGA boundary KML - one file per partner, written at the partner's ROOT
-# folder (not nested per-LGA like the point KMLs), covering every LGA that
-# partner is assigned. Added 2026-08-17 per user request, after a field
-# example session (Save the Children) revealed field teams have no easy way
-# to visually cross-check a sample point's GPS location against its LGA
-# boundary in Maps.me itself - this closes that gap directly, without
-# needing a separate GIS tool.
+# folder (not nested per-LGA like the point KMLs). Added 2026-08-17 per user
+# request, after a field example session (Save the Children) revealed field
+# teams have no easy way to visually cross-check a sample point's GPS
+# location against its LGA boundary in Maps.me itself - this closes that
+# gap directly, without needing a separate GIS tool.
 #
-# Styled as an outline only (no fill) so it never visually hides the
-# points/hexagons already on the map - LineStyle uses the same navy
-# (#1F3864) already used throughout this project's maps/diagrams for
-# "official design boundary" elements, at a width visible on a phone
-# screen. Reuses the exact same LGA-name matching/reconciliation logic as
+# Revision 2026-08-18 (two changes, both from direct field testing):
+#   1. Polygon -> LineString. The original version drew each LGA as a
+#      filled-but-transparent Polygon outline. Confirmed via a minimal
+#      isolated test (a single 4-point square, zero styling/dependencies)
+#      that Maps.me's Bookmarks import rejects ANY Polygon placemark
+#      outright as "corrupted or defective" - not a data defect (the file
+#      was well-formed XML, valid UTF-8, topologically valid geometry, all
+#      confirmed directly) but an actual Maps.me Bookmarks-import
+#      limitation. The same shape as a closed LineString ("Track") imported
+#      successfully. Every LGA boundary here is now a closed-loop
+#      LineString instead of a Polygon - visually near-identical (an
+#      outline either way) but actually opens in the app.
+#   2. Whole-country context, not just the partner's own LGAs. Per direct
+#      user request: every LGA in the 14 assessment states is now included
+#      in every partner's file (thin blue, `lgaContextStyle`), with that
+#      partner's own assigned LGAs additionally drawn in thick red
+#      (`lgaCoveredStyle`) so their own assignment is unmistakable against
+#      the surrounding context - useful for exactly the kind of "is this
+#      point actually in a neighbouring LGA" confusion that prompted this
+#      file in the first place (see the Gwandu/Tambuwal ward-boundary
+#      case). Each LGA is drawn once, styled by whichever category it
+#      falls into for that partner - not duplicated.
+#
+# Reuses the exact same LGA-name matching/reconciliation logic as
 # build_partner_dc_packages.py (duplicated rather than imported, per this
 # project's standalone-script convention).
 # ==============================================================================
@@ -102,31 +120,36 @@ cat("Partner coverage resolved for", length(pcodes_covered), "LGAs.\n")
 
 # ---------------------------------------------------------------------------
 # 2. LGA polygons (OCHA/COD, authoritative - same source as every other
-#    LGA-boundary layer in this project).
+#    LGA-boundary layer in this project) - EVERY LGA in the 14 assessment
+#    states now, not just covered ones (2026-08-18 revision #2 above).
+#    admin1_focus_areas comes from the sourced pipeline prefix.
 # ---------------------------------------------------------------------------
 # NGA_shapes_all_cleaned$nga_admin2 already carries its own adm2_name/
 # adm1_name columns - joining master_lgas (which also has those names) on
 # top produced silently-suffixed adm2_name.x/.y duplicates instead of the
-# plain names the KML writer expects, so row$adm2_name resolved to NULL
-# for every row (caught 2026-08-17: every partner's KML came out with zero
-# placemarks - polygon_to_kml() itself worked fine, but esc(row$adm2_name)
-# on NULL silently collapsed the whole Placemark sprintf() to character(0)).
-# Fixed by using the shapefile's own name columns directly - no join needed.
+# plain names the KML writer expects (caught 2026-08-17 - every partner's
+# KML came out with zero placemarks). Fixed by using the shapefile's own
+# name columns directly - no join needed.
 admin2_all <- NGA_shapes_all_cleaned$nga_admin2 %>% st_transform(4326) %>% st_make_valid() %>%
-  filter(adm2_pcode %in% pcodes_covered)
+  filter(adm1_pcode %in% admin1_focus_areas)
 stopifnot(all(c("adm2_name", "adm1_name") %in% names(admin2_all)))
+cat("LGAs in the 14 assessment states (drawn in every partner's file as context):", nrow(admin2_all), "\n")
 
 # ---------------------------------------------------------------------------
-# 3. KML writer - polygon outline only (no fill), so it never hides sample
-#    points underneath. Navy (#1F3864 -> KML aabbggrr = ff64381f), 3px line.
-#    Handles MULTIPOLYGON (multiple parts) and holes (inner rings) generically.
+# 3. KML writer - closed-loop LineString per LGA (Maps.me rejects Polygon
+#    placemarks in Bookmarks imports outright - confirmed 2026-08-18 via an
+#    isolated minimal test; see header). Handles MULTIPOLYGON (multiple
+#    parts, e.g. an LGA with an offshore/exclave piece) and holes (e.g. an
+#    LGA that fully encloses another) generically - each ring becomes its
+#    own closed LineString inside one MultiGeometry per placemark.
 # ---------------------------------------------------------------------------
 ring_to_kml_coords <- function(ring_mat) {
   paste(apply(ring_mat, 1, function(r) paste(r[1], r[2], 0, sep = ",")), collapse = " ")
 }
 
-polygon_to_kml <- function(geom) {
-  # geom: an sfg of type POLYGON or MULTIPOLYGON
+geom_to_kml_linestrings <- function(geom) {
+  # geom: an sfg of type POLYGON or MULTIPOLYGON. Returns one closed
+  # LineString per ring (outer boundary + any holes), across all parts.
   if (inherits(geom, "POLYGON")) {
     parts <- list(geom)
   } else if (inherits(geom, "MULTIPOLYGON")) {
@@ -134,43 +157,69 @@ polygon_to_kml <- function(geom) {
   } else {
     return("")
   }
-  poly_kmls <- vapply(parts, function(rings) {
-    outer <- rings[[1]]
-    inner <- if (length(rings) > 1) rings[-1] else list()
-    outer_kml <- sprintf(
-      "<outerBoundaryIs><LinearRing><coordinates>%s</coordinates></LinearRing></outerBoundaryIs>",
-      ring_to_kml_coords(outer)
-    )
-    inner_kml <- paste(vapply(inner, function(hole) {
-      sprintf("<innerBoundaryIs><LinearRing><coordinates>%s</coordinates></LinearRing></innerBoundaryIs>",
-              ring_to_kml_coords(hole))
-    }, character(1)), collapse = "")
-    sprintf("<Polygon><tessellate>1</tessellate>%s%s</Polygon>", outer_kml, inner_kml)
+  all_rings <- unlist(parts, recursive = FALSE)
+  line_kmls <- vapply(all_rings, function(ring) {
+    sprintf("<LineString><tessellate>1</tessellate><coordinates>%s</coordinates></LineString>", ring_to_kml_coords(ring))
   }, character(1))
-  if (length(poly_kmls) == 1) poly_kmls else sprintf("<MultiGeometry>%s</MultiGeometry>", paste(poly_kmls, collapse = ""))
+  if (length(line_kmls) == 1) line_kmls else sprintf("<MultiGeometry>%s</MultiGeometry>", paste(line_kmls, collapse = ""))
 }
 
-write_lga_boundary_kml <- function(path, lgas_sf) {
+write_lga_boundary_kml <- function(path, lgas_sf, covered_pcodes) {
   parts <- c(
     '<?xml version="1.0" encoding="utf-8" ?>',
     '<kml xmlns="http://www.opengis.net/kml/2.2">',
     '<Document id="root_doc">',
-    '<Style id="lgaBoundaryStyle">',
-    '  <LineStyle><color>ff64381f</color><width>3</width></LineStyle>',
-    '  <PolyStyle><fill>0</fill><outline>1</outline></PolyStyle>',
+    # Red, thick - this partner's own assigned LGA(s). Reuses the same red
+    # (#C00000) already used for warning/caution elements throughout this
+    # project's factsheets.
+    '<Style id="lgaCoveredStyle">',
+    '  <LineStyle><color>ff0000c0</color><width>6</width></LineStyle>',
+    '</Style>',
+    # Blue (navy, #1F3864), thinner - every other LGA in the 14 assessment
+    # states, for context only.
+    '<Style id="lgaContextStyle">',
+    '  <LineStyle><color>ff64381f</color><width>4</width></LineStyle>',
     '</Style>',
     '<Folder><name>LGA boundaries</name>'
   )
+  # Draw order matters: a covered LGA shares its actual boundary LINE with
+  # each neighbouring context LGA (same physical border, drawn once per
+  # side), so whichever is written LAST wins visually where they overlap.
+  # Context (blue) first, covered (red) last, so a partner's own red
+  # boundary always renders as a complete, solid line on top of the blue
+  # context underneath it - not the other way around (2026-08-18 feedback:
+  # red lines were reading as broken/interrupted wherever a blue neighbour
+  # happened to draw over the same shared edge afterward).
+  is_covered_vec <- lgas_sf$adm2_pcode %in% covered_pcodes
+  lgas_sf <- lgas_sf[order(is_covered_vec), ]
   for (i in seq_len(nrow(lgas_sf))) {
     row <- lgas_sf[i, ]
+    is_covered <- row$adm2_pcode %in% covered_pcodes
+    style_id <- if (is_covered) "lgaCoveredStyle" else "lgaContextStyle"
+    # Matches build_partner_dc_packages.py's write_kml() exactly - a raw
+    # newline embedded in a KML <description> text node is valid XML, but
+    # was found 2026-08-18 to make Maps.me reject the whole file as
+    # "corrupted or defective" alongside the Polygon issue above. The
+    # already-working point KMLs avoid this by converting embedded
+    # newlines to the numeric character reference &#10; before writing -
+    # applied here too.
     esc <- function(s) {
-      s <- gsub("&", "&amp;", s); s <- gsub("<", "&lt;", s); s <- gsub(">", "&gt;", s); s
+      s <- gsub("&", "&amp;", s); s <- gsub("<", "&lt;", s); s <- gsub(">", "&gt;", s)
+      gsub("\n", "&#10;", s)
     }
-    desc <- esc(sprintf("State: %s\nLGA boundary source: OCHA/COD (authoritative). Use this to visually check a sample point's GPS location falls within the correct LGA - see How_To_Use_This_Package.pdf.", row$adm1_name))
-    geom_kml <- polygon_to_kml(sf::st_geometry(row)[[1]])
+    coverage_note <- if (is_covered) {
+      "This LGA is assigned to you."
+    } else {
+      "Shown for context only - not assigned to you."
+    }
+    desc <- esc(sprintf(
+      "State: %s\n%s\nLGA boundary source: OCHA/COD (authoritative). Use this to visually check a sample point's GPS location falls within the correct LGA - see How_To_Use_This_Package.pdf.",
+      row$adm1_name, coverage_note
+    ))
+    geom_kml <- geom_to_kml_linestrings(sf::st_geometry(row)[[1]])
     parts <- c(parts, sprintf(
-      '<Placemark id="lga.%d">\n\t<name>%s</name>\n\t<description>%s</description>\n\t<styleUrl>#lgaBoundaryStyle</styleUrl>\n      %s\n  </Placemark>',
-      i, esc(row$adm2_name), desc, geom_kml
+      '<Placemark id="lga.%d">\n\t<name>%s</name>\n\t<description>%s</description>\n\t<styleUrl>#%s</styleUrl>\n      %s\n  </Placemark>',
+      i, esc(row$adm2_name), desc, style_id, geom_kml
     ))
   }
   parts <- c(parts, "</Folder>", "</Document>", "</kml>")
@@ -179,20 +228,38 @@ write_lga_boundary_kml <- function(path, lgas_sf) {
 }
 
 # ---------------------------------------------------------------------------
-# 4. One KML per partner, at their root folder.
+# 4. One KML per partner, at their root folder - same admin2_all (all 14-
+#    state LGAs) drawn for every partner, only the red/blue styling differs
+#    depending on which LGAs are THIS partner's own.
 # ---------------------------------------------------------------------------
 all_partners <- sort(unique(unlist(sapply(pcodes_covered, function(p) get(p, envir = partners_by_pcode)))))
 cat("Partners:", length(all_partners), "\n")
 
+# Opt-in single-partner scoping (env var, unset by default) - same
+# BUILD_DC_ONLY_PARTNER hook build_partner_dc_packages.py and
+# build_cluster_factsheets.py already use (see resampling/README.md's
+# "Single-partner scoping" section); this script didn't have it yet
+# (2026-08-28 fix, flagged in the comprehensive sweep). Lets a targeted fix
+# (e.g. a corrected partner name) regenerate just that partner's own LGA
+# boundary KML without rewriting the other 18 partners' already-delivered
+# files. Normal/default behaviour (env var unset) is unchanged: every
+# partner. Filtering all_partners here (rather than partners_by_pcode, like
+# the Python siblings do) is enough on its own - partner_pcodes is only
+# ever derived per-partner inside the loop below, so an unscoped partner's
+# file is simply never reached, let alone rewritten.
+BUILD_DC_ONLY_PARTNER <- Sys.getenv("BUILD_DC_ONLY_PARTNER", unset = "")
+if (nzchar(BUILD_DC_ONLY_PARTNER)) {
+  all_partners <- all_partners[all_partners == BUILD_DC_ONLY_PARTNER]
+  cat("BUILD_DC_ONLY_PARTNER set - scoped to '", BUILD_DC_ONLY_PARTNER, "' only (", length(all_partners), " partner(s)).\n", sep = "")
+}
+
 n_written <- 0
 for (partner in all_partners) {
   partner_pcodes <- pcodes_covered[sapply(pcodes_covered, function(p) partner %in% get(p, envir = partners_by_pcode))]
-  lgas_sf <- admin2_all %>% filter(adm2_pcode %in% partner_pcodes)
-  if (nrow(lgas_sf) == 0) next
-  out_path <- file.path(OUT_ROOT, safe_folder_name(partner), "LGA_boundaries.kml")
-  write_lga_boundary_kml(out_path, lgas_sf)
+  out_path <- file.path(OUT_ROOT, safe_folder_name(partner), sprintf("LGA_boundaries_%s.kml", safe_folder_name(partner)))
+  write_lga_boundary_kml(out_path, admin2_all, partner_pcodes)
   n_written <- n_written + 1
-  cat(sprintf("  %s: %d LGA(s) -> %s\n", partner, nrow(lgas_sf), out_path))
+  cat(sprintf("  %s: %d of %d LGA(s) are theirs -> %s\n", partner, length(partner_pcodes), nrow(admin2_all), out_path))
 }
 
 cat("\nDONE. Written for", n_written, "partners.\n")

@@ -1,0 +1,154 @@
+﻿Rscript.exe : Warning message:
+At line:3 char:1
++ & $rscript "scripts/methodology_maps/analysis_coverage_map2_lga_zoom_ ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Warning message::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+In readLines("scripts/01_sampling_pipeline_main.R") :
+  incomplete final line found on 'scripts/01_sampling_pipeline_main.R'
+terra 1.8.70
+
+Attaching package: 'tidyterra'
+
+The following object is masked from 'package:stats':
+
+    filter
+
+
+Attaching package: 'janitor'
+
+The following object is masked from 'package:terra':
+
+    crosstab
+
+The following objects are masked from 'package:stats':
+
+    chisq.test, fisher.test
+
+
+Attaching package: 'patchwork'
+
+The following object is masked from 'package:terra':
+
+    area
+
+here() starts at C:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/1_sampling
+Loading required package: data.table
+
+Attaching package: 'data.table'
+
+The following object is masked from 'package:purrr':
+
+    transpose
+
+The following object is masked from 'package:terra':
+
+    shift
+
+The following objects are masked from 'package:dplyr':
+
+    between, first, last
+
+The following object is masked from 'package:base':
+
+    %notin%
+
+Loading required package: car
+Loading required package: carData
+
+Attaching package: 'car'
+
+The following object is masked from 'package:purrr':
+
+    some
+
+The following object is masked from 'package:dplyr':
+
+    recode
+
+Loading required package: reshape2
+
+Attaching package: 'reshape2'
+
+The following objects are masked from 'package:data.table':
+
+    dcast, melt
+
+Loading required package: stringr
+
+Attaching package: 'shinyjs'
+
+The following object is masked from 'package:shiny':
+
+    runExample
+
+The following object is masked from 'package:terra':
+
+    click
+
+The following objects are masked from 'package:methods':
+
+    removeClass, show
+
+
+Attaching package: 'crayon'
+
+The following objects are masked from 'package:shinyjs':
+
+    hidden, reset
+
+The following object is masked from 'package:ggplot2':
+
+    %+%
+
+Reading layer `wca_admbnda_adm0_edgematched' from data source 
+  `C:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling\input_data\boundaries\wca_admbnda_adm0_edgematched_942026\wca_admbnda_adm0_edgematched.shp' 
+  using driver `ESRI Shapefile'
+Simple feature collection with 24 features and 16 fields
+Geometry type: MULTIPOLYGON
+Dimension:     XY
+Bounding box:  xmin: -25.36119 ymin: -13.456 xmax: 31.30522 ymax: 27.28975
+Geodetic CRS:  WGS 84
+Loading cached object: hexa_by_admin2.rds
+Loading cached object: accessible_hex.rds
+Warning messages:
+1: package 'exactextractr' was built under R version 4.6.1 
+2: package 'patchwork' was built under R version 4.6.1 
+3: package 'ggspatial' was built under R version 4.6.1 
+4: package 'sampling' was built under R version 4.6.1 
+5: package 'car' was built under R version 4.6.1 
+6: package 'carData' was built under R version 4.6.1 
+7: package 'reshape2' was built under R version 4.6.1 
+8: package 'shinyjs' was built under R version 4.6.1 
+9: In safe_bind_rows_allow_extra(idp_NE_sf, idp_NCNW_2join) :
+  Column names differ between data frames.
+Extra in DF1: 
+Extra in DF2: state, lga, adm0_name, adm0_pcode, valid_on, area_sqkm, version, lang, adm2_ref_n, sendist_en, 
+sendistpco, center_lat, center_lon
+10: attribute variables are assumed to be spatially constant throughout all geometries 
+[1] TRUE
+LGAs with all 3 population-group hex classes present, smallest first:
+# A tibble: 109 × 8
+   adm2_pcode n_hex n_classes n_non_idp n_idp n_both adm2_name  adm1_name
+   <chr>      <int>     <int>     <int> <int>  <int> <chr>      <chr>    
+ 1 NG021021       8         3         2     1      5 Katsina    Katsina  
+ 2 NG036014       8         3         3     1      4 Potiskum   Yobe     
+ 3 NG007008      13         3         7     1      5 Gwer West  Benue    
+ 4 NG002015      14         3         9     2      3 Mubi South Adamawa  
+ 5 NG002016      14         3         6     4      4 Numan      Adamawa  
+ 6 NG021016      14         3        12     1      1 Jibia      Katsina  
+ 7 NG034021      14         3         9     2      3 Wamako     Sokoto   
+ 8 NG002013      15         3         7     2      6 Michika    Adamawa  
+ 9 NG002021      15         3         4     3      8 Yola South Adamawa  
+10 NG021002      15         3         7     2      6 Batagarawa Katsina  
+11 NG021027      15         3        11     1      3 Mashi      Katsina  
+12 NG036003      15         3         5     5      5 Damaturu   Yobe     
+13 NG037011      15         3         9     1      5 Shinkafi   Zamfara  
+14 NG002014      16         3        10     4      2 Mubi North Adamawa  
+15 NG019007      16         3        12     2      2 Jema'a     Kaduna   
+# ℹ 94 more rows
+
+Selected: Katsina, Katsina (NG021021) - 8 hexes total (2 Non-IDP, 1 IDP, 5 Both)
+
+Saved: C:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/1_sampling/output/maps/coverage_map2_zoom_inset_Katsina.png 

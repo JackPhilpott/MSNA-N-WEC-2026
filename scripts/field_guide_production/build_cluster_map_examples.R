@@ -135,7 +135,7 @@ selected_clusters <- readRDS(here::here(
   "_archive", "2026-08-06_design_frame_post_nw_targeted_resample", "selected_clusters_final.rds"
 ))
 stage2 <- read_csv(
-  here::here(output_dir, "data", "data_collection", "NGA_MSNA_2026_stage2_sampling_frame_v2_WORKING.csv"),
+  here::here(output_dir, "data", "data_collection", "NGA_MSNA_2026_stage2_sampling_frame_v5_WORKING.csv"),
   show_col_types = FALSE
 )
 backup_pts <- read_csv(

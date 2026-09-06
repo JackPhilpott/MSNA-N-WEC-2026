@@ -1,0 +1,35 @@
+To: [IMC contact name(s)]
+Cc: [as appropriate]
+Subject: IMC MSNA: Accessibility report received - resampling underway
+
+Dear IMC team,
+
+Thank you for sharing both your detailed point-level review and the completed accessibility report template for Damboa, Chibok, and Kankia. We've gone through everything and will proceed with resampling based on the information you've provided.
+
+Two locations need your input before we can do the same for them: Kafin Soli and Nzuba Wayaram. In both cases, the ward-level answer in your report doesn't match the cluster-level detail you gave for the same ward, so we want to confirm the correct picture before resampling either of them. If you can reply directly to the specific points below, we shouldn't need a call for these. We've also highlighted the relevant rows in yellow on both the Ward Accessibility and Cluster Accessibility sheets of the attached workbook, so they're easy to find.
+
+Kafin Soli (Katsina/Kankia): your ward-level answer says only the IDP cluster was accessible, with the Non-IDP clusters at high security risk. But your own cluster-level answers for this ward show:
+- idp_NG021020_2 (IDP, 12 target HHs): Accessible
+- non_idp_NG021020_1 (6 target HHs): Not Accessible
+- non_idp_NG021020_2 (6 target HHs): Accessible
+- non_idp_NG021020_4 (6 target HHs): Not Accessible
+That's one Non-IDP cluster (non_idp_NG021020_2) marked Accessible alongside the IDP cluster, which doesn't match the ward-level summary of "only the IDP cluster." Could you confirm: (1) is non_idp_NG021020_2 genuinely accessible, or should it also be Not Accessible like the other two Non-IDP clusters? And (2) what's the actual number of households reached in this ward so far, to replace the 46.6% figure given the discrepancy?
+
+Nzuba Wayaram (Borno/Damboa): your ward-level answer says Yes (partially accessible, some areas could not be reached). But your own cluster-level answers show:
+- idp_NG008007_12 (IDP, 6 target HHs): Not Accessible, insecurity
+- idp_NG008007_3 (IDP, 6 target HHs): Not Accessible, insecurity
+- non_idp_NG008007_6 (6 target HHs): Accessible
+That's both IDP clusters (12 of the ward's 18 target HHs) marked inaccessible due to insecurity, with only the Non-IDP cluster accessible. Could you confirm: (1) are both IDP clusters genuinely inaccessible as stated, and (2) given that's the majority of this ward's target, should the ward-level answer actually be No rather than Yes/partial?
+
+Everything else you reported is being actioned now. On timing:
+
+- New sampling points will be available to you Monday morning, within the tool update.
+- You'll receive a separate email tomorrow confirming exactly what's being resampled and the new information for each affected location.
+
+Thanks again for the thorough work on this.
+
+Kind regards,
+Jack
+
+Jack Philpott | Senior Research Analyst
+Dakar, Senegal

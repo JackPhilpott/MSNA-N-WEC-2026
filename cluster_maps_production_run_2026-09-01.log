@@ -1,0 +1,199 @@
+﻿Rscript.exe : Warning message:
+At line:3 char:1
++ & $rscript "scripts/field_guide_production/build_cluster_maps_product ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Warning message::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+package 'ggspatial' was built under R version 4.6.1 
+Warning message:
+In readLines("scripts/01_sampling_pipeline_main.R") :
+  incomplete final line found on 'scripts/01_sampling_pipeline_main.R'
+terra 1.8.70
+
+Attaching package: 'tidyterra'
+
+The following object is masked from 'package:stats':
+
+    filter
+
+
+Attaching package: 'janitor'
+
+The following object is masked from 'package:terra':
+
+    crosstab
+
+The following objects are masked from 'package:stats':
+
+    chisq.test, fisher.test
+
+
+Attaching package: 'patchwork'
+
+The following object is masked from 'package:terra':
+
+    area
+
+Loading required package: data.table
+
+Attaching package: 'data.table'
+
+The following object is masked from 'package:purrr':
+
+    transpose
+
+The following object is masked from 'package:terra':
+
+    shift
+
+The following objects are masked from 'package:dplyr':
+
+    between, first, last
+
+The following object is masked from 'package:base':
+
+    %notin%
+
+Loading required package: car
+Loading required package: carData
+
+Attaching package: 'car'
+
+The following object is masked from 'package:purrr':
+
+    some
+
+The following object is masked from 'package:dplyr':
+
+    recode
+
+Loading required package: reshape2
+
+Attaching package: 'reshape2'
+
+The following objects are masked from 'package:data.table':
+
+    dcast, melt
+
+Loading required package: stringr
+
+Attaching package: 'shinyjs'
+
+The following object is masked from 'package:shiny':
+
+    runExample
+
+The following object is masked from 'package:terra':
+
+    click
+
+The following objects are masked from 'package:methods':
+
+    removeClass, show
+
+
+Attaching package: 'crayon'
+
+The following objects are masked from 'package:shinyjs':
+
+    hidden, reset
+
+The following object is masked from 'package:ggplot2':
+
+    %+%
+
+Reading layer `wca_admbnda_adm0_edgematched' from data source 
+  `C:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling\input_data\boundaries\wca_admbnda_adm0_edgematched_942026\wca_admbnda_adm0_edgematched.shp' 
+  using driver `ESRI Shapefile'
+Simple feature collection with 24 features and 16 fields
+Geometry type: MULTIPOLYGON
+Dimension:     XY
+Bounding box:  xmin: -25.36119 ymin: -13.456 xmax: 31.30522 ymax: 27.28975
+Geodetic CRS:  WGS 84
+Loading cached object: hexa_by_admin2.rds
+Loading cached object: accessible_hex.rds
+Warning messages:
+1: package 'exactextractr' was built under R version 4.6.1 
+2: package 'patchwork' was built under R version 4.6.1 
+3: package 'sampling' was built under R version 4.6.1 
+4: package 'car' was built under R version 4.6.1 
+5: package 'carData' was built under R version 4.6.1 
+6: package 'reshape2' was built under R version 4.6.1 
+7: package 'shinyjs' was built under R version 4.6.1 
+8: In safe_bind_rows_allow_extra(idp_NE_sf, idp_NCNW_2join) :
+  Column names differ between data frames.
+Extra in DF1: 
+Extra in DF2: state, lga, adm0_name, adm0_pcode, valid_on, area_sqkm, version, lang, adm2_ref_n, sendist_en, 
+sendistpco, center_lat, center_lon
+9: attribute variables are assumed to be spatially constant throughout all geometries 
+[1] TRUE
+hex_polygons: supplemented 6 uuid_hex value(s) missing from hex_access, from selected_clusters_final.rds.
+There were 50 or more warnings (use warnings() to see the first 50)
+Curated POI loaded: 28600 
+
+ 2813 clusters total.
+  [50/2813] rendered=4 skipped=46 errors=8 elapsed=0.0 min
+  [100/2813] rendered=4 skipped=96 errors=8 elapsed=0.0 min
+  [150/2813] rendered=4 skipped=146 errors=8 elapsed=0.0 min
+  [200/2813] rendered=7 skipped=193 errors=14 elapsed=0.0 min
+  [250/2813] rendered=7 skipped=243 errors=14 elapsed=0.0 min
+  [300/2813] rendered=8 skipped=292 errors=16 elapsed=0.0 min
+  [350/2813] rendered=10 skipped=340 errors=20 elapsed=0.0 min
+  [400/2813] rendered=10 skipped=390 errors=20 elapsed=0.0 min
+  [450/2813] rendered=10 skipped=440 errors=20 elapsed=0.0 min
+  [500/2813] rendered=10 skipped=490 errors=20 elapsed=0.0 min
+  [550/2813] rendered=12 skipped=538 errors=24 elapsed=0.0 min
+  [600/2813] rendered=12 skipped=588 errors=24 elapsed=0.0 min
+  [650/2813] rendered=14 skipped=636 errors=28 elapsed=0.1 min
+  [700/2813] rendered=17 skipped=683 errors=34 elapsed=0.1 min
+  [750/2813] rendered=20 skipped=730 errors=40 elapsed=0.1 min
+  [800/2813] rendered=20 skipped=780 errors=40 elapsed=0.1 min
+  [850/2813] rendered=20 skipped=830 errors=40 elapsed=0.1 min
+  [900/2813] rendered=25 skipped=875 errors=50 elapsed=0.1 min
+  [950/2813] rendered=29 skipped=921 errors=58 elapsed=0.1 min
+  [1000/2813] rendered=46 skipped=954 errors=92 elapsed=0.1 min
+  [1050/2813] rendered=72 skipped=978 errors=144 elapsed=0.2 min
+  [1100/2813] rendered=72 skipped=1028 errors=144 elapsed=0.2 min
+  [1150/2813] rendered=86 skipped=1064 errors=172 elapsed=0.2 min
+  [1200/2813] rendered=88 skipped=1112 errors=176 elapsed=0.2 min
+  [1250/2813] rendered=103 skipped=1147 errors=206 elapsed=0.3 min
+  [1300/2813] rendered=125 skipped=1175 errors=250 elapsed=0.3 min
+  [1350/2813] rendered=136 skipped=1214 errors=272 elapsed=0.3 min
+  [1400/2813] rendered=147 skipped=1253 errors=294 elapsed=0.3 min
+  [1450/2813] rendered=155 skipped=1295 errors=310 elapsed=0.4 min
+  [1500/2813] rendered=174 skipped=1326 errors=348 elapsed=0.4 min
+  [1550/2813] rendered=174 skipped=1376 errors=348 elapsed=0.4 min
+  [1600/2813] rendered=192 skipped=1408 errors=384 elapsed=0.4 min
+  [1650/2813] rendered=206 skipped=1444 errors=412 elapsed=0.4 min
+  [1700/2813] rendered=224 skipped=1476 errors=448 elapsed=0.5 min
+  [1750/2813] rendered=227 skipped=1523 errors=454 elapsed=0.5 min
+  [1800/2813] rendered=227 skipped=1573 errors=454 elapsed=0.5 min
+  [1850/2813] rendered=238 skipped=1612 errors=476 elapsed=0.5 min
+  [1900/2813] rendered=241 skipped=1659 errors=482 elapsed=0.5 min
+  [1950/2813] rendered=241 skipped=1709 errors=482 elapsed=0.5 min
+  [2000/2813] rendered=241 skipped=1759 errors=482 elapsed=0.5 min
+  [2050/2813] rendered=241 skipped=1809 errors=482 elapsed=0.5 min
+  [2100/2813] rendered=242 skipped=1858 errors=484 elapsed=0.5 min
+  [2150/2813] rendered=242 skipped=1908 errors=484 elapsed=0.5 min
+  [2200/2813] rendered=246 skipped=1954 errors=492 elapsed=0.5 min
+  [2250/2813] rendered=251 skipped=1999 errors=502 elapsed=0.5 min
+  [2300/2813] rendered=251 skipped=2049 errors=502 elapsed=0.5 min
+  [2350/2813] rendered=259 skipped=2091 errors=518 elapsed=0.5 min
+  [2400/2813] rendered=268 skipped=2132 errors=536 elapsed=0.6 min
+  [2450/2813] rendered=269 skipped=2181 errors=538 elapsed=0.6 min
+  [2500/2813] rendered=272 skipped=2228 errors=544 elapsed=0.6 min
+  [2550/2813] rendered=272 skipped=2278 errors=544 elapsed=0.6 min
+  [2600/2813] rendered=272 skipped=2328 errors=544 elapsed=0.6 min
+  [2650/2813] rendered=277 skipped=2373 errors=554 elapsed=0.6 min
+  [2700/2813] rendered=289 skipped=2411 errors=578 elapsed=0.6 min
+  [2750/2813] rendered=304 skipped=2446 errors=608 elapsed=0.6 min
+  [2800/2813] rendered=317 skipped=2483 errors=634 elapsed=0.7 min
+  [2813/2813] rendered=321 skipped=2492 errors=642 elapsed=0.7 min
+
+DONE in 0.7 minutes. rendered=321 skipped(already done)=2492 errors=642
+Cluster maps: C:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/1_sampling/output/maps/cluster_map_examples_v3 
+LGA-context maps: C:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/1_sampling/output/maps/cluster_lga_context_v1 
+Log: C:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/1_sampling/output/maps/_production_build_log.csv 
+
+NOTE: 642 map(s) failed - see C:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/1_sampling/output/maps/_production_build_log.csv for cluster_id + error_message. Rerun this script to retry only the failed/missing ones.

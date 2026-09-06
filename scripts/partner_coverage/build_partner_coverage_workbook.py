@@ -1,5 +1,5 @@
 # ==============================================================================
-# Builds NGA_MSNA_2026_sampling_frame_workbook_v2.xlsx from the state stashed
+# Builds NGA_MSNA_2026_sampling_frame_workbook_v5.xlsx from the state stashed
 # by analysis_partner_coverage.py - the FULL sampling frame (Sampling Frame +
 # Strata-Level Summary, unchanged plus coverage_status/exclusion_reason),
 # a Coverage Summary sheet, and a README with before/after figures.
@@ -7,6 +7,25 @@
 # Mirrors 07_build_workbook.py's style (colors, table styling) but is its own
 # script since this is a new coverage-layer deliverable, not a change to the
 # frozen pipeline's own workbook builder.
+#
+# 2026-09-03 (v4->v5 cutover): found _pipeline_state.pkl is dated 2026-08-19 -
+# predates the entire accessibility/resampling round (FACT/DRC/CARE reviews,
+# the 2026-08-31 accessibility_loss_below_population_threshold mechanism,
+# today's Mobbar/FHI 360 addition). Its Mobbar row alone showed the giveaway:
+# coverage_status="covered"/achieved_sample=102, the ORIGINAL pre-exclusion
+# design figures, not the real current state. The household-level sheet was
+# already correctly read fresh from disk (see note below, from the earlier
+# 2026-08-01 patch-staleness fix) - the SAME fix is now applied to Strata-
+# Level Summary, which claims to be "a rollup of the household-level sheet
+# above" but was actually still coming from the stale pickle. Coverage
+# Summary (LGA-level partner-matching audit, match_method column) is
+# deliberately left sourced from the pickle - that sheet's own scope is the
+# one-time partner-name-matching decision from 2026-07-30/08-06, which
+# genuinely hasn't changed (no partner's LGA assignment has moved - only
+# which of an LGA's own strata are currently viably fieldable, a stratum-
+# level accessibility concept the Coverage Summary sheet was never meant to
+# track - that's what Strata-Level Summary and the separate, continuously-
+# refreshed resampling/ accessibility impact workbook are for).
 # ==============================================================================
 import csv
 import pickle
@@ -20,8 +39,9 @@ from openpyxl.utils import get_column_letter
 PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling"
 STATE_DIR = PROJECT_DIR + r"\output\data\data_collection"  # analysis_partner_coverage.py's own OUT_DIR
 OUT_DIR = PROJECT_DIR + r"\output\data\data_collection"
-OUT_PATH = OUT_DIR + r"\NGA_MSNA_2026_sampling_frame_workbook_v2.xlsx"
-HOUSEHOLD_FULL_CSV = STATE_DIR + r"\NGA_MSNA_2026_stage2_sampling_frame_v2_FULL.csv"
+OUT_PATH = OUT_DIR + r"\NGA_MSNA_2026_sampling_frame_workbook_v5.xlsx"
+HOUSEHOLD_FULL_CSV = STATE_DIR + r"\NGA_MSNA_2026_stage2_sampling_frame_v5_FULL.csv"
+STRATA_FULL_CSV = STATE_DIR + r"\NGA_MSNA_2026_strata_level_sampling_frame_v5_FULL.csv"
 
 with open(STATE_DIR + r"\_pipeline_state.pkl", "rb") as f:
     state = pickle.load(f)
@@ -35,6 +55,19 @@ with open(HOUSEHOLD_FULL_CSV, encoding="utf-8") as f:
     household_fieldnames = _reader.fieldnames
     household_rows = list(_reader)
 print(f"Loaded household-level FULL frame directly from disk: {len(household_rows)} rows, {len(household_fieldnames)} columns")
+
+# Strata-level FULL frame - ALSO read directly from disk, not the pickle
+# (fixed 2026-09-03 - see header note above). The pickle's 'strata_fieldnames'
+# is still used for column order/selection, since that schema hasn't changed.
+with open(STRATA_FULL_CSV, encoding="utf-8") as f:
+    _reader = csv.DictReader(f)
+    strata_full_rows = list(_reader)
+print(f"Loaded strata-level FULL frame directly from disk: {len(strata_full_rows)} rows (was {len(state['full_strata'])} in the stale 2026-08-19 pickle)")
+
+# WORKING row count only (for the README paragraph below) - real row count,
+# not the pickle's stale figure.
+with open(STATE_DIR + r"\NGA_MSNA_2026_stage2_sampling_frame_v5_WORKING.csv", encoding="utf-8") as f:
+    n_working_rows = sum(1 for _ in csv.reader(f)) - 1
 
 # IDP camp backup GPS points (2026-08-02: folded in as a sheet here instead
 # of shipping as its own separate .xlsx - same data, one less duplicate-
@@ -96,14 +129,14 @@ write_sheet(
     "flagged large in-camp sites with a real delineated extent (NA elsewhere - the radius concept doesn't apply to Tier 1/"
     "host-community listing); tier2_fallback_used is FALSE for every in-camp IDP row (ready for field teams to set TRUE "
     "during data collection), NA where not applicable. Also delivered as separate FULL/WORKING CSVs alongside this "
-    "workbook for anyone who prefers CSV - see NGA_MSNA_2026_stage2_sampling_frame_v2_FULL.csv / _WORKING.csv.",
+    "workbook for anyone who prefers CSV - see NGA_MSNA_2026_stage2_sampling_frame_v5_FULL.csv / _WORKING.csv.",
     bool_cols={"certainty_stratum", "below_target_cluster", "reallocated", "supplementary_cluster", "tier2_fallback_used"},
     highlight=("coverage_status", "not_covered", RED),
 )
 
 write_sheet(
-    "Strata-Level Summary (FULL)", state["full_strata"], state["strata_fieldnames"],
-    NAVY, "Strata-Level Summary, unchanged from the live frame, plus coverage_status/exclusion_reason. One row per (pop_type x LGA) stratum - a rollup of the household-level Sampling Frame (FULL) sheet above.",
+    "Strata-Level Summary (FULL)", strata_full_rows, state["strata_fieldnames"],
+    NAVY, "Strata-Level Summary, read live from the current strata-level FULL CSV (fixed 2026-09-03 - previously came from a pickle stale since 2026-08-19), plus coverage_status/exclusion_reason. One row per (pop_type x LGA) stratum - a rollup of the household-level Sampling Frame (FULL) sheet above. coverage_status/exclusion_reason here reflect BOTH the original partner-coverage decision AND any accessibility-driven exclusion found since (e.g. accessibility_loss_below_population_threshold) - a broader, more current picture than the Coverage Summary sheet below, which only ever tracked the original partner-matching decision.",
     bool_cols={"certainty_stratum", "excluded_infeasible"},
     highlight=("coverage_status", "not_covered", RED),
 )
@@ -195,27 +228,43 @@ def write_readme():
                 c.font = Font(bold=True)
         row += 1
 
-    title("NGA MSNA 2026 — Sampling Frame + Partner Coverage Layer (v2)")
+    title("NGA MSNA 2026 — Sampling Frame + Partner Coverage Layer (v5)")
     para(
         "This workbook adds a partner-coverage layer on top of the live, HQ-approved sampling "
-        "frame (verified current as of this build - Non-IDP/IDP terminology, 28-strata minimal-"
-        "supplementary-cluster correction at m=6 throughout, 18 certainty strata excluded under "
-        "the projected-MoE rule). It does NOT change the underlying design - it adds two columns "
-        "(coverage_status, exclusion_reason) so the frame can be filtered to what partners have "
-        "actually confirmed they can cover, while keeping the full original frame intact and "
-        "re-derivable from if coverage changes again.",
+        "frame - Non-IDP/IDP terminology, 28-strata minimal-supplementary-cluster correction at "
+        "m=6 throughout, 18 certainty strata excluded under the projected-MoE rule (design-stage "
+        "facts, unchanged since 2026-07-23/07-30 - see below for what HAS moved since). It does "
+        "NOT change the underlying design - it adds two columns (coverage_status, exclusion_reason) "
+        "so the frame can be filtered to what partners have actually confirmed they can cover, "
+        "while keeping the full original frame intact and re-derivable from if coverage changes "
+        "again.",
         height=75,
     )
     para(
-        "FULL vs WORKING: both the 'Sampling Frame (FULL)' sheet (household-level, one row per "
-        "planned interview, 86,394 rows) and the 'Strata-Level Summary (FULL)' sheet (a rollup of "
-        "it, one row per pop_type x LGA stratum) are the complete, unchanged original frame plus the "
-        "two coverage columns - the reusable masters. WORKING (both levels) is the subset where "
+        f"FULL vs WORKING, current as of this build ({len(household_rows):,} household-level FULL "
+        f"rows, {n_working_rows:,} WORKING): both the 'Sampling Frame (FULL)' sheet (household-"
+        "level, one row per planned interview) and the 'Strata-Level Summary (FULL)' sheet (a "
+        "rollup of it, one row per pop_type x LGA stratum) are read live from the current v5 CSVs "
+        "on disk - not a frozen 2026-08-06 snapshot. WORKING (both levels) is the subset where "
         "coverage_status = 'covered' AND exclusion_reason = 'none' - i.e. what can actually be "
-        "fielded today (50,653 of the 86,394 household-level rows). Re-deriving WORKING from FULL is "
-        "always a filter, not a rebuild. Separate FULL/WORKING CSVs are also delivered alongside this "
-        "workbook for anyone who prefers CSV.",
-        height=75,
+        "fielded today. exclusion_reason now includes accessibility-driven exclusions found during "
+        "the post-fieldwork-start resampling round (e.g. accessibility_loss_below_population_"
+        "threshold), not just the original partner_coverage_declined/certainty_stratum_below_moe_"
+        "threshold reasons this workbook first shipped with - see the v4->v5 change summary for "
+        "exactly what moved and why. Re-deriving WORKING from FULL is always a filter, not a "
+        "rebuild. Separate FULL/WORKING CSVs are also delivered alongside this workbook for anyone "
+        "who prefers CSV.",
+        height=90,
+    )
+    para(
+        "NOTE ON THE 'BEFORE/AFTER COVERAGE CUT' AND 'COVERAGE SUMMARY' CONTENT BELOW: these "
+        "sections describe the ORIGINAL 2026-07-30/08-06 partner-coverage matching decision (which "
+        "LGA a partner confirmed covering) and haven't been rebuilt since - that decision itself "
+        "hasn't changed. They do NOT reflect accessibility-driven exclusions found afterward (a "
+        "different, stratum-level concept - see the Strata-Level Summary sheet and the resampling/ "
+        "accessibility impact workbook for that). Only the Sampling Frame and Strata-Level Summary "
+        "sheets above are guaranteed current as of this build.",
+        height=60,
     )
 
     subhead("KEY FINDING: national sample drops ~40% after the coverage cut")

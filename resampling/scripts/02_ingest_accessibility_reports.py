@@ -46,13 +46,23 @@ LOG_CSV = PROJECT_DIR + r"\resampling\output\resampling_requests_log.csv"
 
 LOG_FIELDS = [
     "request_id", "date_added", "partner", "report_level", "state", "lga", "ward_name", "cluster_id", "pop_type",
-    "source_channel", "accessible", "reason_category", "reason_notes", "pct_target_achieved",
+    "source_channel", "reported_by", "accessible", "reason_category", "reason_notes", "pct_target_achieved",
     "date_reported_by_partner", "status", "resolution_mechanism", "resolution_date",
     "resolution_notes", "supersedes_request_id",
 ]
 
 # Compared to decide "is this actually a change from what's already logged".
 COMPARE_FIELDS = ["accessible", "reason_category", "reason_notes", "pct_target_achieved"]
+
+REPORTED_BY_COL = "Reported by (Partner / IMPACT-default)"
+SOURCE_CHANNEL_COL = "Source channel"
+# Fallback when a returned file leaves these blank (true for most rows - see
+# 01_generate_accessibility_reports.py's README note telling partners to
+# leave them for internal use): the row came back via the normal returned-
+# template flow, so it's reasonable to assume Partner / the standard channel
+# absent a more specific value actually entered on the sheet.
+DEFAULT_REPORTED_BY = "Partner"
+DEFAULT_SOURCE_CHANNEL = "Partner's own template"
 
 
 def load_existing_log():
@@ -83,6 +93,7 @@ def next_request_id(log_rows):
 def read_sheet_rows(ws, level, partner):
     headers = [c.value for c in ws[1]]
     idx = {h: i for i, h in enumerate(headers)}
+    has_provenance_cols = REPORTED_BY_COL in idx and SOURCE_CHANNEL_COL in idx
     out = []
     for row in ws.iter_rows(min_row=2, values_only=True):
         accessible = row[idx["Accessible (Y/N)"]]
@@ -105,8 +116,21 @@ def read_sheet_rows(ws, level, partner):
             # collapse to blank.
             "pct_target_achieved": "" if pct is None else pct,
             "date_reported_by_partner": str(row[idx["Date reported"]] or ""),
+            # Read from the sheet rather than assumed - most rows leave these
+            # blank (the columns are for OUR use, see 01_generate_accessibility_
+            # reports.py's README note), in which case ingest() below falls back
+            # to the same default this script always used before the columns
+            # existed. A partner or coordinator who did fill them in (e.g.
+            # transcribing a WhatsApp report into the sheet) overrides that
+            # default, which is the whole point of the columns being editable.
+            "reported_by": (row[idx[REPORTED_BY_COL]] or "") if has_provenance_cols else "",
+            "source_channel": (row[idx[SOURCE_CHANNEL_COL]] or "") if has_provenance_cols else "",
         }
         out.append(rec)
+
+    if out and not has_provenance_cols:
+        print(f"  NOTE: {partner} ({level}) - returned file predates the provenance columns; "
+              f"{len(out)} row(s) will get the default ('{DEFAULT_REPORTED_BY}' / '{DEFAULT_SOURCE_CHANNEL}').")
     return out
 
 
@@ -156,7 +180,8 @@ def ingest():
             log_row.update(rep)
             log_row["request_id"] = req_id
             log_row["date_added"] = date.today().isoformat()
-            log_row["source_channel"] = "partner_excel_return"
+            log_row["source_channel"] = rep["source_channel"] or DEFAULT_SOURCE_CHANNEL
+            log_row["reported_by"] = rep["reported_by"] or DEFAULT_REPORTED_BY
             log_row["status"] = "new"
             log_row["supersedes_request_id"] = prior["request_id"] if prior else ""
             new_rows.append(log_row)

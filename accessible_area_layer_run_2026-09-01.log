@@ -1,0 +1,73 @@
+﻿Rscript.exe : Linking to GEOS 3.14.1, GDAL 3.12.1, PROJ 9.7.1; sf_use_s2() is TRUE
+At line:3 char:1
++ & $rscript "resampling/scripts/analysis_accessible_area_layer.R" 2>&1 ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Linking to GEOS...se_s2() is TRUE:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+terra 1.8.70
+
+Attaching package: 'dplyr'
+
+The following objects are masked from 'package:terra':
+
+    intersect, union
+
+The following objects are masked from 'package:stats':
+
+    filter, lag
+
+The following objects are masked from 'package:base':
+
+    intersect, setdiff, setequal, union
+
+Warning message:
+package 'exactextractr' was built under R version 4.6.1 
+Loading inputs...
+Warning message:
+One or more parsing issues, call `problems()` on your data frame for details,
+e.g.:
+  dat <- vroom(...)
+  problems(dat) 
+Covered LGAs - Non-IDP: 176, IDP: 148, either: 176
+Covered LGAs (either pop_type): 176 (of 774 in admin2 layer nationally)
+Wards touching covered LGAs: 2209 (of 9410 nationally)
+Intersecting wards x LGA boundaries (this is the real LGA-ward clip)...
+Warning message:
+attribute variables are assumed to be spatially constant throughout all geometries 
+Raw intersection pieces: 4057
+Dissolving multi-part slivers per (LGA, ward)...
+Extracting gridded population per LGA-ward portion...
+Testing Non-IDP eligibility (intersects Stage 1's accessible hex grid)...
+Testing IDP eligibility (contains >=1 DTM site)...
+Ward-portions: 4047 total | Non-IDP eligible: 4009 | IDP eligible (has DTM site): 959
+Final layer rows: 4962 (4009 Non-IDP, 953 IDP)
+Joining accessible status from the master ward-level status file...
+Ward-portion x pop_type rows: 4962 | matched to a status row: 3065 | unmatched: 1897
+Unmatched (genuinely-eligible ward with no cluster/site yet reported on - expected, defaults Accessible below; NOT a name mismatch, since these already passed the eligibility test above):
+# A tibble: 10 × 4
+   adm1_name adm2_name wardname   pop_type
+   <chr>     <chr>     <chr>      <chr>   
+ 1 Adamawa   Demsa     Dobeli     Non-IDP 
+ 2 Adamawa   Demsa     Gereng     Non-IDP 
+ 3 Adamawa   Demsa     Gorobi     Non-IDP 
+ 4 Adamawa   Demsa     Gundo      Non-IDP 
+ 5 Adamawa   Demsa     Kodomti    Non-IDP 
+ 6 Adamawa   Demsa     Libbo      Non-IDP 
+ 7 Adamawa   Demsa     Mayo-Lope  Non-IDP 
+ 8 Adamawa   Demsa     Ndikong    Non-IDP 
+ 9 Adamawa   Demsa     Sabon Pegi Non-IDP 
+10 Adamawa   Demsa     Suktu      Non-IDP 
+Pending ad-hoc proposal override: 2 ward-portion row(s) moved from default-Accessible to pending/excluded.
+Warning message:
+One or more parsing issues, call `problems()` on your data frame for details,
+e.g.:
+  dat <- vroom(...)
+  problems(dat) 
+Warning message:
+In abbreviate_shapefile_names(obj) :
+  Field names abbreviated for ESRI Shapefile driver
+
+Wrote 4962 LGA-ward-portion x pop_type rows to resampling/output/gis
+Non-IDP: 4009 portions | area: 367221 km2 total, 20.6% inaccessible | population: 48943260 total, 14.1% inaccessible
+IDP: 953 portions | area: 142267 km2 total, 12.2% inaccessible | population: 27528632 total, 9.1% inaccessible

@@ -72,3 +72,20 @@ changed — note this will need the `patch_site_radius_and_tier2_flag.R` fix
 reapplied afterward too, since regenerating from scratch doesn't carry the
 2026-08-01 patch forward), so `output/` doesn't silently drift back into
 having stale and current frames sitting side by side.
+
+## After ANY refresh of `data/data_collection/` — restamp the version marker
+
+Run `scripts/stamp_frame_version.R` (from this project's root) after
+regenerating `data/data_collection/` by any method above. It writes
+`data/data_collection/_frame_version.txt` — mtime/md5/row/cluster counts
+for the WORKING CSVs, plus which `_archive/` folder the geometry is
+currently based on. Added 2026-08-22 because downstream projects
+(`../2_monitoring/`, `../3_analysis/`) copy these files in as static
+snapshots (per the rule in `CLAUDE.md`) with no other way to tell their
+copy has gone stale — confirmed as a real problem, not a hypothetical
+one, before this existed. If a design-frame archive change makes
+`_archive/` gain a new frame-lineage successor, update
+`CURRENT_DESIGN_FRAME_ARCHIVE` at the top of the script first — it can't
+be auto-detected (not every dated archive folder is a real successor;
+some are unrelated work parked there only for folder-convention
+consistency).

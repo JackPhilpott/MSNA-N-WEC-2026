@@ -1,0 +1,8 @@
+stamped_at: 2026-08-31 19:07:28
+current_design_frame_archive: 2026-08-06_design_frame_post_nw_targeted_resample
+working_csv_mtime: 2026-08-31 19:06:57
+working_csv_md5: 0d8cf2180bface51baa23f4433c11d7b
+working_csv_rows: 54374
+working_csv_clusters: 3635
+strata_working_csv_mtime: 2026-08-31 19:06:58
+strata_working_csv_md5: 1b3a10c0afe42277c700f49fd62b1aa0

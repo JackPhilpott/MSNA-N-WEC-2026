@@ -1,0 +1,28 @@
+﻿Rscript.exe : Linking to GEOS 3.14.1, GDAL 3.12.1, PROJ 9.7.1; sf_use_s2() is TRUE
+At line:3 char:1
++ & $rscript "resampling/scripts/analysis_remaining_eligible_pool.R" *> ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Linking to GEOS...se_s2() is TRUE:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+Attaching package: 'dplyr'
+
+The following objects are masked from 'package:stats':
+
+    filter, lag
+
+The following objects are masked from 'package:base':
+
+    intersect, setdiff, setequal, union
+
+Loading inputs...
+Processing Non-IDP hexagon pool...
+Warning message:
+st_centroid assumes attributes are constant over geometries 
+  Non-IDP hexes: 62 centroid(s) outside any ward polygon - 62 resolved via nearest ward (max 1632m away), 0 beyond 5000m defaulted to Accessible (flagged).
+Non-IDP: 170 LGAs, 15109 total accessible-unselected hexes nationally
+Processing IDP DTM site pool...
+  IDP sites: 2089 outside any ward polygon (2 genuinely in a covered LGA, 2087 correctly out of scope)...
+  IDP sites: 2 resolved via nearest ward (max 130m away).
+IDP: 142 LGAs, 2350 total accessible-unselected sites nationally

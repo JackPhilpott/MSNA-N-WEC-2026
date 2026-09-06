@@ -124,16 +124,50 @@ the field.</td>
 </tr>
 </tbody>
 </table>
-<p><strong><code>LGA_boundaries.kml</code></strong> (at the top level of your folder, not
-inside any State/LGA subfolder) — the outline of every LGA you're covering, in one file.
-Load it in Maps.me alongside your points to visually check that a sample point's GPS
-location genuinely falls within the LGA it's assigned to — a quick sanity check if a
-point ever looks like it might be sitting near, or across, an LGA line. It's drawn as an
-outline only (no fill), so it won't hide the points underneath. This is the same
-official LGA boundary (OCHA/COD) used to assign every point in this package — if a point
-looks like it's outside the boundary line in Maps.me, treat that as worth flagging to
-your focal point rather than resampling on your own (see "Ward is approximate" above for
-a related, separate note about ward — not LGA — boundaries specifically).</p>
+<p><strong><code>LGA_boundaries_[Partner].kml</code></strong> (at the top level of your folder, not
+inside any State/LGA subfolder) — every LGA boundary line across all 14 assessment
+states, in one file: <strong>your own assigned LGA(s) in thick red</strong>, every other
+LGA in thinner blue for context. Load it in Maps.me alongside your points to visually
+check that a sample point's GPS location genuinely falls within the (red) LGA it's
+assigned to — a quick sanity check if a point ever looks like it might be sitting near,
+or across, an LGA line, and the wider blue context helps make sense of which
+neighbouring LGA it might actually be closer to. This is the same official LGA boundary
+(OCHA/COD) used to assign every point in this package — if a point looks like it's
+outside its red boundary line in Maps.me, treat that as worth flagging to your focal
+point rather than resampling on your own (see "Ward is approximate" above for a related,
+separate note about ward — not LGA — boundaries specifically).</p>
+<h2 id="pin-colors">Pin colors</h2>
+<p>Each KML file's points now load with their own color, so if you load more than one
+file into Maps.me at once you can tell them apart at a glance:</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Pin color</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>non_idp_households_primary.kml</code></td>
+<td>Green</td>
+</tr>
+<tr>
+<td><code>non_idp_households_reserve.kml</code></td>
+<td>Yellow</td>
+</tr>
+<tr>
+<td><code>idp_clusters_primary.kml</code></td>
+<td>Blue</td>
+</tr>
+<tr>
+<td><code>idp_clusters_tier2_backup.kml</code></td>
+<td>Red</td>
+</tr>
+</tbody>
+</table>
+<p>If your phone has no signal the very first time you open a file, pins may briefly
+show as a generic marker until the color loads — this resolves itself once the phone
+has any internet connection, and doesn't affect the point's location or details.</p>
 <h2 id="opening-the-kml-files">Opening the KML files</h2>
 <p><strong>For the full illustrated walkthrough — installing the app itself, then
 importing and navigating to a KML point — see <code>MSNA_NGA_MapsMe_Guide.pdf</code>,
@@ -214,6 +248,12 @@ table of your targeted primary/reserve sample by State and LGA. -
 <strong>Sampling Points</strong> — every single point assigned to you,
 in one table, with full metadata (useful if you prefer a spreadsheet
 view over opening individual KML files).</p>
+<h2 id="reporting-accessibility-issues">Reporting accessibility issues</h2>
+<p>Your folder also includes <code>[Partner]_accessibility_report.xlsx</code>. Use it to
+tell us about any ward or cluster your team is unable to collect data in — for example
+due to insecurity, physical access, or the population no longer being present — so we can
+respond appropriately, including drawing a replacement sample where needed. See the
+file’s own README tab for how to fill it in.</p>
 <h2 id="questions-or-issues">Questions or issues — who to contact, and how</h2>
 <p>Full detail (roles, contact list, and the daily data-cleaning workflow)
 is in <code>NGA_MSNA_2026_Data_Collection_SOP.pdf</code>, also at the top
@@ -262,6 +302,6 @@ found</td>
 cluster that needs flagging is normally a Tier 2 (operational) issue —
 use the WhatsApp regional group unless it’s more urgent than that.</p>
 <hr />
-<p><em>Version 1.4 — 2026-08-17.</em></p>
+<p><em>Version 1.8 — 2026-08-20.</em></p>
 </body>
 </html>

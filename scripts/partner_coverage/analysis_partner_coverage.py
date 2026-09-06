@@ -13,6 +13,7 @@ import csv
 import difflib
 import os
 import re
+import time
 from collections import defaultdict, Counter
 
 import openpyxl
@@ -21,9 +22,29 @@ PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N
 STRATA_CSV = PROJECT_DIR + r"\_archive\2026-08-06_design_frame_post_nw_targeted_resample\strata_level_sampling_frame.csv"
 STAGE2_CSV = PROJECT_DIR + r"\_archive\2026-08-06_design_frame_post_nw_targeted_resample\stage2_sampling_frame.csv"
 COVERAGE_XLSX = PROJECT_DIR + r"\input_data\boundaries\partner_coverage\Partnerscoverage.xlsx"
-if os.path.exists(r"C:\Users\JACKPH~1\AppData\Local\Temp\claude\Partnerscoverage_copy.xlsx"):
-    # Source file was open/locked in Excel at run time - use the just-taken copy instead (2026-08-06).
-    COVERAGE_XLSX = r"C:\Users\JACKPH~1\AppData\Local\Temp\claude\Partnerscoverage_copy.xlsx"
+_LOCKED_FALLBACK_COPY = r"C:\Users\JACKPH~1\AppData\Local\Temp\claude\Partnerscoverage_copy.xlsx"
+if os.path.exists(_LOCKED_FALLBACK_COPY):
+    # Source file was open/locked in Excel at run time - fall back to a
+    # just-taken copy instead (2026-08-06). Hardened 2026-08-19: this
+    # fallback previously had no staleness check, and a copy left over from
+    # 2026-08-06 silently got reused 13 days later during the Dange-Shuni
+    # partner reallocation, overriding a just-made edit with no warning.
+    # Now: refuse to use the copy at all if it's more than an hour old (too
+    # old to plausibly be "just taken" by this run's own lock event), and
+    # loudly warn even when it's fresh, so this is never silent again.
+    _copy_age_s = time.time() - os.path.getmtime(_LOCKED_FALLBACK_COPY)
+    if _copy_age_s > 3600:
+        raise SystemExit(
+            f"ERROR: {_LOCKED_FALLBACK_COPY} exists but is "
+            f"{_copy_age_s / 3600:.1f} hour(s) old - too stale to trust as "
+            f"a fresh locked-file fallback. Close Partnerscoverage.xlsx if "
+            f"it's open in Excel, delete this stale copy, and rerun."
+        )
+    print(
+        f"WARNING: Partnerscoverage.xlsx appears locked - using a "
+        f"{_copy_age_s / 60:.0f}-minute-old fallback copy instead: {_LOCKED_FALLBACK_COPY}"
+    )
+    COVERAGE_XLSX = _LOCKED_FALLBACK_COPY
 OUT_DIR = PROJECT_DIR + r"\output\data\data_collection"
 
 os.makedirs(OUT_DIR, exist_ok=True)
@@ -51,6 +72,17 @@ def norm(s):
     s = re.sub(r"[\'‘’ʼ�]", "", s)
     s = re.sub(r"\s+", " ", s)
     return s.strip()
+
+
+# "IRC/LHI" is a single column in the source coverage sheet, but IRC and LHI
+# are two separate organisations sharing the workload there (confirmed with
+# the user 2026-08-07) - expanded into both names for the same reason
+# build_partner_dc_packages.py and build_partner_lga_boundary_kml.R already
+# expand it: so an LGA's partner list names both real orgs, not a made-up
+# joint label.
+COMBINED_PARTNER_SPLITS = {
+    "IRC/LHI": ["IRC", "LHI"],
+}
 
 
 # ---------------------------------------------------------------------------
@@ -93,15 +125,21 @@ for sheet_name in wb.sheetnames:
     rows = list(ws.iter_rows(values_only=True))
     header = rows[0]
     count_idx = header.index("COUNT")
+    partner_col_idx = list(range(3, count_idx))
     for r in rows[1:]:
         if r[2] is None:  # LGA column blank -> footer/summary row
             continue
         state = str(r[1]).strip() if r[1] else None
         lga = str(r[2]).strip() if r[2] else None
         count_val = r[count_idx]
+        partners_here = []
+        for i in partner_col_idx:
+            if r[i]:
+                col_name = str(header[i]).strip()
+                partners_here.extend(COMBINED_PARTNER_SPLITS.get(col_name, [col_name]))
         coverage_rows.append({
             "sheet": sheet_name, "region_raw": r[0], "state": state, "lga": lga,
-            "count_raw": count_val,
+            "count_raw": count_val, "partners": partners_here,
         })
 
 print(f"\nCoverage file: {len(coverage_rows)} LGA rows across {len(wb.sheetnames)} sheets (after dropping blank/footer rows)")
@@ -234,6 +272,7 @@ for pcode, v in master_lgas.items():
             "coverage_status": status,
             "match_method": method,
             "count_raw": count_val,
+            "partners_covering": ", ".join(r["partners"]) if r["partners"] else "",
             "coverage_note": (
                 f"Matched to coverage file as '{r['lga']}' ({r['state']}) - {method} match"
                 + (", PROPOSED reconciliation not yet confirmed" if method == "proposed" else "")
@@ -244,6 +283,7 @@ for pcode, v in master_lgas.items():
             "coverage_status": "not_covered",
             "match_method": "no_data_treated_as_not_covered",
             "count_raw": None,
+            "partners_covering": "",
             "coverage_note": "LGA absent from the coverage file entirely (state-wide gap, e.g. Kano). Treated as not_covered per explicit user confirmation 2026-07-30, not a default assumption.",
         }
 
@@ -273,9 +313,10 @@ for r in strata_rows:
     certainty_excluded = r["excluded_infeasible"] == "TRUE"
     row["coverage_status"] = cov["coverage_status"] if cov["coverage_status"] is not None else "unresolved_no_data"
     row["exclusion_reason"] = exclusion_reason_for(pcode, certainty_excluded)
+    row["partners_covering"] = cov.get("partners_covering", "")
     full_strata.append(row)
 
-strata_fieldnames = list(strata_rows[0].keys()) + ["coverage_status", "exclusion_reason"]
+strata_fieldnames = list(strata_rows[0].keys()) + ["coverage_status", "exclusion_reason", "partners_covering"]
 
 with open(OUT_DIR + r"\NGA_MSNA_2026_strata_level_sampling_frame_v2_FULL.csv", "w", newline="", encoding="utf-8") as f:
     w = csv.DictWriter(f, fieldnames=strata_fieldnames)
@@ -305,7 +346,7 @@ certainty_excluded_by_stratum = {
     (r["pop_type"], r["adm2_pcode"]): (r["excluded_infeasible"] == "TRUE") for r in strata_rows
 }
 
-stage2_fieldnames = list(stage2_rows[0].keys()) + ["coverage_status", "exclusion_reason"] if stage2_rows else []
+stage2_fieldnames = list(stage2_rows[0].keys()) + ["coverage_status", "exclusion_reason", "partners_covering"] if stage2_rows else []
 full_stage2 = []
 for r in stage2_rows:
     row = dict(r)
@@ -316,10 +357,12 @@ for r in stage2_rows:
         # list it was derived from - but don't silently assume if it does.
         row["coverage_status"] = "UNKNOWN_LGA_NOT_IN_MASTER_LIST"
         row["exclusion_reason"] = "UNKNOWN"
+        row["partners_covering"] = ""
     else:
         certainty_excluded = certainty_excluded_by_stratum.get((r["pop_type"], pcode), False)
         row["coverage_status"] = cov["coverage_status"] if cov["coverage_status"] is not None else "unresolved_no_data"
         row["exclusion_reason"] = exclusion_reason_for(pcode, certainty_excluded)
+        row["partners_covering"] = cov.get("partners_covering", "")
     full_stage2.append(row)
 
 with open(OUT_DIR + r"\NGA_MSNA_2026_stage2_sampling_frame_v2_FULL.csv", "w", newline="", encoding="utf-8") as f:
@@ -448,10 +491,11 @@ for pcode in sorted(master_lgas, key=lambda p: (master_lgas[p]["region"], master
         "coverage_status": cov["coverage_status"] if cov["coverage_status"] is not None else "unresolved_no_data",
         "match_method": cov["match_method"],
         "exclusion_reason": "; ".join(reasons) if reasons else "none",
+        "partners_covering": cov.get("partners_covering", ""),
     })
 
 with open(OUT_DIR + r"\NGA_MSNA_2026_coverage_summary_v2.csv", "w", newline="", encoding="utf-8") as f:
-    w = csv.DictWriter(f, fieldnames=["region", "state", "lga", "adm2_pcode", "coverage_status", "match_method", "exclusion_reason"])
+    w = csv.DictWriter(f, fieldnames=["region", "state", "lga", "adm2_pcode", "coverage_status", "match_method", "exclusion_reason", "partners_covering"])
     w.writeheader()
     w.writerows(coverage_summary_rows)
 

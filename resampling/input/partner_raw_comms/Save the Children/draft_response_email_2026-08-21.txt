@@ -1,0 +1,34 @@
+To: Abdulwahab, Abdulrashid; Madubuko, Benson
+Cc: Amalaha, Chiamaka; Lina CAMPEROS; Arnold KIRUI
+Subject: RE: SAVE_THE_CHILDREN_MSNA: Updated accessibility report + call to finalise
+
+Dear Abdulrashid and Benson,
+
+Thank you both for the detailed updates - the Katsina/Zamfara summary sent after our call, and the Kwande report on the final day of collection there. We've gone through everything and attached an updated version of your accessibility report reflecting where things stand.
+
+A few things worth flagging before we speak:
+
+1. Missing wards, now added. While reviewing your feedback we found that several of your wards - Tofa, Sankalawa, Gwamba, Bumbum A, Mai'adua C, Maikoni B, and Gallu - weren't appearing in your original Ward Accessibility sheet at all, which is why some of them looked unfamiliar or "not on our list" when your team tried to report on them. This was an issue on our end in how the sheet was generated, now fixed - all of these now have their own row in the attached version, alongside the rest of your assigned wards.
+
+2. Logged as inaccessible (insecurity), moving to resampling: Bingi South, Gada Karakai, Samawa, and Tofa in Bungudu, and Moon and Kumakwagh in Kwande. For Kumakwagh, note we're logging the full ward (including both IDP clusters there, not just the non-IDP one you mentioned) since none of it has been reached yet - we'll confirm that scope with you on the call.
+
+3. The rest of your assigned wards are marked accessible in the attached sheet. Given the scope of the review your team has already done across both states, we've assumed the remainder of your coverage area remains accessible rather than asking you to re-confirm every single ward individually. This is a working assumption on our side, not a final close-out - please do flag anything that's changed or that we've got wrong, and we'll follow up directly with your team afterwards to double check before treating this as settled.
+
+4. Mbakyaha (Kwande): we checked this the same way we checked the Katsina/Zamfara boundary questions from before - our official boundary source doesn't show this ward crossing into Vandeikya anywhere in our data, so we're retaining the current assignment for now. If your team continues to see this differently on the ground, let us know the specific point and we'll look again.
+
+5. A general note on ward names vs. GPS points: for a few of the reported issues (wards "missing on the map," points not matching what your team expects for that area), what we're consistently finding is that the underlying GPS point is correct, but ward-name boundaries between our data sources don't always line up with local recognition on the ground. Going forward, we'd really encourage your team to navigate to the GPS coordinate directly for each point rather than relying on the ward name shown - this should cut down on this specific kind of confusion.
+
+We'd like to set up a short call to work through the few remaining open points together:
+- Whether anyone has attempted the household listing at the two IDP sites in Mai'adua (Mai'Adua 'A' and Rijiyar Turai) - your report suggested no IDP presence there, and we want to understand whether that's confirmed on the ground or hasn't been tried yet.
+- Dargage, Kawarin Kudi, and Gwamba (Zango) - your sheet shows these short of target but without a specific reason recorded; we'd like to understand what's behind those three specifically.
+- The GPS points in Mbaikyor Ward that your team found falling in farmland - we've checked the underlying building data on our end and it looks reasonable, so we'd like to talk through what your team is seeing on the ground.
+
+Could you let us know your availability [insert your availability] this week for a 30-minute call to go through these? Once we've covered these points, we should be able to close this out and move to drawing replacement points where needed.
+
+Thanks again for the thorough tracking on your end - it's made this much easier to work through.
+
+Kind regards,
+Jack
+
+Jack Philpott | Senior Research Analyst
+Dakar, Senegal

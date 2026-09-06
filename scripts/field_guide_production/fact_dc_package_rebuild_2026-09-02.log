@@ -1,0 +1,15 @@
+BUILD_DC_ONLY_PARTNER set - scoped to 'FACT' only (92 LGA(s)).
+Partner coverage resolved for 92 LGAs.
+Loaded 46563 household-level rows.
+85 in-camp clusters with a Tier 2 backup GPS point.
+
+Partners: 1
+Partner/State/LGA folders written: 87
+Non-IDP primary points: 5937
+Non-IDP reserve points: 7694
+IDP Tier 1 primary points: 333
+IDP Tier 2 backup points: 19
+LGA summary maps copied: 87 (missing: 0)
+Per-partner summary workbooks written: 1
+
+DONE
