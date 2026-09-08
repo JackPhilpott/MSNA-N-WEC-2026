@@ -15,9 +15,28 @@
 # Order matters (each step reads the previous step's output):
 #   1. 02_ingest_accessibility_reports.py   - returned/*.xlsx -> master log
 #   2. 04_build_master_accessibility_status.py - master log -> ward/LGA status CSVs
-#   3. analysis_accessible_area_layer.R     - ward status -> GIS polygon layer
-#   4. analysis_remaining_eligible_pool.R   - GIS layer -> remaining hex/site pools
-#   5. 05_build_accessibility_impact_workbook.py - everything -> the workbook
+#   3. resweep_full_ward_accessible_status_2026-09-07.py - master ward status
+#      -> resweeps FULL's own ward_accessible_status for every EXISTING row,
+#      not just freshly-staged ones. Added 2026-09-08 (audit pass 3/4 prep) -
+#      this step existed and was individually correct, but was never wired
+#      into the "one-command refresh" that's supposed to make every
+#      accessibility output current after a new report lands. Without it,
+#      the 5 steps below all run against a still-stale FULL - not the 2026-
+#      09-07 incident's exact shape (that was about newly-DRAWN rows never
+#      being stamped at all), but the same "known-good fix, not wired in as
+#      a standing step" pattern flagged in project memory
+#      (project_output_plausibility_gap_2026-09-08's "concrete queued
+#      example"). See 1_sampling/CLAUDE.md's Update 2026-09-08d for the fix
+#      itself and why its first draft's default direction had to be
+#      corrected before trusting it.
+#   4. analysis_accessible_area_layer.R     - ward status -> GIS polygon layer
+#   5. analysis_remaining_eligible_pool.R   - GIS layer -> remaining hex/site pools
+#   6. 05_build_accessibility_impact_workbook.py - everything -> the workbook
+#
+# sync_accessibility_mirrors.R deliberately NOT added here - it already
+# self-triggers via assert_fresh(mode="auto") on every read (see its own
+# header), so any downstream consumer reading the 2_monitoring mirrors
+# re-syncs them on demand; adding it here too would be redundant, not wrong.
 #
 # Usage: py run_accessibility_refresh.py
 # Stops at the first failing step (prints its full output either way) rather
@@ -32,6 +51,7 @@ RSCRIPT_EXE = r"C:\Users\JackPHILPOTT\AppData\Local\Programs\R\R-4.6.0\bin\Rscri
 STEPS = [
     ("Ingest returned partner reports into the master log", [sys.executable, "02_ingest_accessibility_reports.py"]),
     ("Build master ward/LGA accessibility status", [sys.executable, "04_build_master_accessibility_status.py"]),
+    ("Resweep FULL's ward_accessible_status against the refreshed master status", [sys.executable, "resweep_full_ward_accessible_status_2026-09-07.py"]),
     ("Build GIS accessible-area polygon layer", [RSCRIPT_EXE, "analysis_accessible_area_layer.R"]),
     ("Build remaining eligible pool (hexes/DTM sites)", [RSCRIPT_EXE, "analysis_remaining_eligible_pool.R"]),
     ("Build the accessibility impact workbook", [sys.executable, "05_build_accessibility_impact_workbook.py"]),
