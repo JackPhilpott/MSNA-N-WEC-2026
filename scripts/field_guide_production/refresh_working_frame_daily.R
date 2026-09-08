@@ -115,6 +115,7 @@ suppressMessages({ library(dplyr); library(readr) })
 PROJECT_DIR <- "c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/1_sampling"
 MONITORING_DIR <- "c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/2_monitoring"
 setwd(PROJECT_DIR)
+source("scripts/shared/assert_plausible.R")
 
 SF_DIR <- "output/data/data_collection"
 FULL_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v7_FULL.csv")
@@ -319,6 +320,19 @@ log_msg("WORKING (household-level, previous): %d rows, %d distinct clusters", nr
 n_clusters_dropped_entirely <- length(setdiff(unique(working_old$cluster_id), unique(working_new$cluster_id)))
 log_msg("Clusters now fully achieved/inaccessible and removed entirely from WORKING this run: %d", n_clusters_dropped_entirely)
 
+# ---- Output-plausibility gate (2026-09-08 audit, pass 4) ----
+# Hard invariant, not a fuzzy range: WORKING must never contain a row whose
+# ward is currently Inaccessible - this is the exact core invariant the
+# 2026-09-07 incident violated. Recomputed independently here (not just
+# trusting covered_accessible's own filter above) precisely because the
+# whole point is catching a bug in the logic that built working_new, not
+# re-confirming what that logic already assumes.
+n_working_in_inaccessible_ward <- working_new %>%
+  filter(!is.na(ward_accessible_status), ward_accessible_status == "Inaccessible") %>%
+  nrow()
+assert_plausible("WORKING rows in a currently-Inaccessible ward", n_working_in_inaccessible_ward, c(0, 0),
+                  context = "must always be exactly 0 - this is the 2026-09-07 incident's core invariant")
+
 write_csv(working_new, WORKING_CSV, na = "NA")
 log_msg("Wrote %s (in place, no version bump).", WORKING_CSV)
 
@@ -424,6 +438,17 @@ if (nrow(still_over_target) > 0) {
     log_msg("  %s: target=%d achieved=%d", still_over_target$strata_id[i], still_over_target$target_sample[i], still_over_target$achieved_sample[i])
   }
 }
+
+# ---- Output-plausibility gate (2026-09-08 audit, pass 4) ----
+# achieved_sample > target_sample should only ever be a small, explained
+# residual (ordinary cluster-rounding / stranded-achieved credit exceeding a
+# small target) - observed 0-14 strata on every post-fix run this week.
+# The pre-fix bug this same week (recompute_strata() missing the <4
+# threshold) produced 75 - ceiling set well above the real baseline but
+# well below that, so a reversion toward the old bug's scale still trips
+# this, not just a wildly-out-of-range value.
+assert_plausible("strata with achieved_sample > target_sample", nrow(still_over_target), c(0, 40),
+                  context = "should be a small ordinary-rounding residual, not systemic overcounting")
 
 write_csv(strata_working_new, STRATA_WORKING_CSV, na = "NA")
 log_msg("Wrote %s (in place, no version bump).", STRATA_WORKING_CSV)
