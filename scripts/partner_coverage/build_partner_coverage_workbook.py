@@ -1,5 +1,5 @@
 # ==============================================================================
-# Builds NGA_MSNA_2026_sampling_frame_workbook_v5.xlsx from the state stashed
+# Builds NGA_MSNA_2026_sampling_frame_workbook_v7.xlsx from the state stashed
 # by analysis_partner_coverage.py - the FULL sampling frame (Sampling Frame +
 # Strata-Level Summary, unchanged plus coverage_status/exclusion_reason),
 # a Coverage Summary sheet, and a README with before/after figures.
@@ -39,9 +39,9 @@ from openpyxl.utils import get_column_letter
 PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling"
 STATE_DIR = PROJECT_DIR + r"\output\data\data_collection"  # analysis_partner_coverage.py's own OUT_DIR
 OUT_DIR = PROJECT_DIR + r"\output\data\data_collection"
-OUT_PATH = OUT_DIR + r"\NGA_MSNA_2026_sampling_frame_workbook_v5.xlsx"
-HOUSEHOLD_FULL_CSV = STATE_DIR + r"\NGA_MSNA_2026_stage2_sampling_frame_v5_FULL.csv"
-STRATA_FULL_CSV = STATE_DIR + r"\NGA_MSNA_2026_strata_level_sampling_frame_v5_FULL.csv"
+OUT_PATH = OUT_DIR + r"\NGA_MSNA_2026_sampling_frame_workbook_v7.xlsx"
+HOUSEHOLD_FULL_CSV = STATE_DIR + r"\NGA_MSNA_2026_stage2_sampling_frame_v7_FULL.csv"
+STRATA_FULL_CSV = STATE_DIR + r"\NGA_MSNA_2026_strata_level_sampling_frame_v7_FULL.csv"
 
 with open(STATE_DIR + r"\_pipeline_state.pkl", "rb") as f:
     state = pickle.load(f)
@@ -66,7 +66,7 @@ print(f"Loaded strata-level FULL frame directly from disk: {len(strata_full_rows
 
 # WORKING row count only (for the README paragraph below) - real row count,
 # not the pickle's stale figure.
-with open(STATE_DIR + r"\NGA_MSNA_2026_stage2_sampling_frame_v5_WORKING.csv", encoding="utf-8") as f:
+with open(STATE_DIR + r"\NGA_MSNA_2026_stage2_sampling_frame_v7_WORKING.csv", encoding="utf-8") as f:
     n_working_rows = sum(1 for _ in csv.reader(f)) - 1
 
 # IDP camp backup GPS points (2026-08-02: folded in as a sheet here instead
@@ -129,7 +129,7 @@ write_sheet(
     "flagged large in-camp sites with a real delineated extent (NA elsewhere - the radius concept doesn't apply to Tier 1/"
     "host-community listing); tier2_fallback_used is FALSE for every in-camp IDP row (ready for field teams to set TRUE "
     "during data collection), NA where not applicable. Also delivered as separate FULL/WORKING CSVs alongside this "
-    "workbook for anyone who prefers CSV - see NGA_MSNA_2026_stage2_sampling_frame_v5_FULL.csv / _WORKING.csv.",
+    "workbook for anyone who prefers CSV - see NGA_MSNA_2026_stage2_sampling_frame_v7_FULL.csv / _WORKING.csv.",
     bool_cols={"certainty_stratum", "below_target_cluster", "reallocated", "supplementary_cluster", "tier2_fallback_used"},
     highlight=("coverage_status", "not_covered", RED),
 )
@@ -228,7 +228,7 @@ def write_readme():
                 c.font = Font(bold=True)
         row += 1
 
-    title("NGA MSNA 2026 — Sampling Frame + Partner Coverage Layer (v5)")
+    title("NGA MSNA 2026 — Sampling Frame + Partner Coverage Layer (v7)")
     para(
         "This workbook adds a partner-coverage layer on top of the live, HQ-approved sampling "
         "frame - Non-IDP/IDP terminology, 28-strata minimal-supplementary-cluster correction at "
@@ -244,7 +244,7 @@ def write_readme():
         f"FULL vs WORKING, current as of this build ({len(household_rows):,} household-level FULL "
         f"rows, {n_working_rows:,} WORKING): both the 'Sampling Frame (FULL)' sheet (household-"
         "level, one row per planned interview) and the 'Strata-Level Summary (FULL)' sheet (a "
-        "rollup of it, one row per pop_type x LGA stratum) are read live from the current v5 CSVs "
+        "rollup of it, one row per pop_type x LGA stratum) are read live from the current v6 CSVs "
         "on disk - not a frozen 2026-08-06 snapshot. WORKING (both levels) is the subset where "
         "coverage_status = 'covered' AND exclusion_reason = 'none' - i.e. what can actually be "
         "fielded today. exclusion_reason now includes accessibility-driven exclusions found during "

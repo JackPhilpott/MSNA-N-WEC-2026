@@ -100,7 +100,11 @@ def read_sheet_rows(ws, level, partner):
         reason = row[idx["Reason category"]]
         if not accessible and not reason:
             continue
-        pct = row[idx["% of target achieved so far"]]
+        # 2026-09-06: guarded the same way as Cluster ID/Pop Type/provenance
+        # below - FACT's returned file predates this column existing on
+        # their template entirely (both sheets), which would otherwise
+        # KeyError here. Missing => "" (unknown), not skipped.
+        pct = row[idx["% of target achieved so far"]] if "% of target achieved so far" in idx else None
         rec = {
             "partner": partner, "report_level": level,
             "state": row[idx["State"]] or "", "lga": row[idx["LGA"]] or "",

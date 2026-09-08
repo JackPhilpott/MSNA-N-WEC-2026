@@ -100,7 +100,7 @@ mycrs <- 31028
 # keep excluded strata visible) - a stratum we've already permanently
 # dropped shouldn't show a "remaining pool" at all, since RESAMPLING_
 # DECISION_RULES.md says never draw there again regardless.
-WORKING_CSV <- "output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v5_FULL.csv"
+WORKING_CSV <- "output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v7_FULL.csv"
 ACCESSIBLE_HEX_RDS <- "input_data/boundaries/nga_hexagons/accessible_hex.rds"
 WARD_LAYER_SHP <- "resampling/output/gis/accessible_area_lga_ward_portions.shp"
 ADMIN2_SHP <- "input_data/boundaries/nga_admin_boundaries/nga_admin2.shp"
@@ -160,13 +160,50 @@ iom_ne <- read_csv(IOM_NE_CSV, show_col_types = FALSE, name_repair = "minimal")
 
 iom_ncnw_clean <- iom_ncnw %>%
   transmute(site_id = `Site ID (SSID)`, lga_name = LGA, lat = `Latitude N?`, lon = `Longitude E?`,
-            households = Households, individuals = Individuals)
+            households = Households, individuals = Individuals, population_category = `Population Category`)
 iom_ne_clean <- iom_ne %>%
   transmute(site_id = `Site ID (SSID)`, lga_pcode = `LGA Pcode`, lga_name = LGA,
-            lat = `Latitude N`, lon = `Longitude E`, households = Households, individuals = Individuals)
+            lat = `Latitude N`, lon = `Longitude E`, households = Households, individuals = Individuals,
+            population_category = `Population Category`)
 
-iom_all <- bind_rows(iom_ncnw_clean, iom_ne_clean) %>%
+iom_all_raw <- bind_rows(iom_ncnw_clean, iom_ne_clean) %>%
   filter(!is.na(lat), !is.na(lon), !is.na(site_id))
+# FIXED 2026-09-07 (found while adding the proximity-match fix below - two
+# raw DTM rows have a garbage `lat` value that's non-NA but not a real
+# latitude at all - site_id "New HC" at lat 115264553, "KN_H043" at lat
+# 1205077 (both, not coincidentally, orders of magnitude outside +/-90).
+# st_transform() on a coordinate like that produces an EMPTY geometry
+# rather than erroring, which previously slipped through harmlessly by
+# accident (st_join()/st_nearest_feature() both silently treat an empty
+# geometry as "no match", so these 2 rows always fell out of
+# covered_pcodes_idp scope anyway, same end result as being dropped here
+# deliberately) - but st_distance() against a specific target, used by the
+# proximity-match fix below, returns NA instead, not a graceful no-match.
+# Filtering explicitly here is the correct-by-construction fix rather than
+# correct-by-accident: an in-range check is a real geometric fact, not a
+# Nigeria-specific heuristic.
+iom_all <- iom_all_raw %>% filter(abs(lat) <= 90, abs(lon) <= 180)
+if (nrow(iom_all_raw) > nrow(iom_all)) {
+  cat(sprintf("  IDP sites: %d dropped for a lat/lon value outside +/-90/+/-180 (not real coordinates): %s\n",
+              nrow(iom_all_raw) - nrow(iom_all),
+              paste(sprintf("%s (lat=%s)", iom_all_raw$site_id[abs(iom_all_raw$lat) > 90 | abs(iom_all_raw$lon) > 180],
+                            iom_all_raw$lat[abs(iom_all_raw$lat) > 90 | abs(iom_all_raw$lon) > 180]), collapse = ", ")))
+}
+
+# FIXED 2026-09-07 (found by msna-n-wec-2026-4c while chasing the Maradun
+# residual - see CLAUDE.md's Update 2026-09-07c): the raw DTM source mixes
+# genuine IDP sites with "Returnees" - a real, different population
+# category, not IDPs, and out of scope for this pool. Wasn't filtered
+# before, so Returnee sites were being counted as IDP candidate pool.
+# Checked nationally: Population Category cleanly separates them (no
+# messy in-between values) - "Returnees" excluded, everything else (the
+# various "IDPs ..." category strings, capitalization varies) kept as-is
+# rather than enumerated, since new category string variants shouldn't
+# need this filter updated to still work correctly.
+n_before_pop_filter <- nrow(iom_all)
+iom_all <- iom_all %>% filter(population_category != "Returnees")
+cat(sprintf("  IDP sites: %d dropped for being a Returnee site (different population category, not IDP).\n",
+            n_before_pop_filter - nrow(iom_all)))
 
 iom_sf <- st_as_sf(iom_all, coords = c("lon", "lat"), crs = 4326, remove = FALSE) %>%
   st_transform(mycrs)
@@ -206,13 +243,38 @@ if (length(na_site_idx) > 0) {
   }
 }
 
+# FIXED 2026-09-07 (see ../../CLAUDE.md's Update 2026-09-07b for the full
+# incident): "used" was previously an exact iom_site_id string match against
+# the live frame - wrong whenever an existing cluster carries a generic
+# placeholder ID ("New HC"/"New Camp"/"New Integrated") instead of a real
+# DTM site code, which happens for clusters fielded before the site-level
+# PSU redesign (24 clusters nationally, 14 strata, confirmed directly).
+# Those clusters' real sites were then wrongly counted as still-unselected
+# pool. Caught live: Maradun (idp_NG037009) showed pool=2 here while the
+# real draw mechanism (draw_supplementary_idp_sites_batch.R) found 0 fresh
+# candidates - both Maradun's existing clusters carry iom_site_id="New HC".
+# Fixed by switching to the SAME 30m GPS-proximity match that script's own
+# Stage B already uses (site identity by physical location, not a label
+# that may never have been populated). Live IDP points read fresh from the
+# FULL frame here, unfiltered by coverage_status/exclusion_reason, for
+# exact parity with that script - NOT this script's own `working` (loaded
+# further up with a stricter filter, for the separate "which LGAs are
+# currently covered" question).
+live_idp_full <- read_csv(WORKING_CSV, show_col_types = FALSE, col_types = cols(.default = "c")) %>%
+  filter(pop_type == "idp") %>%
+  mutate(latitude = as.numeric(latitude), longitude = as.numeric(longitude)) %>%
+  filter(!is.na(latitude), !is.na(longitude)) %>%
+  distinct(cluster_id, latitude, longitude)
+live_idp_pts <- st_as_sf(live_idp_full, coords = c("longitude", "latitude"), crs = 4326, remove = FALSE) %>%
+  st_transform(mycrs)
+
+nearest_dist_idp <- st_distance(site_status, st_union(st_geometry(live_idp_pts)))
+site_status$is_selected <- as.numeric(nearest_dist_idp) <= 30
+cat(sprintf("  IDP sites: %d of %d candidate sites already fielded (30m GPS-proximity match, was exact iom_site_id match).\n",
+            sum(site_status$is_selected), nrow(site_status)))
+
 site_status_df <- st_drop_geometry(site_status) %>%
   filter(!is.na(adm2_pcode), adm2_pcode %in% covered_pcodes_idp)  # keep only sites that actually fall inside a covered LGA polygon
-
-used_idp_sites <- working %>% filter(pop_type == "idp") %>% distinct(iom_site_id) %>% pull(iom_site_id)
-
-site_status_df <- site_status_df %>%
-  mutate(is_selected = site_id %in% used_idp_sites)
 
 idp_pool <- site_status_df %>%
   group_by(adm2_pcode) %>%

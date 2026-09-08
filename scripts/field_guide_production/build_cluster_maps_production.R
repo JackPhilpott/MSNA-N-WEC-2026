@@ -126,7 +126,27 @@ file.remove("temp_boundaries_mapex.R")
 # joined via uuid_hex rather than trusting a staged file's cluster_id
 # label - see that script's own header for why). Same schema/shape as the
 # archive, drop-in compatible with everything below.
-selected_clusters <- readRDS(here::here("output", "gis", "selected_clusters_v5_current.rds"))
+# 2026-09-07 fix: this referenced selected_clusters_v6_current.rds, which
+# never actually existed anywhere in the repo - crashed outright (gzfile
+# "cannot open the connection") the first time this script was run since
+# that reference was written. The only consolidated file that had ever
+# actually been built was selected_clusters_v4_current.rds (2026-09-01) -
+# genuinely stale (predates 5 partners' worth of resampling since,
+# including tonight's v7 rollback). Pointing at that stale file got the
+# script running, but 660 of tonight's new ("_supp") clusters then failed
+# with the exact "uuid_hex == uuid_hex_i" error this whole mechanism exists
+# to prevent - traced to uuid_hex_lookup below being built directly from
+# this file's cluster_id set, which obviously had zero entries for any
+# cluster_id that didn't exist yet on 2026-09-01. Properly fixed: re-ran
+# the consolidation against CURRENT v7 (scripts/one_off_analyses/
+# build_consolidated_selected_clusters_2026-09-07.R - same method as the
+# 09-01 script, just v7 FULL instead of v4), which also required teaching
+# it to skip the 2026-09-02 IDP site-level PSU redesign's draws (no
+# uuid_hex column at all - a site was never a hex - see 1_sampling/
+# CLAUDE.md's PSU redesign entry). See uuid_hex_lookup below for the
+# matching fix that makes those site-level clusters degrade gracefully
+# instead of crashing, now that they're correctly absent from this file.
+selected_clusters <- readRDS(here::here("output", "gis", "selected_clusters_v7_current.rds"))
 
 # hex_polygons: canonical hex geometry, keyed by uuid_hex. Two known gaps in
 # hex_access alone, found while running this batch (2026-08-12) - both
@@ -162,7 +182,7 @@ selected_clusters_hex <- selected_clusters %>%
 missing_uuid_hex <- setdiff(selected_clusters_hex$uuid_hex, hex_access_dedup$uuid_hex)
 hex_polygons <- bind_rows(hex_access_dedup, selected_clusters_hex %>% filter(uuid_hex %in% missing_uuid_hex))
 if (length(missing_uuid_hex) > 0) {
-  cat(sprintf("hex_polygons: supplemented %d uuid_hex value(s) missing from hex_access, from selected_clusters_v5_current.rds.\n", length(missing_uuid_hex)))
+  cat(sprintf("hex_polygons: supplemented %d uuid_hex value(s) missing from hex_access, from selected_clusters_v7_current.rds.\n", length(missing_uuid_hex)))
 }
 
 iom_idp_wgs84 <- st_transform(iom_idp_df, 4326)
@@ -185,7 +205,7 @@ fn_end <- fn_start - 1 + which(grepl("^\\}$", lines2[fn_start:length(lines2)]))[
 eval(parse(text = paste(lines2[fn_start:fn_end], collapse = "\n")))
 
 stage2 <- read_csv(
-  here::here(output_dir, "data", "data_collection", "NGA_MSNA_2026_stage2_sampling_frame_v5_WORKING.csv"),
+  here::here(output_dir, "data", "data_collection", "NGA_MSNA_2026_stage2_sampling_frame_v7_WORKING.csv"),
   show_col_types = FALSE
 )
 backup_pts <- read_csv(
@@ -198,7 +218,23 @@ cluster_meta <- stage2 %>%
   select(cluster_id, pop_type, idp_population_category, adm2_pcode, adm2_name,
          latitude, longitude, n_other_sites_in_hex, iom_site_id)
 
-uuid_hex_lookup <- selected_clusters %>% st_drop_geometry() %>% distinct(cluster_id, uuid_hex)
+# 2026-09-07 fix: was `selected_clusters %>% distinct(cluster_id, uuid_hex)`
+# directly - silently had ZERO rows for any cluster_id absent from
+# selected_clusters (every IDP site-level PSU cluster, by design - see the
+# skip note above selected_clusters' own readRDS call). Downstream,
+# `uuid_hex_lookup %>% filter(cluster_id == cid) %>% pull(uuid_hex)`
+# returning a zero-length vector (not NA - genuinely absent) is exactly
+# what triggers the "uuid_hex == uuid_hex_i" vctrs-recycling crash - the
+# has_hex-graceful-degradation path a few lines below never gets a chance
+# to run, because the crash happens one line before it. Left-joining from
+# cluster_meta instead guarantees exactly one row per CURRENT cluster_id
+# (site-level IDP included, uuid_hex = NA), so uuid_hex_i is always defined
+# (possibly NA) and `hex_polygons %>% filter(uuid_hex == NA)` correctly,
+# harmlessly returns zero rows - has_hex=FALSE degrades gracefully, as the
+# original 2026-08-12 design intended.
+uuid_hex_lookup <- cluster_meta %>%
+  select(cluster_id) %>%
+  left_join(selected_clusters %>% st_drop_geometry() %>% distinct(cluster_id, uuid_hex), by = "cluster_id")
 
 other_sites_in_hex <- function(hex_i, representative_site_id) {
   hex_proj <- st_transform(hex_i, mycrs)

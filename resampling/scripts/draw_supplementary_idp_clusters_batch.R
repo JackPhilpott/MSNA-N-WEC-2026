@@ -95,7 +95,7 @@ idp_sampling_filtered$sampling_frame <- idp_sampling$sampling_frame %>%
 # currently ward-inaccessible cluster is still a real, already-designed
 # cluster and must stay excluded from redraw, even though it's absent from
 # WORKING v4.
-working <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v5_FULL.csv", show_col_types = FALSE)
+working <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v7_FULL.csv", show_col_types = FALSE)
 already_used_hex <- working %>% filter(pop_type == "idp") %>%
   mutate(uuid_hex_pop = paste0(pop_type, "_", uuid_hex)) %>% distinct(uuid_hex_pop) %>% pull(uuid_hex_pop)
 

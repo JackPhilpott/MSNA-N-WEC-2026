@@ -119,7 +119,7 @@ mycrs <- 31028  # same projected CRS 01_sampling_pipeline_main.R uses throughout
 # same scope 04_build_master_accessibility_status.py now uses - keeps
 # population-floor/certainty-excluded LGAs (e.g. Dandume/Faskari) visible,
 # since this is a status picture, not a "still needs resampling" list.
-WORKING_CSV <- "output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v5_FULL.csv"
+WORKING_CSV <- "output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v7_FULL.csv"
 MASTER_WARD_CSV <- "resampling/output/master_accessibility_status_ward_level.csv"
 ADMIN2_SHP <- "input_data/boundaries/nga_admin_boundaries/nga_admin2.shp"
 WARDS_SHP <- "input_data/boundaries/GRID3_NGA_Ward_Boundaries_v1/grid3_nga_boundary_vaccwards.shp"

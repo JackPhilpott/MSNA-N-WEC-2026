@@ -17,8 +17,8 @@ from collections import defaultdict
 import openpyxl
 
 SAMPLING_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling"
-STRATA_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v5_WORKING.csv"
-HOUSEHOLD_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v5_WORKING.csv"
+STRATA_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v7_WORKING.csv"
+HOUSEHOLD_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v7_WORKING.csv"
 LOG_CSV = SAMPLING_DIR + r"\resampling\output\resampling_requests_log.csv"
 MASTER_WARD_CSV = SAMPLING_DIR + r"\resampling\output\master_accessibility_status_ward_level.csv"
 GIS_WARD_CSV = SAMPLING_DIR + r"\resampling\output\gis\accessible_area_lga_ward_portions.csv"

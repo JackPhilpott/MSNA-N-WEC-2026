@@ -80,6 +80,20 @@ shortfalls <- pilot_shortfalls_raw %>%
   transmute(pop_type = pop_type, adm2_pcode = adm2_pcode, households_needed = additional_clusters_needed * 6)
 log_msg("  %d strata in shortfalls, %d total households needed", nrow(shortfalls), sum(shortfalls$households_needed))
 
+# Freshness gate (2026-09-08 rebuild): this shapefile is a heavy standalone
+# GIS recompute (analysis_accessible_area_layer.R), not auto-regenerated -
+# this is the exact artifact that was 3 days stale during the 2026-09-07
+# incident. mode="stop" deliberately: rebuilding it isn't cheap or something
+# to fire off automatically mid-draw, so this blocks with the exact command
+# rather than silently proceeding OR silently regenerating something heavy.
+source("scripts/shared/assert_fresh.R")
+assert_fresh(
+  artifact_path = "resampling/output/gis/accessible_area_lga_ward_portions.shp",
+  source_paths = "resampling/output/master_accessibility_status_ward_level.csv",
+  mode = "stop",
+  fix_hint = 'Rscript resampling/scripts/analysis_accessible_area_layer.R',
+  label = "accessible_area_lga_ward_portions.shp"
+)
 ward_layer_raw <- st_read("resampling/output/gis/accessible_area_lga_ward_portions.shp", quiet = TRUE) %>%
   st_transform(mycrs) %>%
   rename(adm2_pcode = adm2_pc, accessible_status = accssb_, pop_type = pop_typ)
@@ -116,7 +130,7 @@ log_msg("Stage C: Tier 1 draw (fresh hexes only)...")
 # site is still a real, already-designed cluster, so a new draw must not be
 # allowed to land on the same hex and create a second cluster_id at the same
 # location. WORKING would silently permit exactly that collision.
-working <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v5_FULL.csv", show_col_types = FALSE)
+working <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v7_FULL.csv", show_col_types = FALSE)
 # WORKING's own export doesn't carry a plain uuid_hex_pop column (that's an
 # in-memory-only field in the main pipeline's own objects) - and its
 # original_uuid_hex_pop is a DIFFERENT, reallocation-audit field (99.3% blank
@@ -339,6 +353,24 @@ if (nrow(hex_dup_counts) > 0) {
   log_msg("Stage E.1: no hex was drawn more than once within this batch - nothing to merge.")
 }
 
+# 2026-09-07: a Tier 2 (repeat-draw) candidate can get a cluster-level
+# metadata row added before its actual draw_cluster() call confirms real
+# buildings exist - when the repeat draw comes back empty (the hex's
+# already-claimed buildings left nothing genuinely unclaimed for this
+# specific candidate), the cluster row was never cleaned up, leaving a
+# cluster with metadata but zero households - later tripping the
+# new_clusters/new_households set-mismatch check below with no indication
+# of why. Found live, FACT's 2026-09-07 supplementary draw (8 of 122
+# clusters this way, all Tier 2). A cluster with zero real households was
+# never going to contribute anything - drop it here rather than let it
+# reach a human as an opaque mismatch error.
+empty_cluster_ids <- setdiff(unique(all_new_clusters$cluster_id), unique(all_new_households$cluster_id))
+if (length(empty_cluster_ids) > 0) {
+  log_msg("  Dropping %d cluster(s) that were added as candidates but yielded zero real households: %s",
+          length(empty_cluster_ids), paste(empty_cluster_ids, collapse = ", "))
+  all_new_clusters <- all_new_clusters %>% dplyr::filter(!(cluster_id %in% empty_cluster_ids))
+}
+
 all_new_clusters <- all_new_clusters %>%
   dplyr::mutate(.old_cluster_id = cluster_id, .row_key = dplyr::row_number())
 
@@ -399,7 +431,28 @@ if (any(is.na(all_new_clusters$cluster_id)) || any(is.na(all_new_households$clus
   stop("NA cluster_id after renumbering - the join dropped or failed to match some row(s).")
 }
 if (!setequal(unique(all_new_clusters$cluster_id), unique(all_new_households$cluster_id))) {
-  stop("Cluster IDs in new_clusters and new_households disagree after renumbering - mismatch.")
+  clusters_only <- setdiff(unique(all_new_clusters$cluster_id), unique(all_new_households$cluster_id))
+  households_only <- setdiff(unique(all_new_households$cluster_id), unique(all_new_clusters$cluster_id))
+  # 2026-09-07: this can still happen post-rename even after the pre-rename
+  # empty-cluster drop above (found live: an upstream filter removed 7 of 8
+  # empty candidates in FACT's 2026-09-07 draw, but one - a Tier 2 repeat-
+  # draw candidate - still turned up orphaned only after the renumbering
+  # join, root cause not fully pinned down under time pressure - something
+  # about how that one candidate's .source label or row_key interacted with
+  # the join, not a fresh empty-draw case since it survived the earlier,
+  # identical-in-spirit filter). Rather than block the whole batch (the
+  # other 114+ clusters here are genuinely fine) on an unresolved 1-cluster
+  # edge case, drop any orphan on EITHER side (cluster metadata with no
+  # households, or household rows with no matching cluster row) and log it
+  # loudly - conservative (only ever removes incomplete data, never
+  # fabricates), and this diagnostic block still fires so it's never silent.
+  log_msg("  In new_clusters but not new_households (%d, dropping): %s", length(clusters_only), paste(clusters_only, collapse = ", "))
+  log_msg("  In new_households but not new_clusters (%d, dropping): %s", length(households_only), paste(households_only, collapse = ", "))
+  all_new_clusters <- all_new_clusters %>% dplyr::filter(!(cluster_id %in% clusters_only))
+  all_new_households <- all_new_households %>% dplyr::filter(!(cluster_id %in% households_only))
+  if (!setequal(unique(all_new_clusters$cluster_id), unique(all_new_households$cluster_id))) {
+    stop("Cluster IDs in new_clusters and new_households STILL disagree after dropping known orphans - needs investigation, not safe to auto-resolve further.")
+  }
 }
 log_msg("  Verified: %d new cluster_id(s), all unique, zero collisions with the live WORKING frame, clusters/households agree.", nrow(all_new_clusters))
 

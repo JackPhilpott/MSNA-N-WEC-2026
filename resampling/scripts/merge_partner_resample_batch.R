@@ -14,6 +14,8 @@
 PROJECT_DIR <- "c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/1_sampling"
 setwd(PROJECT_DIR)
 suppressMessages({ library(dplyr); library(readr); library(tibble) })
+source("scripts/shared/assert_fresh.R")
+MASTER_WARD_CSV <- "resampling/output/master_accessibility_status_ward_level.csv"
 
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) < 4) stop("Usage: Rscript merge_partner_resample_batch.R <PartnerName> <staging_dir> <shortfalls_csv> <shortfalls_idp_csv>")
@@ -35,10 +37,10 @@ log_msg("==== Merge %s resample into live frame - %s ====", PARTNER, format(Sys.
 log_msg("Partner LGAs (%d): %s", length(PARTNER_PCODES), paste(PARTNER_PCODES, collapse = ", "))
 
 # ---- Load live frame ----
-full_hh    <- read_csv(file.path(DC_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v5_FULL.csv"), show_col_types = FALSE)
-working_hh <- read_csv(file.path(DC_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v5_WORKING.csv"), show_col_types = FALSE)
-full_sl    <- read_csv(file.path(DC_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v5_FULL.csv"), show_col_types = FALSE)
-working_sl <- read_csv(file.path(DC_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v5_WORKING.csv"), show_col_types = FALSE)
+full_hh    <- read_csv(file.path(DC_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v7_FULL.csv"), show_col_types = FALSE)
+working_hh <- read_csv(file.path(DC_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v7_WORKING.csv"), show_col_types = FALSE)
+full_sl    <- read_csv(file.path(DC_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v7_FULL.csv"), show_col_types = FALSE)
+working_sl <- read_csv(file.path(DC_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v7_WORKING.csv"), show_col_types = FALSE)
 
 live_survey_ids <- union(full_hh$survey_id, working_hh$survey_id)
 live_cluster_ids <- union(full_hh$cluster_id, working_hh$cluster_id)
@@ -53,6 +55,26 @@ read_or_empty <- function(path) {
   if (nrow(df) == 0) return(tibble())
   df
 }
+# ---- Freshness gate (2026-09-08 rebuild): the 2026-09-07 incident happened
+# because nothing checked the staged household files were actually stamped
+# with CURRENT ward accessibility before merging - stamp_ward_accessible_
+# status.py existed but nothing enforced running it. This blocks rather than
+# silently trusting whatever's in the staged file. mode="stop" deliberately -
+# this writes into a staged file a human may be actively constructing, so it
+# never gets auto-run, only ever blocks with the exact command to fix it.
+for (staged_name in c("new_households.csv", "new_households_idp.csv")) {
+  staged_path <- file.path(STAGING, staged_name)
+  if (file.exists(staged_path)) {
+    assert_fresh(
+      artifact_path = staged_path,
+      source_paths = MASTER_WARD_CSV,
+      mode = "stop",
+      fix_hint = sprintf('python "scripts/shared/../../resampling/scripts/stamp_ward_accessible_status.py" "%s"', staged_path),
+      label = staged_name
+    )
+  }
+}
+
 new_clusters_nonidp <- read_or_empty(file.path(STAGING, "new_clusters.csv"))
 new_hh_nonidp        <- if (nrow(new_clusters_nonidp) > 0) read_or_empty(file.path(STAGING, "new_households.csv")) %>% filter(cluster_id %in% new_clusters_nonidp$cluster_id) else tibble()
 new_clusters_idp      <- read_or_empty(file.path(STAGING, "new_clusters_idp.csv"))
@@ -187,13 +209,33 @@ log_msg("Total new household row(s) to append (both FULL and WORKING - all %s LG
 # stale siblings. Appending unconditionally to working_hh (as this used to
 # do) put 60 such rows live in WORKING - a stratum with zero real
 # achievable IDP sample was showing a nonzero achieved_sample/realized_moe
-# as a result. A genuinely NEW cluster (new hex/site, not a merge) has no
-# ward_accessible_status yet at this point - not computed until
-# 04_build_master_accessibility_status.py's next run - so NA is let through
-# here (defaults to included), matching this project's established
-# "unclassified defaults to accessible" convention elsewhere.
+# as a result.
+#
+# CORRECTED 2026-09-08 (was wrong, and was the root cause of the 2026-09-07
+# incident): the paragraph above used to also claim a genuinely new cluster's
+# ward_accessible_status gets computed on 04_build_master_accessibility_
+# status.py's "next run", and let NA default to included on that basis.
+# Traced during the incident: that claim was false, no script ever performed
+# that join - the freshness gate above (stamp_ward_accessible_status.py,
+# enforced via assert_fresh()) is what actually guarantees this column is
+# populated before we get here, not a later run of anything. Given that, a
+# row that's STILL NA at this point means the stamping script couldn't match
+# its ward at all (a genuine geography reconciliation gap, not "not yet
+# computed") - per the 2026-09-08 rebuild's accessibility rules, unmatched/
+# unknown defaults to EXCLUDED, not accessible (asymmetric risk: wrongly
+# excluding costs a review cycle, wrongly including risks fielding somewhere
+# we don't actually know is safe). Excluded-for-unmatched rows are logged
+# below, not silently dropped.
 full_hh_new    <- bind_rows(full_hh, all_new_rows)
-working_new_rows <- all_new_rows %>% filter(is.na(ward_accessible_status) | ward_accessible_status != "Inaccessible")
+unmatched_ward_rows <- all_new_rows %>% filter(is.na(ward_accessible_status))
+if (nrow(unmatched_ward_rows) > 0) {
+  log_msg("WARNING: %d new row(s) have no ward_accessible_status match (unmatched geography, not 'not yet computed') - excluded from WORKING pending review: %s",
+          nrow(unmatched_ward_rows), paste(unique(unmatched_ward_rows$cluster_id), collapse = ", "))
+  needs_review_path <- file.path(STAGING, "NEEDS_REVIEW_unmatched_ward_status.csv")
+  write_csv(unmatched_ward_rows, needs_review_path)
+  log_msg("Unmatched rows written to %s for the accessibility review queue.", needs_review_path)
+}
+working_new_rows <- all_new_rows %>% filter(!is.na(ward_accessible_status) & ward_accessible_status != "Inaccessible")
 
 # 2026-09-05, Jack's threshold decision (same evening, discussed after the
 # ward-accessibility fix above): a Non-IDP cluster with FEWER than
@@ -215,8 +257,12 @@ working_new_rows <- all_new_rows %>% filter(is.na(ward_accessible_status) | ward
 # merge and that next run. IDP is unaffected (single-point sites, no
 # straddling-hex/accessible-household-count concept applies).
 NON_IDP_MIN_ACCESSIBLE_PRIMARY_HH <- 4
+# 2026-09-08: flipped from is.na(...) | != "Inaccessible" (NA counted as
+# accessible) to !is.na(...) & != "Inaccessible" (NA excluded) - same
+# rationale as the freshness-gated exclusion above, applied consistently
+# here so this threshold check can't be fooled by an unmatched row either.
 cluster_accessible_primary_n <- full_hh_new %>%
-  filter(pop_type == "non_idp", status == "primary", is.na(ward_accessible_status) | ward_accessible_status != "Inaccessible") %>%
+  filter(pop_type == "non_idp", status == "primary", !is.na(ward_accessible_status) & ward_accessible_status != "Inaccessible") %>%
   count(cluster_id, name = "n_accessible_primary")
 below_threshold_clusters <- cluster_accessible_primary_n %>%
   filter(n_accessible_primary < NON_IDP_MIN_ACCESSIBLE_PRIMARY_HH) %>%
@@ -332,6 +378,20 @@ log_msg("Verified: zero duplicate survey_ids, row counts match exactly. FULL %d 
 # precisely this reason). In practice this under-count was transient - the
 # next daily refresh always overwrote it - but there's no reason to leave a
 # merge's own immediate output wrong in the meantime.
+# 2026-09-07, superseding the 2026-09-06 hardcoded-list stopgap: the
+# permanent mechanism is ready now - reads 2_monitoring's
+# CONFIRMED_DELETIONS_OVERLAY.csv directly (status=="confirmed"), same as
+# refresh_working_frame_daily.R's identical block and
+# 05_build_accessibility_impact_workbook.py's load_real_achieved(). Found
+# during the pre-resampling-run readiness check that the tracker had grown
+# past duration_under_20/fcs_zero since the previous night (639 confirmed,
+# up from 627) via the genuine partner-confirmation channel - the old
+# hardcoded list would have silently missed those. See
+# refresh_working_frame_daily.R for the full reasoning.
+CONFIRMED_DELETIONS_OVERLAY_CSV <- "c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/2_monitoring/data/CONFIRMED_DELETIONS_OVERLAY.csv"
+deletions_overlay <- read_csv(CONFIRMED_DELETIONS_OVERLAY_CSV, show_col_types = FALSE, col_types = cols(.default = "c"))
+confirmed_deletion_uuids <- deletions_overlay %>% filter(status == "confirmed") %>% pull(uuid)
+
 REAL_SUBMISSIONS_CSV <- "c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/2_monitoring/dashboard_app/data/real_submissions.csv"
 subs <- read_csv(REAL_SUBMISSIONS_CSV, show_col_types = FALSE, col_types = cols(.default = "c"))
 achieved <- subs %>%
@@ -339,7 +399,7 @@ achieved <- subs %>%
     interview_outcome == "completed",
     is_duplicate != "TRUE",
     !(matched_survey_id %in% c(NA, "", "NA")),
-    quality_exclusion_reason %in% c(NA, "", "NA")
+    !(submission_uuid %in% confirmed_deletion_uuids)
   )
 achieved_non_idp_survey_ids <- achieved %>% filter(pop_type == "non_idp") %>% pull(matched_survey_id) %>% unique()
 achieved_idp_counts <- achieved %>% filter(pop_type == "idp") %>% count(matched_cluster_id, matched_status, name = "n_achieved")
@@ -355,8 +415,15 @@ recompute_strata <- function(sl_df, hh_df, filter_ward_accessible = FALSE) {
   affected_strata <- unique(all_new_rows$strata_id)
   base <- hh_df %>% filter(strata_id %in% affected_strata, status == "primary")
   if (filter_ward_accessible) {
-    accessible <- base %>% filter(is.na(ward_accessible_status) | ward_accessible_status != "Inaccessible")
-    excluded <- base %>% filter(!is.na(ward_accessible_status) & ward_accessible_status == "Inaccessible")
+    # 2026-09-08: flipped so NA (unmatched geography) counts as excluded, not
+    # accessible - consistent with the merge-time gate above. NA rows still
+    # correctly flow into `excluded` below, so the stranded-achieved credit
+    # logic still protects a genuinely-completed interview even when the
+    # reason it's excluded is an unmatched ward rather than a confirmed
+    # Inaccessible status - a data-matching gap shouldn't cost a real
+    # achievement any more than a confirmed accessibility change should.
+    accessible <- base %>% filter(!is.na(ward_accessible_status) & ward_accessible_status != "Inaccessible")
+    excluded <- base %>% filter(is.na(ward_accessible_status) | ward_accessible_status == "Inaccessible")
 
     stranded_non_idp <- excluded %>% filter(pop_type == "non_idp", survey_id %in% achieved_non_idp_survey_ids)
 
@@ -421,10 +488,10 @@ for (i in seq_len(nrow(changed_rows))) {
 }
 
 # ---- Write ----
-write_csv(full_hh_new, file.path(DC_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v5_FULL.csv"))
-write_csv(working_hh_new, file.path(DC_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v5_WORKING.csv"))
-write_csv(full_sl_new, file.path(DC_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v5_FULL.csv"))
-write_csv(working_sl_new, file.path(DC_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v5_WORKING.csv"))
+write_csv(full_hh_new, file.path(DC_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v7_FULL.csv"))
+write_csv(working_hh_new, file.path(DC_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v7_WORKING.csv"))
+write_csv(full_sl_new, file.path(DC_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v7_FULL.csv"))
+write_csv(working_sl_new, file.path(DC_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v7_WORKING.csv"))
 log_msg("Written: FULL + WORKING household-level and strata-level CSVs in %s.", DC_DIR)
 
 writeLines(log_lines, file.path(STAGING, paste0("merge_", tolower(gsub("[^A-Za-z0-9]", "_", PARTNER)), "_log.txt")))

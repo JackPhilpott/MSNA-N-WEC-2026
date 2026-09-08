@@ -26,6 +26,11 @@ temp_stage1_only.R
 *_log[0-9]*.txt
 run_log_*.txt
 
+# Raw partner correspondence (Outlook .msg exports, draft replies) - this
+# is a public repo; personal email content/PII should not go into it, same
+# reasoning as the input_data/ exclusion above.
+resampling/input/partner_raw_comms/
+
 # Assist tool local settings (machine/user-specific)
 .claude/settings.local.json
 .claude/scheduled_tasks.lock

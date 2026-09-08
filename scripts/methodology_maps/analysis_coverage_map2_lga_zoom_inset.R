@@ -35,14 +35,14 @@ file.remove("temp_boundaries_map2zoom.R")
 
 # 2026-09-01 fix: same staleness issue as analysis_coverage_map2.R - see
 # that script's own note near its selected_clusters assignment.
-selected_clusters <- readRDS(here::here("output", "gis", "selected_clusters_v5_current.rds"))
+selected_clusters <- readRDS(here::here("output", "gis", "selected_clusters_v6_current.rds"))
 
 hex_polygons <- hex_access %>%
   st_make_valid() %>% st_transform(4326) %>% st_make_valid() %>%
   distinct(uuid_hex, .keep_all = TRUE) %>% select(uuid_hex)
 
 coverage_summary <- read_csv(here::here(output_dir, "data", "data_collection", "NGA_MSNA_2026_coverage_summary_v2.csv"), show_col_types = FALSE)
-full_strata <- read_csv(here::here(output_dir, "data", "data_collection", "NGA_MSNA_2026_strata_level_sampling_frame_v5_FULL.csv"), show_col_types = FALSE)
+full_strata <- read_csv(here::here(output_dir, "data", "data_collection", "NGA_MSNA_2026_strata_level_sampling_frame_v7_FULL.csv"), show_col_types = FALSE)
 
 working_pairs <- full_strata %>%
   filter(coverage_status == "covered", exclusion_reason == "none") %>%

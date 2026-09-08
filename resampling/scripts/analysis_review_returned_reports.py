@@ -5,9 +5,25 @@
 # to ingest as-is vs. needs a fix or a question back to the partner first.
 #
 # Checks, per partner file:
-# 1. Completeness - every (State, LGA, Ward) this partner actually has clusters
-#    in (per the WORKING frame's partners_covering) has a Ward Accessibility
-#    row. Flags any missing.
+# 1. Completeness - every (State, LGA, Ward) actually SENT to this partner (the
+#    canonical file in accessibility_reports_generated/) has a matching Ward
+#    Accessibility row in what came back. Flags any missing, or any extra.
+#
+#    METHODOLOGY CORRECTION (2026-09-08, caught by Jack on FACT's returned
+#    report): this used to compare against the *current, live* WORKING frame's
+#    partners_covering (build_partner_ward_universe(), below) instead of what
+#    was actually sent. That baseline drifts every time a stratum is dropped or
+#    added after the report was generated - caught because FACT's report showed
+#    294 "EXTRA" + 51 "MISSING" findings that looked alarming, but checking
+#    archived frame versions showed FACT's WORKING-based ward count had moved
+#    1,160 (v2) -> 1,074 (v3) -> 867 (v4) -> 843 (v5) -> 901 (v6, tonight's
+#    redraw) through several unrelated resampling rounds since their report was
+#    generated (Sep 2, ~1,067 wards). Direct check: FACT's return matched
+#    1,067/1,067 of what was actually sent, plus 77 genuinely-extra wards - not
+#    294. build_sent_ward_universe() (below) is the corrected baseline; the old
+#    WORKING-based function is kept only as a still-useful, separate concept
+#    (which wards a partner currently has clusters in per WORKING right now),
+#    not as the completeness comparison.
 # 2. Duplicate ward rows (same State/LGA/Ward appearing more than once).
 # 3. Partial answers - Accessible filled but Reason category blank, or the
 #    reverse (excluding "N/A - fully accessible" which legitimately pairs with
@@ -37,8 +53,9 @@ from collections import defaultdict
 import openpyxl
 
 PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling"
-STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v5_WORKING.csv"
+STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v7_WORKING.csv"
 RETURNED_DIR = PROJECT_DIR + r"\resampling\input\accessibility_reports_returned"
+GENERATED_DIR = PROJECT_DIR + r"\resampling\input\accessibility_reports_generated"
 
 MAP_ISSUE_PATTERNS = [
     r"not on (the |a )?map", r"doesn'?t match", r"wrong lga", r"wrong ward",
@@ -48,6 +65,14 @@ MAP_ISSUE_PATTERNS = [
 ACCESS_DENIAL_PATTERNS = [
     r"insecur", r"inaccess", r"denied", r"conflict", r"unsafe", r"attack",
     r"kidnap", r"bandit", r"displac", r"flood", r"blocked", r"no[- ]go",
+    # Widened 2026-09-08: FACT's Bachaka/Kuka rows ("...team had to be
+    # evacuated this morning as gun men opened fire...") scored Accessible=Yes
+    # with no CONTRADICTION flag, because the only denial-sounding word
+    # ("conflict") was in the Reason category dropdown, not the notes text
+    # this scan actually reads. Caught by Jack asking for the two rows'
+    # own Yes/No rather than trusting the original 19-item list was complete.
+    r"evacuat", r"gun[- ]?men", r"opened fire", r"gunfire", r"shoot",
+    r"ambush", r"abduct", r"raid", r"clash", r"armed group",
 ]
 
 
@@ -74,6 +99,39 @@ def build_partner_ward_universe():
         for p in partners:
             for (state, lga, ward) in wards_touched:
                 universe.add((p, state, lga, ward))
+    return universe
+
+
+def build_sent_ward_universe():
+    """{(partner, State, LGA, Ward (GRID3))} from the canonical report actually
+    generated and sent to each partner (accessibility_reports_generated/,
+    current file only - dated/followup snapshot copies excluded, same filter as
+    the returned-file scan below). This is the correct completeness baseline:
+    what a partner reported should be checked against what they were asked
+    about, not against whatever the live WORKING frame contains today. See the
+    2026-09-08 methodology-correction note in this file's header comment."""
+    files = sorted(glob.glob(os.path.join(GENERATED_DIR, "*_accessibility_report.xlsx")))
+    files = [f for f in files if not re.search(r"_\d{4}-\d{2}-\d{2}\.xlsx$", f)]
+
+    universe = set()
+    for path in files:
+        partner = os.path.basename(path)[: -len("_accessibility_report.xlsx")]
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        if "Ward Accessibility" not in wb.sheetnames:
+            wb.close()
+            continue
+        ws = wb["Ward Accessibility"]
+        headers = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
+        idx = {h: i for i, h in enumerate(headers) if h}
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            if all(v is None for v in row):
+                continue
+            state = norm(row[idx["State"]]) if "State" in idx else ""
+            lga = norm(row[idx["LGA"]]) if "LGA" in idx else ""
+            ward = norm(row[idx["Ward (GRID3)"]]) if "Ward (GRID3)" in idx else ""
+            if state and lga and ward:
+                universe.add((partner, state, lga, ward))
+        wb.close()
     return universe
 
 
@@ -166,7 +224,7 @@ def review_partner(path):
 
 
 def main():
-    universe = build_partner_ward_universe()
+    universe = build_sent_ward_universe()
     files = sorted(glob.glob(os.path.join(RETURNED_DIR, "*_accessibility_report.xlsx")))
     # Skip dated snapshot copies (YYYY-MM-DD suffix) - only review the canonical file per partner.
     files = [f for f in files if not re.search(r"_\d{4}-\d{2}-\d{2}\.xlsx$", f)]
@@ -178,13 +236,13 @@ def main():
         extra = seen_wards - expected
 
         print(f"\n{'='*70}\n{partner}\n{'='*70}")
-        print(f"Ward rows in file: {len(seen_wards)} | Expected (per WORKING frame): {len(expected)}")
+        print(f"Ward rows in file: {len(seen_wards)} | Expected (per what was actually sent): {len(expected)}")
         if missing:
-            print(f"MISSING {len(missing)} expected ward row(s) not in file:")
+            print(f"MISSING {len(missing)} sent ward row(s) not in file:")
             for m in sorted(missing):
                 print(f"  - {'/'.join(m)}")
         if extra:
-            print(f"{len(extra)} ward row(s) in file NOT in this partner's expected universe (typo / wrong partner?):")
+            print(f"{len(extra)} ward row(s) in file beyond what was sent to this partner (typo / wrong partner / partner-initiated expansion?):")
             for e in sorted(extra):
                 print(f"  - {'/'.join(e)}")
         if findings:

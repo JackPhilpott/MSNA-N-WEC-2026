@@ -25,7 +25,7 @@ from collections import defaultdict
 from docx import Document
 
 PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling"
-STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v5_WORKING.csv"
+STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v7_WORKING.csv"
 CLUSTER_MAPS_DIR = PROJECT_DIR + r"\output\maps\cluster_map_examples_v3"
 LGA_MAPS_DIR = PROJECT_DIR + r"\output\maps\cluster_lga_context_v1"
 BUILD_LOG_CSV = PROJECT_DIR + r"\output\maps\_production_build_log.csv"

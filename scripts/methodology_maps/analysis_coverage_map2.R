@@ -115,7 +115,7 @@ file.remove("temp_boundaries_map2.R")
 # see scripts/one_off_analyses/build_consolidated_selected_clusters_
 # 2026-09-01.R's header for how it's built (unions the archive with every
 # partner batch's new-cluster files via uuid_hex, not cluster_id label).
-selected_clusters <- readRDS(here::here("output", "gis", "selected_clusters_v5_current.rds"))
+selected_clusters <- readRDS(here::here("output", "gis", "selected_clusters_v6_current.rds"))
 
 # Fix (2026-08-06): selected_clusters_final's own `geometry` column is NOT
 # uniformly a hex polygon - Non-IDP rows carry the hex polygon, but IDP rows
@@ -141,7 +141,7 @@ hex_polygons <- hex_access %>%
 # LGA-level coverage/exclusion classification (2 categories only)
 # ---------------------------------------------------------------------------
 coverage_summary <- read_csv(here::here(output_dir, "data", "data_collection", "NGA_MSNA_2026_coverage_summary_v2.csv"), show_col_types = FALSE)
-full_strata <- read_csv(here::here(output_dir, "data", "data_collection", "NGA_MSNA_2026_strata_level_sampling_frame_v5_FULL.csv"), show_col_types = FALSE)
+full_strata <- read_csv(here::here(output_dir, "data", "data_collection", "NGA_MSNA_2026_strata_level_sampling_frame_v7_FULL.csv"), show_col_types = FALSE)
 
 lga_certainty_excluded <- full_strata %>%
   group_by(adm2_pcode) %>%

@@ -36,7 +36,7 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
 PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling"
-STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v5_WORKING.csv"
+STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v7_WORKING.csv"
 BACKUP_POINTS_CSV = PROJECT_DIR + r"\output\data\data_collection\idp_camp_backup_points.csv"
 HOST_FEASIBILITY_CSV = PROJECT_DIR + r"\output\data\supporting_analysis\idp_host_feasibility\idp_host_community_feasibility_flags.csv"
 POI_NEAREST_CSV = PROJECT_DIR + r"\output\data\supporting_analysis\poi\poi_nearest_non_idp.csv"

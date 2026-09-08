@@ -1,0 +1,324 @@
+region,state,lga,adm2_pcode,coverage_status,match_method,exclusion_reason,partners_covering
+North-Central,Benue,Ado,NG007001,not_covered,exact,partner_coverage_declined,
+North-Central,Benue,Agatu,NG007002,covered,exact,none,CRS
+North-Central,Benue,Apa,NG007003,not_covered,exact,partner_coverage_declined,
+North-Central,Benue,Buruku,NG007004,not_covered,exact,partner_coverage_declined,
+North-Central,Benue,Gboko,NG007005,not_covered,exact,partner_coverage_declined,
+North-Central,Benue,Guma,NG007006,covered,exact,none,COOPI
+North-Central,Benue,Gwer East,NG007007,not_covered,exact,partner_coverage_declined,
+North-Central,Benue,Gwer West,NG007008,covered,exact,none,CRS
+North-Central,Benue,Katsina-Ala,NG007009,not_covered,exact,partner_coverage_declined,
+North-Central,Benue,Konshisha,NG007010,not_covered,exact,partner_coverage_declined,
+North-Central,Benue,Kwande,NG007011,covered,exact,none,Save the Children
+North-Central,Benue,Logo,NG007012,covered,exact,none,CRS
+North-Central,Benue,Makurdi,NG007013,covered,exact,none,Malteser
+North-Central,Benue,Obi,NG007014,not_covered,exact,partner_coverage_declined,
+North-Central,Benue,Ogbadibo,NG007015,not_covered,exact,partner_coverage_declined,
+North-Central,Benue,Ohimini,NG007016,not_covered,exact,partner_coverage_declined,
+North-Central,Benue,Oju,NG007017,not_covered,exact,partner_coverage_declined,
+North-Central,Benue,Okpokwu,NG007018,not_covered,exact,partner_coverage_declined,
+North-Central,Benue,Oturkpo,NG007019,not_covered,proposed,partner_coverage_declined,
+North-Central,Benue,Tarka,NG007020,not_covered,exact,partner_coverage_declined,
+North-Central,Benue,Ukum,NG007021,not_covered,exact,partner_coverage_declined,
+North-Central,Benue,Ushongo,NG007022,not_covered,exact,partner_coverage_declined,
+North-Central,Benue,Vandeikya,NG007023,not_covered,exact,partner_coverage_declined,
+North-Central,Kogi,Adavi,NG023001,not_covered,exact,partner_coverage_declined,
+North-Central,Kogi,Ajaokuta,NG023002,not_covered,exact,partner_coverage_declined,
+North-Central,Kogi,Ankpa,NG023003,not_covered,exact,partner_coverage_declined,
+North-Central,Kogi,Bassa,NG023004,not_covered,exact,partner_coverage_declined,
+North-Central,Kogi,Dekina,NG023005,not_covered,exact,partner_coverage_declined,
+North-Central,Kogi,Ibaji,NG023006,not_covered,exact,partner_coverage_declined,
+North-Central,Kogi,Idah,NG023007,not_covered,exact,partner_coverage_declined,
+North-Central,Kogi,Igalamela-Odolu,NG023008,not_covered,exact,partner_coverage_declined,
+North-Central,Kogi,Ijumu,NG023009,not_covered,exact,partner_coverage_declined,
+North-Central,Kogi,Kabba/Bunu,NG023010,not_covered,exact,partner_coverage_declined,
+North-Central,Kogi,Kogi,NG023011,not_covered,exact,partner_coverage_declined,
+North-Central,Kogi,Lokoja,NG023012,not_covered,exact,partner_coverage_declined,
+North-Central,Kogi,Mopa-Muro,NG023013,not_covered,exact,partner_coverage_declined,
+North-Central,Kogi,Ofu,NG023014,not_covered,exact,partner_coverage_declined,
+North-Central,Kogi,Ogori/Magongo,NG023015,not_covered,exact,partner_coverage_declined,
+North-Central,Kogi,Okehi,NG023016,not_covered,exact,partner_coverage_declined,
+North-Central,Kogi,Okene,NG023017,not_covered,exact,partner_coverage_declined,
+North-Central,Kogi,Olamabolo,NG023018,not_covered,proposed,partner_coverage_declined,
+North-Central,Kogi,Omala,NG023019,not_covered,exact,partner_coverage_declined,
+North-Central,Kogi,Yagba East,NG023020,not_covered,exact,partner_coverage_declined,
+North-Central,Kogi,Yagba West,NG023021,not_covered,exact,partner_coverage_declined,
+North-Central,Nasarawa,Akwanga,NG026001,covered,exact,none,CARE
+North-Central,Nasarawa,Awe,NG026002,covered,exact,none,CARE
+North-Central,Nasarawa,Doma,NG026003,not_covered,exact,partner_coverage_declined,
+North-Central,Nasarawa,Karu,NG026004,not_covered,exact,partner_coverage_declined,
+North-Central,Nasarawa,Keana,NG026005,covered,exact,none,CARE
+North-Central,Nasarawa,Keffi,NG026006,not_covered,exact,partner_coverage_declined,
+North-Central,Nasarawa,Kokona,NG026007,covered,exact,none,CARE
+North-Central,Nasarawa,Lafia,NG026008,covered,exact,none,CARE
+North-Central,Nasarawa,Nasarawa,NG026009,not_covered,exact,partner_coverage_declined,
+North-Central,Nasarawa,Nasarawa-Eggon,NG026010,covered,proposed,none,CARE
+North-Central,Nasarawa,Obi,NG026011,covered,exact,none,CARE
+North-Central,Nasarawa,Toto,NG026012,not_covered,exact,partner_coverage_declined,
+North-Central,Nasarawa,Wamba,NG026013,not_covered,exact,partner_coverage_declined,
+North-Central,Niger,Agaie,NG027001,not_covered,exact,partner_coverage_declined,
+North-Central,Niger,Agwara,NG027002,not_covered,exact,partner_coverage_declined,
+North-Central,Niger,Bida,NG027003,not_covered,exact,partner_coverage_declined,
+North-Central,Niger,Borgu,NG027004,not_covered,exact,partner_coverage_declined,
+North-Central,Niger,Bosso,NG027005,not_covered,exact,partner_coverage_declined,
+North-Central,Niger,Chanchaga,NG027006,not_covered,exact,partner_coverage_declined,
+North-Central,Niger,Edati,NG027007,not_covered,exact,partner_coverage_declined,
+North-Central,Niger,Gbako,NG027008,not_covered,exact,partner_coverage_declined,
+North-Central,Niger,Gurara,NG027009,not_covered,exact,partner_coverage_declined,
+North-Central,Niger,Katcha,NG027010,not_covered,exact,partner_coverage_declined; certainty_stratum_below_moe_threshold (IDP stratum only),
+North-Central,Niger,Kontagora,NG027011,not_covered,exact,partner_coverage_declined,
+North-Central,Niger,Lapai,NG027012,not_covered,exact,partner_coverage_declined; certainty_stratum_below_moe_threshold (IDP stratum only),
+North-Central,Niger,Lavun,NG027013,not_covered,exact,partner_coverage_declined,
+North-Central,Niger,Magama,NG027014,not_covered,exact,partner_coverage_declined,
+North-Central,Niger,Mariga,NG027015,not_covered,exact,partner_coverage_declined,
+North-Central,Niger,Mashegu,NG027016,not_covered,exact,partner_coverage_declined,
+North-Central,Niger,Mokwa,NG027017,not_covered,exact,partner_coverage_declined,
+North-Central,Niger,Muya,NG027018,not_covered,proposed,partner_coverage_declined,
+North-Central,Niger,Paikoro,NG027019,not_covered,exact,partner_coverage_declined,
+North-Central,Niger,Rafi,NG027020,not_covered,exact,partner_coverage_declined,
+North-Central,Niger,Rijau,NG027021,not_covered,exact,partner_coverage_declined,
+North-Central,Niger,Shiroro,NG027022,not_covered,exact,partner_coverage_declined,
+North-Central,Niger,Suleja,NG027023,not_covered,exact,partner_coverage_declined,
+North-Central,Niger,Tafa,NG027024,not_covered,exact,partner_coverage_declined,
+North-Central,Niger,Wushishi,NG027025,not_covered,exact,partner_coverage_declined,
+North-Central,Plateau,Barikin Ladi,NG032001,covered,proposed,none,CRS
+North-Central,Plateau,Bassa,NG032002,covered,exact,none,CRS
+North-Central,Plateau,Bokkos,NG032003,covered,exact,none,CRS
+North-Central,Plateau,Jos East,NG032004,not_covered,exact,partner_coverage_declined,
+North-Central,Plateau,Jos North,NG032005,not_covered,exact,partner_coverage_declined,
+North-Central,Plateau,Jos South,NG032006,not_covered,exact,partner_coverage_declined,
+North-Central,Plateau,Kanam,NG032007,not_covered,exact,partner_coverage_declined,
+North-Central,Plateau,Kanke,NG032008,not_covered,exact,partner_coverage_declined,
+North-Central,Plateau,Langtang North,NG032009,not_covered,exact,partner_coverage_declined,
+North-Central,Plateau,Langtang South,NG032010,not_covered,exact,partner_coverage_declined,
+North-Central,Plateau,Mangu,NG032011,covered,exact,none,COOPI
+North-Central,Plateau,Mikang,NG032012,not_covered,exact,partner_coverage_declined,
+North-Central,Plateau,Pankshin,NG032013,not_covered,exact,partner_coverage_declined,
+North-Central,Plateau,Qua'an Pan,NG032014,not_covered,exact,partner_coverage_declined,
+North-Central,Plateau,Riyom,NG032015,covered,exact,none,COOPI
+North-Central,Plateau,Shendam,NG032016,not_covered,exact,partner_coverage_declined,
+North-Central,Plateau,Wase,NG032017,not_covered,exact,partner_coverage_declined,
+North-East,Adamawa,Demsa,NG002001,covered,exact,none,FACT
+North-East,Adamawa,Fufore,NG002002,covered,exact,none,FACT
+North-East,Adamawa,Ganye,NG002003,covered,exact,none,FACT
+North-East,Adamawa,Girei,NG002005,covered,exact,none,FACT
+North-East,Adamawa,Gombi,NG002004,covered,exact,none,NRC
+North-East,Adamawa,Guyuk,NG002006,covered,exact,none,FACT
+North-East,Adamawa,Hong,NG002007,covered,exact,none,NRC
+North-East,Adamawa,Jada,NG002008,covered,exact,none,FACT
+North-East,Adamawa,Lamurde,NG002009,covered,exact,none,NRC
+North-East,Adamawa,Madagali,NG002010,covered,exact,none,Street Child of Nigeria
+North-East,Adamawa,Maiha,NG002011,covered,exact,none,NRC
+North-East,Adamawa,Mayo-Belwa,NG002012,covered,exact,none,FACT
+North-East,Adamawa,Michika,NG002013,covered,exact,none,NRC
+North-East,Adamawa,Mubi North,NG002014,covered,exact,none,NRC
+North-East,Adamawa,Mubi South,NG002015,covered,exact,none,NRC
+North-East,Adamawa,Numan,NG002016,covered,exact,none,NRC
+North-East,Adamawa,Shelleng,NG002017,covered,exact,none,FACT
+North-East,Adamawa,Song,NG002018,covered,exact,none,FACT
+North-East,Adamawa,Toungo,NG002019,covered,exact,none,FACT
+North-East,Adamawa,Yola North,NG002020,covered,exact,none,NRC
+North-East,Adamawa,Yola South,NG002021,covered,exact,none,NRC
+North-East,Borno,Abadam,NG008001,covered,exact,none,FACT
+North-East,Borno,Askira/Uba,NG008002,covered,exact,none,FACT
+North-East,Borno,Bama,NG008003,covered,exact,none,PLAN
+North-East,Borno,Bayo,NG008004,covered,exact,none,FACT
+North-East,Borno,Biu,NG008005,covered,exact,none,FACT
+North-East,Borno,Chibok,NG008006,covered,exact,none,IMC
+North-East,Borno,Damboa,NG008007,covered,exact,none,IMC
+North-East,Borno,Dikwa,NG008008,covered,exact,none,Street Child of Nigeria
+North-East,Borno,Gubio,NG008009,covered,exact,none,FACT
+North-East,Borno,Guzamala,NG008010,covered,exact,none,FACT
+North-East,Borno,Gwoza,NG008011,covered,exact,none,NRC
+North-East,Borno,Hawul,NG008012,covered,exact,none,FACT
+North-East,Borno,Jere,NG008013,covered,exact,none,NRC
+North-East,Borno,Kaga,NG008014,covered,exact,none,FACT
+North-East,Borno,Kala/Balge,NG008015,covered,exact,none,PLAN
+North-East,Borno,Konduga,NG008016,covered,exact,none,NRC
+North-East,Borno,Kukawa,NG008017,covered,exact,none,FACT
+North-East,Borno,Kwaya Kusar,NG008018,covered,exact,none,FACT
+North-East,Borno,Mafa,NG008019,covered,exact,none,FHI 360
+North-East,Borno,Magumeri,NG008020,covered,exact,none,INTERSOS
+North-East,Borno,Maiduguri,NG008021,covered,exact,none,INTERSOS
+North-East,Borno,Marte,NG008022,not_covered,exact,partner_coverage_declined,
+North-East,Borno,Mobbar,NG008023,covered,exact,none,FHI 360
+North-East,Borno,Monguno,NG008024,covered,exact,none,Street Child of Nigeria
+North-East,Borno,Ngala,NG008025,covered,exact,none,CARE
+North-East,Borno,Nganzai,NG008026,covered,exact,none,FACT
+North-East,Borno,Shani,NG008027,covered,exact,none,FACT
+North-East,Yobe,Bade,NG036001,covered,exact,none,NRC
+North-East,Yobe,Bursari,NG036002,covered,exact,none,FACT
+North-East,Yobe,Damaturu,NG036003,covered,exact,none,NRC
+North-East,Yobe,Fika,NG036004,covered,exact,none,FACT
+North-East,Yobe,Fune,NG036005,covered,exact,none,FACT
+North-East,Yobe,Geidam,NG036006,covered,exact,none,FACT
+North-East,Yobe,Gujba,NG036007,covered,exact,none,NRC
+North-East,Yobe,Gulani,NG036008,covered,exact,none,FACT
+North-East,Yobe,Jakusko,NG036009,covered,exact,none,FACT
+North-East,Yobe,Karasuwa,NG036010,covered,exact,none,FACT
+North-East,Yobe,Machina,NG036011,covered,exact,none,FACT
+North-East,Yobe,Nangere,NG036012,covered,exact,none,FACT
+North-East,Yobe,Nguru,NG036013,covered,exact,none,FACT
+North-East,Yobe,Potiskum,NG036014,covered,exact,none,FACT
+North-East,Yobe,Tarmua,NG036015,covered,exact,none,FACT
+North-East,Yobe,Yunusari,NG036016,covered,exact,none,FACT
+North-East,Yobe,Yusufari,NG036017,covered,exact,none,FACT
+North-West,Kaduna,Birnin-Gwari,NG019001,not_covered,exact,partner_coverage_declined,
+North-West,Kaduna,Chikun,NG019002,not_covered,exact,partner_coverage_declined,
+North-West,Kaduna,Giwa,NG019003,not_covered,exact,partner_coverage_declined,
+North-West,Kaduna,Igabi,NG019004,not_covered,exact,partner_coverage_declined,
+North-West,Kaduna,Ikara,NG019005,not_covered,exact,partner_coverage_declined,
+North-West,Kaduna,Jaba,NG019006,not_covered,exact,partner_coverage_declined,
+North-West,Kaduna,Jema'a,NG019007,covered,exact,none,COOPI
+North-West,Kaduna,Kachia,NG019008,not_covered,exact,partner_coverage_declined,
+North-West,Kaduna,Kaduna North,NG019009,not_covered,exact,partner_coverage_declined,
+North-West,Kaduna,Kaduna South,NG019010,not_covered,exact,partner_coverage_declined,
+North-West,Kaduna,Kagarko,NG019011,not_covered,exact,partner_coverage_declined,
+North-West,Kaduna,Kajuru,NG019012,not_covered,exact,partner_coverage_declined,
+North-West,Kaduna,Kaura,NG019013,not_covered,exact,partner_coverage_declined,
+North-West,Kaduna,Kauru,NG019014,not_covered,exact,partner_coverage_declined,
+North-West,Kaduna,Kubau,NG019015,not_covered,exact,partner_coverage_declined,
+North-West,Kaduna,Kudan,NG019016,not_covered,exact,partner_coverage_declined,
+North-West,Kaduna,Lere,NG019017,not_covered,exact,partner_coverage_declined,
+North-West,Kaduna,Markafi,NG019018,not_covered,proposed,partner_coverage_declined; certainty_stratum_below_moe_threshold (IDP stratum only),
+North-West,Kaduna,Sabon-Gari,NG019019,not_covered,exact,partner_coverage_declined,
+North-West,Kaduna,Sanga,NG019020,not_covered,exact,partner_coverage_declined,
+North-West,Kaduna,Soba,NG019021,not_covered,exact,partner_coverage_declined,
+North-West,Kaduna,Zango-Kataf,NG019022,not_covered,proposed,partner_coverage_declined,
+North-West,Kaduna,Zaria,NG019023,covered,exact,none,COOPI
+North-West,Kano,Ajingi,NG020001,not_covered,no_data_treated_as_not_covered,partner_coverage_declined,
+North-West,Kano,Albasu,NG020002,not_covered,no_data_treated_as_not_covered,partner_coverage_declined,
+North-West,Kano,Bagwai,NG020003,not_covered,no_data_treated_as_not_covered,partner_coverage_declined,
+North-West,Kano,Bebeji,NG020004,not_covered,no_data_treated_as_not_covered,partner_coverage_declined; certainty_stratum_below_moe_threshold (IDP stratum only),
+North-West,Kano,Bichi,NG020005,not_covered,no_data_treated_as_not_covered,partner_coverage_declined,
+North-West,Kano,Bunkure,NG020006,not_covered,no_data_treated_as_not_covered,partner_coverage_declined,
+North-West,Kano,Dala,NG020007,not_covered,no_data_treated_as_not_covered,partner_coverage_declined,
+North-West,Kano,Dambatta,NG020008,not_covered,no_data_treated_as_not_covered,partner_coverage_declined; certainty_stratum_below_moe_threshold (IDP stratum only),
+North-West,Kano,Dawakin Kudu,NG020009,not_covered,no_data_treated_as_not_covered,partner_coverage_declined; certainty_stratum_below_moe_threshold (IDP stratum only),
+North-West,Kano,Dawakin Tofa,NG020010,not_covered,no_data_treated_as_not_covered,partner_coverage_declined; certainty_stratum_below_moe_threshold (IDP stratum only),
+North-West,Kano,Doguwa,NG020011,not_covered,no_data_treated_as_not_covered,partner_coverage_declined,
+North-West,Kano,Fagge,NG020012,not_covered,no_data_treated_as_not_covered,partner_coverage_declined,
+North-West,Kano,Gabasawa,NG020013,not_covered,no_data_treated_as_not_covered,partner_coverage_declined,
+North-West,Kano,Garko,NG020014,not_covered,no_data_treated_as_not_covered,partner_coverage_declined,
+North-West,Kano,Garum Mallam,NG020015,not_covered,no_data_treated_as_not_covered,partner_coverage_declined,
+North-West,Kano,Gaya,NG020016,not_covered,no_data_treated_as_not_covered,partner_coverage_declined,
+North-West,Kano,Gezawa,NG020017,not_covered,no_data_treated_as_not_covered,partner_coverage_declined,
+North-West,Kano,Gwale,NG020018,not_covered,no_data_treated_as_not_covered,partner_coverage_declined; certainty_stratum_below_moe_threshold (IDP stratum only),
+North-West,Kano,Gwarzo,NG020019,not_covered,no_data_treated_as_not_covered,partner_coverage_declined; certainty_stratum_below_moe_threshold (IDP stratum only),
+North-West,Kano,Kabo,NG020020,not_covered,no_data_treated_as_not_covered,partner_coverage_declined,
+North-West,Kano,Kano Municipal,NG020021,not_covered,no_data_treated_as_not_covered,partner_coverage_declined,
+North-West,Kano,Karaye,NG020022,not_covered,no_data_treated_as_not_covered,partner_coverage_declined,
+North-West,Kano,Kibiya,NG020023,not_covered,no_data_treated_as_not_covered,partner_coverage_declined,
+North-West,Kano,Kiru,NG020024,not_covered,no_data_treated_as_not_covered,partner_coverage_declined,
+North-West,Kano,Kumbotso,NG020025,not_covered,no_data_treated_as_not_covered,partner_coverage_declined,
+North-West,Kano,Kunchi,NG020026,not_covered,no_data_treated_as_not_covered,partner_coverage_declined; certainty_stratum_below_moe_threshold (IDP stratum only),
+North-West,Kano,Kura,NG020027,not_covered,no_data_treated_as_not_covered,partner_coverage_declined,
+North-West,Kano,Madobi,NG020028,not_covered,no_data_treated_as_not_covered,partner_coverage_declined,
+North-West,Kano,Makoda,NG020029,not_covered,no_data_treated_as_not_covered,partner_coverage_declined; certainty_stratum_below_moe_threshold (IDP stratum only),
+North-West,Kano,Minjibir,NG020030,not_covered,no_data_treated_as_not_covered,partner_coverage_declined; certainty_stratum_below_moe_threshold (IDP stratum only),
+North-West,Kano,Nasarawa,NG020031,not_covered,no_data_treated_as_not_covered,partner_coverage_declined,
+North-West,Kano,Rano,NG020032,not_covered,no_data_treated_as_not_covered,partner_coverage_declined,
+North-West,Kano,Rimin Gado,NG020033,not_covered,no_data_treated_as_not_covered,partner_coverage_declined; certainty_stratum_below_moe_threshold (IDP stratum only),
+North-West,Kano,Rogo,NG020034,not_covered,no_data_treated_as_not_covered,partner_coverage_declined; certainty_stratum_below_moe_threshold (IDP stratum only),
+North-West,Kano,Shanono,NG020035,not_covered,no_data_treated_as_not_covered,partner_coverage_declined; certainty_stratum_below_moe_threshold (IDP stratum only),
+North-West,Kano,Sumaila,NG020036,not_covered,no_data_treated_as_not_covered,partner_coverage_declined,
+North-West,Kano,Takai,NG020037,not_covered,no_data_treated_as_not_covered,partner_coverage_declined,
+North-West,Kano,Tarauni,NG020038,not_covered,no_data_treated_as_not_covered,partner_coverage_declined,
+North-West,Kano,Tofa,NG020039,not_covered,no_data_treated_as_not_covered,partner_coverage_declined; certainty_stratum_below_moe_threshold (IDP stratum only),
+North-West,Kano,Tsanyawa,NG020040,not_covered,no_data_treated_as_not_covered,partner_coverage_declined,
+North-West,Kano,Tudun Wada,NG020041,not_covered,no_data_treated_as_not_covered,partner_coverage_declined,
+North-West,Kano,Ungogo,NG020042,not_covered,no_data_treated_as_not_covered,partner_coverage_declined,
+North-West,Kano,Warawa,NG020043,not_covered,no_data_treated_as_not_covered,partner_coverage_declined; certainty_stratum_below_moe_threshold (IDP stratum only),
+North-West,Kano,Wudil,NG020044,not_covered,no_data_treated_as_not_covered,partner_coverage_declined,
+North-West,Katsina,Bakori,NG021001,covered,exact,none,FACT
+North-West,Katsina,Batagarawa,NG021002,covered,exact,none,IRC
+North-West,Katsina,Batsari,NG021003,covered,exact,none,FACT
+North-West,Katsina,Baure,NG021004,covered,exact,none,FACT
+North-West,Katsina,Bindawa,NG021005,covered,exact,none,FACT
+North-West,Katsina,Charanchi,NG021006,covered,exact,none,CARE
+North-West,Katsina,Dan Musa,NG021007,covered,exact,none,FACT
+North-West,Katsina,Dandume,NG021008,covered,exact,none,FACT
+North-West,Katsina,Danja,NG021009,covered,exact,none,FACT
+North-West,Katsina,Daura,NG021010,covered,exact,none,FACT
+North-West,Katsina,Dutsi,NG021011,covered,exact,none,FACT
+North-West,Katsina,Dutsin-Ma,NG021012,covered,exact,none,FACT
+North-West,Katsina,Faskari,NG021013,covered,exact,none,FACT
+North-West,Katsina,Funtua,NG021014,covered,exact,none,FACT
+North-West,Katsina,Ingawa,NG021015,covered,exact,none,FACT
+North-West,Katsina,Jibia,NG021016,covered,exact,none,IRC
+North-West,Katsina,Kafur,NG021017,covered,exact,none,FACT
+North-West,Katsina,Kaita,NG021018,covered,exact,none,FACT
+North-West,Katsina,Kankara,NG021019,covered,exact,none,FACT
+North-West,Katsina,Kankia,NG021020,covered,exact,none,IMC
+North-West,Katsina,Katsina,NG021021,covered,exact,none,COOPI
+North-West,Katsina,Kurfi,NG021022,covered,exact,none,Malteser
+North-West,Katsina,Kusada,NG021023,covered,exact,none,FACT
+North-West,Katsina,Mai'adua,NG021024,covered,exact,none,Save the Children
+North-West,Katsina,Malumfashi,NG021025,covered,exact,none,FACT
+North-West,Katsina,Mani,NG021026,covered,exact,none,FACT
+North-West,Katsina,Mashi,NG021027,covered,exact,none,Malteser
+North-West,Katsina,Matazu,NG021028,covered,exact,none,FACT
+North-West,Katsina,Musawa,NG021029,covered,exact,none,FACT
+North-West,Katsina,Rimi,NG021030,covered,exact,none,FACT
+North-West,Katsina,Sabuwa,NG021031,covered,exact,none,FACT
+North-West,Katsina,Safana,NG021032,covered,exact,none,FACT
+North-West,Katsina,Sandamu,NG021033,covered,exact,none,MDM
+North-West,Katsina,Zango,NG021034,covered,exact,none,Save the Children
+North-West,Kebbi,Aleiro,NG022001,covered,exact,none,FACT
+North-West,Kebbi,Arewa-Dandi,NG022002,covered,exact,none,FACT
+North-West,Kebbi,Argungu,NG022003,covered,exact,none,CARE
+North-West,Kebbi,Augie,NG022004,covered,exact,none,FACT
+North-West,Kebbi,Bagudo,NG022005,covered,exact,none,FACT
+North-West,Kebbi,Birnin Kebbi,NG022006,covered,exact,none,CARE
+North-West,Kebbi,Bunza,NG022007,covered,exact,none,FACT
+North-West,Kebbi,Dandi,NG022008,covered,exact,none,FACT
+North-West,Kebbi,Fakai,NG022009,covered,exact,none,FACT
+North-West,Kebbi,Gwandu,NG022010,covered,exact,certainty_stratum_below_moe_threshold (IDP stratum only),Solidarités
+North-West,Kebbi,Jega,NG022011,covered,exact,none,FACT
+North-West,Kebbi,Kalgo,NG022012,covered,exact,none,FACT
+North-West,Kebbi,Koko/Besse,NG022013,covered,exact,none,CRS
+North-West,Kebbi,Maiyama,NG022014,covered,exact,none,FACT
+North-West,Kebbi,Ngaski,NG022015,covered,exact,none,FACT
+North-West,Kebbi,Sakaba,NG022016,covered,exact,none,FACT
+North-West,Kebbi,Shanga,NG022017,covered,exact,none,FACT
+North-West,Kebbi,Suru,NG022018,covered,exact,none,CARE
+North-West,Kebbi,Wasagu/Danko,NG022019,covered,proposed,none,FACT
+North-West,Kebbi,Yauri,NG022020,covered,exact,none,FACT
+North-West,Kebbi,Zuru,NG022021,covered,exact,none,"IRC, LHI"
+North-West,Sokoto,Binji,NG034001,covered,exact,none,FACT
+North-West,Sokoto,Bodinga,NG034002,covered,exact,none,ACF
+North-West,Sokoto,Dange-Shuni,NG034003,covered,exact,none,FACT
+North-West,Sokoto,Gada,NG034004,covered,exact,none,FACT
+North-West,Sokoto,Goronyo,NG034006,covered,exact,none,ACF
+North-West,Sokoto,Gudu,NG034007,covered,exact,none,FACT
+North-West,Sokoto,Gwadabawa,NG034005,covered,exact,none,ACF
+North-West,Sokoto,Illela,NG034008,covered,exact,none,DRC
+North-West,Sokoto,Isa,NG034009,covered,exact,none,"DRC, IRC, LHI"
+North-West,Sokoto,Kebbe,NG034010,covered,exact,none,FACT
+North-West,Sokoto,Kware,NG034011,covered,exact,none,FACT
+North-West,Sokoto,Rabah,NG034012,covered,exact,none,ACF
+North-West,Sokoto,Sabon Birni,NG034013,covered,exact,none,"IRC, LHI"
+North-West,Sokoto,Shagari,NG034014,covered,exact,none,CRS
+North-West,Sokoto,Silame,NG034015,covered,exact,none,FACT
+North-West,Sokoto,Sokoto North,NG034016,covered,exact,none,DRC
+North-West,Sokoto,Sokoto South,NG034017,covered,exact,none,DRC
+North-West,Sokoto,Tambuwal,NG034018,covered,exact,none,ACF
+North-West,Sokoto,Tangaza,NG034019,covered,exact,none,"IRC, LHI"
+North-West,Sokoto,Tureta,NG034020,covered,exact,none,FACT
+North-West,Sokoto,Wamako,NG034021,covered,exact,none,CRS
+North-West,Sokoto,Wurno,NG034022,covered,exact,none,ZOA
+North-West,Sokoto,Yabo,NG034023,covered,exact,none,FACT
+North-West,Zamfara,Anka,NG037001,covered,exact,none,Solidarités
+North-West,Zamfara,Bakura,NG037002,covered,exact,none,FACT
+North-West,Zamfara,Birnin Magaji,NG037003,covered,proposed,none,FACT
+North-West,Zamfara,Bukkuyum,NG037004,covered,exact,none,FACT
+North-West,Zamfara,Bungudu,NG037005,covered,exact,none,Save the Children
+North-West,Zamfara,Gummi,NG037006,covered,exact,none,FACT
+North-West,Zamfara,Gusau,NG037007,covered,exact,none,INTERSOS
+North-West,Zamfara,Kaura Namoda,NG037008,covered,proposed,none,DRC
+North-West,Zamfara,Maradun,NG037009,covered,exact,none,FACT
+North-West,Zamfara,Maru,NG037010,covered,exact,none,INTERSOS
+North-West,Zamfara,Shinkafi,NG037011,covered,exact,none,FACT
+North-West,Zamfara,Talata Mafara,NG037012,covered,exact,none,FACT
+North-West,Zamfara,Tsafe,NG037013,covered,exact,none,IRC
+North-West,Zamfara,Zurmi,NG037014,covered,exact,none,FACT

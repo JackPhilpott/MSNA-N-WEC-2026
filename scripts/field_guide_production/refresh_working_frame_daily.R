@@ -76,10 +76,10 @@
 #   - No version bump. FULL is untouched (it never drops a row, and its own
 #     achieved_clusters/achieved_sample stay unfiltered by ward
 #     accessibility too - see 1_sampling/CLAUDE.md). Only WORKING
-#     (household- and strata-level) is overwritten, in place, same v5
+#     (household- and strata-level) is overwritten, in place, same v6
 #     filenames - this is routine maintenance of "what's currently
 #     outstanding/currently accessible," not the kind of substantive change
-#     this project's _v4_/_v5_ versioning convention is reserved for.
+#     this project's _v4_/_v6_ versioning convention is reserved for.
 #
 # Non-IDP achieved: exact survey_id join (frame and submissions share the
 # same HH##/R## scheme) - a specific pre-assigned building either has been
@@ -117,10 +117,16 @@ MONITORING_DIR <- "c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSN
 setwd(PROJECT_DIR)
 
 SF_DIR <- "output/data/data_collection"
-FULL_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v5_FULL.csv")
-WORKING_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v5_WORKING.csv")
-STRATA_WORKING_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v5_WORKING.csv")
-REAL_SUBMISSIONS_CSV <- file.path(MONITORING_DIR, "dashboard_app", "data", "real_submissions.csv")
+FULL_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v7_FULL.csv")
+WORKING_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v7_WORKING.csv")
+STRATA_WORKING_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v7_WORKING.csv")
+# CORRECTED 2026-09-08: was hardcoded to the dashboard_app/data/ mirror,
+# which only refreshes on a full deploy_dashboard.R run - flagged repeatedly
+# during the 2026-09-07 incident review as a real, live staleness risk
+# (this script could silently run against a submissions snapshot that's a
+# full deploy cycle old). Canonical is 2_monitoring/data/real_submissions.csv;
+# the dashboard_app copy is the derived mirror, not the other way around.
+REAL_SUBMISSIONS_CSV <- file.path(MONITORING_DIR, "data", "real_submissions.csv")
 
 log_lines <- character(0)
 log_msg <- function(...) { m <- sprintf(...); cat(m, "\n"); log_lines <<- c(log_lines, m) }
@@ -140,12 +146,68 @@ subs <- read_csv(REAL_SUBMISSIONS_CSV, show_col_types = FALSE, col_types = cols(
 
 # ---- canonical is_achieved(), mirrored from 2_monitoring/dashboard_app/
 # global.R exactly - see header note. ----------------------------------------
+#
+# 2026-09-06, Jack's policy decision on quality_exclusion_reason (relayed via
+# the orchestrator session): deletion confirmation requires a genuine,
+# deliberate decision (partner recovery-workbook response or a reviewed
+# internal call), never an automatic/timeout default - and as of tonight,
+# nothing in the recovery_issue_tracker.csv-based confirmed-deletion process
+# meets that bar (10 registered confirmed_deletion-type issues, all still
+# contested). SEPARATELY, Jack confirmed duration_under_20 and fcs_zero
+# specifically bypass that appeal process entirely and go straight to
+# confirmed_deleted (confirmed_by=internal_team) - these are validated
+# methodological thresholds from piloting (under 20 min can't cover the
+# questionnaire; all-8-FCS-components-zero is implausible as a real
+# response), not ambiguous judgment calls needing field input, unlike the
+# other rule categories the pipeline can produce (GPS-duplicate-point,
+# pct_missing_flagged, no_consent, listing_missing - explicitly still NOT
+# confirmed, treat as achieved-eligible for now). The permanent mechanism
+# (2_monitoring's tracker/overlay rebuild) isn't ready yet, so for now this
+# reads real_submissions.csv's own quality_exclusion_reason column directly
+# as a stopgap - verified 2026-09-06 that its only two populated values ARE
+# exactly duration_under_20/fcs_zero (578 rows: 547+31), so this is a precise
+# implementation of the decision, not an approximation. Written as an
+# explicit inclusion-list (only these two values exclude), NOT the previous
+# "any non-blank value excludes" - so if/when the pipeline starts populating
+# one of the other four categories, those rows correctly stay achieved-
+# eligible instead of being silently excluded by an over-broad filter. Zero
+# effect on today's actual figures (confirmed: no other reason value
+# currently exists in the data) - this is a forward-looking precision fix,
+# not a behavior change.
+#
+# 2026-09-07 SUPERSEDES the above: the permanent mechanism IS ready now -
+# 2_monitoring's recovery_issue_tracker.csv-based CONFIRMED_DELETIONS_
+# OVERLAY.csv, same file 05_build_accessibility_impact_workbook.py was
+# repointed to on 2026-09-06 (see CLAUDE.md "Update 2026-09-06b"). Switched
+# from the hardcoded reason-string allowlist to reading the overlay's own
+# status=="confirmed" directly - found while doing the pre-resampling-run
+# readiness check that the tracker has grown past duration_under_20/fcs_zero
+# since last night (639 confirmed now, up from 627): 14 more via the
+# genuine partner-confirmation channel (no_consent x10, duplicate_point x2,
+# gps_no_match_partner_confirmed x2 - all confirmed_by=partner, exactly the
+# "genuine deliberate decision" Jack's policy requires, not an automatic
+# default). The hardcoded list would have silently kept treating these 14
+# as achieved-eligible. Reading the overlay directly means this never goes
+# stale again as the tracker keeps moving - no more hardcoded list to
+# remember to update. Verified before switching: real_submissions.csv's own
+# quality_exclusion_reason column currently matches the overlay's confirmed
+# set exactly (2_monitoring is keeping it synced deliberately, per Jack) -
+# but the overlay is read directly here regardless, not inferred from that
+# column, since that's the actual source of truth and this project already
+# saw that column go stale/corrupted once (2026-09-06 evening).
+# Still NOT mirrored into build_partner_dc_packages.py (the partner
+# workbook) - do this same fix there before rebuilding partner workbooks.
+CONFIRMED_DELETIONS_OVERLAY_CSV <- file.path(MONITORING_DIR, "data", "CONFIRMED_DELETIONS_OVERLAY.csv")
+deletions_overlay <- read_csv(CONFIRMED_DELETIONS_OVERLAY_CSV, show_col_types = FALSE, col_types = cols(.default = "c"))
+confirmed_deletion_uuids <- deletions_overlay %>% filter(status == "confirmed") %>% pull(uuid)
+log_msg("Confirmed-deletions overlay: %d rows (%d confirmed, %d contested/other).", nrow(deletions_overlay), length(confirmed_deletion_uuids), nrow(deletions_overlay) - length(confirmed_deletion_uuids))
+
 achieved <- subs %>%
   filter(
     interview_outcome == "completed",
     is_duplicate != "TRUE",
     !(matched_survey_id %in% c(NA, "", "NA")),
-    quality_exclusion_reason %in% c(NA, "", "NA")
+    !(submission_uuid %in% confirmed_deletion_uuids)
   )
 log_msg("Real submissions: %d total, %d achieved (canonical formula).", nrow(subs), nrow(achieved))
 
@@ -164,7 +226,13 @@ log_msg("IDP (cluster, status) combinations with achieved interviews: %d", nrow(
 # filtering. This is what strata-level achieved_clusters/achieved_sample
 # below is computed from (see header note on terminology). ------------------
 covered <- full_df %>% filter(coverage_status == "covered", exclusion_reason == "none")
-covered_accessible <- covered %>% filter(is.na(ward_accessible_status) | ward_accessible_status != "Inaccessible")
+# 2026-09-08: flipped from is.na(...) | != "Inaccessible" (NA counted as
+# accessible) to !is.na(...) & != "Inaccessible" (NA excluded, pending
+# review) - same rebuild-wide rule as merge_partner_resample_batch.R's
+# identical logic (mirrored, not imported, per this project's standalone-
+# script convention - kept in sync deliberately, same as the threshold note
+# below).
+covered_accessible <- covered %>% filter(!is.na(ward_accessible_status) & ward_accessible_status != "Inaccessible")
 
 # 2026-09-05, Jack's threshold decision (same evening as the ward-
 # accessibility fix above, discussed after seeing how many straddling
@@ -190,7 +258,7 @@ covered_accessible <- covered %>% filter(is.na(ward_accessible_status) | ward_ac
 # same threshold, same counting basis, kept in sync deliberately.
 NON_IDP_MIN_ACCESSIBLE_PRIMARY_HH <- 4
 cluster_accessible_primary_n <- covered %>%
-  filter(pop_type == "non_idp", status == "primary", is.na(ward_accessible_status) | ward_accessible_status != "Inaccessible") %>%
+  filter(pop_type == "non_idp", status == "primary", !is.na(ward_accessible_status) & ward_accessible_status != "Inaccessible") %>%
   count(cluster_id, name = "n_accessible_primary")
 below_threshold_clusters <- cluster_accessible_primary_n %>%
   filter(n_accessible_primary < NON_IDP_MIN_ACCESSIBLE_PRIMARY_HH) %>%
@@ -293,7 +361,11 @@ strata_working_old <- read_csv(STRATA_WORKING_CSV, show_col_types = FALSE, col_t
 excluded_primary <- covered %>%
   filter(status == "primary") %>%
   filter(
-    (!is.na(ward_accessible_status) & ward_accessible_status == "Inaccessible") |
+    # 2026-09-08: NA now included here too (was only true "Inaccessible"),
+    # to stay the exact complement of covered_accessible's flipped rule
+    # above - an already-achieved row with an unmatched ward still gets the
+    # stranded-achieved credit below, same reasoning as the Inaccessible case.
+    (is.na(ward_accessible_status) | ward_accessible_status == "Inaccessible") |
     (pop_type == "non_idp" & cluster_id %in% below_threshold_clusters)
   )
 

@@ -41,7 +41,6 @@
 # stratum's target).
 # ==============================================================================
 import csv
-import glob
 import math
 import os
 from collections import defaultdict
@@ -65,33 +64,37 @@ SAMPLING_DIR = PROJECT_DIR + r"\1_sampling"
 # round. Filtered below to coverage_status=="covered" & exclusion_reason
 # =="none" to still exclude population-floor/certainty-excluded strata,
 # which genuinely shouldn't reappear here.
-STRATA_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v5_FULL.csv"
-HOUSEHOLD_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v5_FULL.csv"
+STRATA_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v7_FULL.csv"
+HOUSEHOLD_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v7_FULL.csv"
 MASTER_WARD_CSV = SAMPLING_DIR + r"\resampling\output\master_accessibility_status_ward_level.csv"
 GIS_WARD_CSV = SAMPLING_DIR + r"\resampling\output\gis\accessible_area_lga_ward_portions.csv"
 POOL_NON_IDP_CSV = SAMPLING_DIR + r"\resampling\output\gis\remaining_eligible_pool_non_idp.csv"
 POOL_IDP_CSV = SAMPLING_DIR + r"\resampling\output\gis\remaining_eligible_pool_idp.csv"
 REAL_SUBMISSIONS_CSV = PROJECT_DIR + r"\2_monitoring\dashboard_app\data\real_submissions.csv"
 
-# Was hardcoded to the 2026-08-29 file specifically - found 2026-08-30 that
-# two newer revisions (..._2026-08-30.csv, then ..._2026-08-30_v2.csv) had
-# both landed and were silently never read, because a hardcoded dated
-# filename doesn't notice a newer one appearing next to it. This log is
-# explicitly a living/revised handoff (see RESAMPLING_DECISION_RULES.md
-# sec 4 - "this file is a floor, not final") so pick the most-recently-
-# modified matching file every run instead of a fixed name.
-_DELETION_LOG_DIR = PROJECT_DIR + r"\2_monitoring\cleaning\real\handoff_for_resampling"
-_deletion_log_candidates = glob.glob(os.path.join(_DELETION_LOG_DIR, "revised_deletion_log_for_resampling_*.csv"))
-if not _deletion_log_candidates:
-    raise FileNotFoundError(f"No revised_deletion_log_for_resampling_*.csv found in {_DELETION_LOG_DIR}")
-DELETION_LOG_CSV = max(_deletion_log_candidates, key=os.path.getmtime)
-print(f"Using deletion log: {os.path.basename(DELETION_LOG_CSV)}")
+# 2026-09-06: repointed from the abandoned revised_deletion_log_for_resampling_
+# *.csv handoff (2_monitoring/cleaning/real/handoff_for_resampling/ - last fed
+# 2026-08-30_v2, 8 days stale by the time this was caught) to
+# CONFIRMED_DELETIONS_OVERLAY.csv - its deliberate, version-stamped
+# replacement, built from 2_monitoring's recovery_issue_tracker.csv. Verified
+# before repointing (not just per the orchestrator's word): join key is
+# "uuid" on both sides, same as the old log; row counts/status breakdown
+# checked directly against the file on disk. Only status=="confirmed" rows
+# count as deletions - the overlay also carries "contested" rows (10 as of
+# this writing, none finalized either way) that must NOT be treated as
+# deleted, per Jack's explicit policy: deletion confirmation requires a
+# genuine, deliberate decision (partner recovery-workbook response or a
+# reviewed internal call), never an automatic default.
+CONFIRMED_DELETIONS_OVERLAY_CSV = PROJECT_DIR + r"\2_monitoring\data\CONFIRMED_DELETIONS_OVERLAY.csv"
+if not os.path.exists(CONFIRMED_DELETIONS_OVERLAY_CSV):
+    raise FileNotFoundError(f"CONFIRMED_DELETIONS_OVERLAY.csv not found at {CONFIRMED_DELETIONS_OVERLAY_CSV}")
+print(f"Using confirmed-deletions overlay: {os.path.basename(CONFIRMED_DELETIONS_OVERLAY_CSV)}")
 
 TARGET_MOE_PCT = 10.0
 
 OUT_DIR = SAMPLING_DIR + r"\resampling\output"
 WORKBOOK_PATH = OUT_DIR + r"\NGA_MSNA_2026_accessibility_impact_workbook.xlsx"
-UPDATED_FRAME_CSV = OUT_DIR + r"\NGA_MSNA_2026_stage2_sampling_frame_v5_WORKING_with_accessibility.csv"
+UPDATED_FRAME_CSV = OUT_DIR + r"\NGA_MSNA_2026_stage2_sampling_frame_v7_WORKING_with_accessibility.csv"
 
 
 def realized_moe(achieved_sample, N_hh, m, ICC=0.06, Z=1.6448536269514722, p=0.5):
@@ -339,12 +342,19 @@ def load_real_achieved():
         is_collected = interview_outcome == "completed"
         is_achieved  = is_collected & !is_duplicate & !is.na(matched_survey_id)
     - the exact same is_achieved() the dashboard uses (2_monitoring/
-    dashboard_app/global.R:584), MINUS every uuid in the revised deletion
-    log (treated as not-achieved regardless of what real_submissions.csv
-    says - duration<20min, fcs_zero, no_consent, and the 2 duplicate_point
-    rows caught incidentally; the log's own README notes it's a floor, not
-    final - duplicate_point/listing_missing/duration 20-30min are
-    deliberately NOT in it yet, still under active recovery work).
+    dashboard_app/global.R:584), MINUS every uuid marked status=="confirmed"
+    in CONFIRMED_DELETIONS_OVERLAY.csv (2026-09-06, repointed from the
+    abandoned revised_deletion_log_for_resampling_*.csv handoff - see the
+    module-level comment above `CONFIRMED_DELETIONS_OVERLAY_CSV`). Treated
+    as not-achieved regardless of what real_submissions.csv's own
+    quality_exclusion_reason says, since that column currently only reflects
+    duration_under_20/fcs_zero and can lag the tracker (confirmed directly,
+    2026-09-06: the overlay's confirmed set was larger than real_submissions.
+    csv's own column in every category at the time of this repoint - the
+    overlay, not real_submissions.csv, is the authoritative source here).
+    "Contested" rows are explicitly EXCLUDED from deletion_uuids - a
+    contested-but-unresolved issue is not a genuine deliberate deletion
+    decision under Jack's policy, so it must not silently reduce achieved.
 
     NOT the same thing as load_collected_samples() above (interview_
     outcome=="completed" & any_quality_flag=="FALSE", Jack's own separate
@@ -365,7 +375,7 @@ def load_real_achieved():
     error, in case a dashboard-consistent (capped) figure is wanted instead
     for a future use of this function."""
     rows = load_csv(REAL_SUBMISSIONS_CSV)
-    deletion_uuids = {r["uuid"] for r in load_csv(DELETION_LOG_CSV)}
+    deletion_uuids = {r["uuid"] for r in load_csv(CONFIRMED_DELETIONS_OVERLAY_CSV) if r["status"] == "confirmed"}
 
     def is_achieved(r):
         return (

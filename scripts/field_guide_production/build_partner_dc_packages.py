@@ -6,7 +6,7 @@
 # Reads:
 #   - input_data/boundaries/partner_coverage/Partnerscoverage.xlsx (which
 #     partner(s) cover which LGA - wide format, one column per partner)
-#   - output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v5_WORKING.csv
+#   - output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v7_WORKING.csv
 #     (household-level sampling frame, already restricted to covered LGAs)
 #   - output/data/data_collection/idp_camp_backup_points.csv (re-delineated
 #     backup GPS point for the 15 flagged large in-camp sites)
@@ -119,9 +119,15 @@ if os.path.exists(_LOCKED_FALLBACK_COPY):
         f"{_copy_age_s / 60:.0f}-minute-old fallback copy instead: {_LOCKED_FALLBACK_COPY}"
     )
     COVERAGE_XLSX = _LOCKED_FALLBACK_COPY
-STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v5_WORKING.csv"
-STAGE2_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v5_FULL.csv"
-REAL_SUBMISSIONS_CSV = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\2_monitoring\dashboard_app\data\real_submissions.csv"
+STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v7_WORKING.csv"
+STAGE2_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v7_FULL.csv"
+# 2026-09-08 fix: was pointed at dashboard_app/data/ - the BUNDLED MIRROR
+# that only updates as a side effect of a full dashboard deploy, not the
+# canonical daily-refreshed source. Same bug class already found and fixed
+# in refresh_working_frame_daily.R the same day (see 1_sampling/CLAUDE.md's
+# rebuild section) - currently byte-identical by chance, but would silently
+# drift the next time canonical updates without an intervening deploy.
+REAL_SUBMISSIONS_CSV = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\2_monitoring\data\real_submissions.csv"
 BACKUP_POINTS_CSV = PROJECT_DIR + r"\output\data\data_collection\idp_camp_backup_points.csv"
 # Moved 2026-08-06 by the user from "6. Outputs\partner_dc_files" - same
 # per-partner folder structure, new parent location.
@@ -977,16 +983,31 @@ def write_partner_workbook(partner_dir_path, partner_name, meta_rows, cluster_ro
     # ---- Sheet 3 (2026-09-05): Needs Collecting - Sampling Points filtered
     # to what isn't done yet. Same columns/order as Sheet 2, just a subset -
     # for a partner who only wants "what do I still need to go do," without
-    # scrolling past everything already achieved. IDP rows appear here as
-    # long as their cluster isn't fully done (Achieved column still shows
-    # the "X of Y" count so it's clear how much of that cluster remains).
-    # Tier 2 backup rows have no Collection Status of their own (see
-    # idp_tier2_metadata_row) - kept in Needs Collecting regardless, since a
-    # backup point is only ever relevant while its cluster is still active.
-    # Excludes "Inaccessible" as well as "Complete" (2026-09-05) - a
-    # currently-inaccessible point is not something to ask a partner to go
+    # scrolling past everything already achieved. IDP primary rows appear
+    # here as long as their cluster isn't fully done (Achieved column still
+    # shows the "X of Y" count so it's clear how much of that cluster
+    # remains). Excludes "Inaccessible" as well as "Complete" (2026-09-05) -
+    # a currently-inaccessible point is not something to ask a partner to go
     # collect, same reasoning as WORKING/KML no longer including it.
-    needs_rows = [row for row in meta_rows if row.get("Collection Status", "") not in ("Complete", "Inaccessible")]
+    #
+    # 2026-09-08 fix, per Jack: Non-IDP reserve households and IDP Tier 2
+    # backup points are EXCLUDED here (previously both were included
+    # whenever not Complete/Inaccessible - Tier 2 in particular has no
+    # Collection Status at all, so it was unconditionally always included).
+    # This sheet is explicitly framed elsewhere in this workbook as "a
+    # straight to-do list" - reserves and Tier 2 points are conditional,
+    # only-if-the-primary-fails backups, not independent targets, and rank
+    # order (Sequence) can't be represented in a flat list anyway. Including
+    # them here risked reading as "collect these too," i.e. exhaustive
+    # sampling of primary + reserve together - exactly what the reserve
+    # design (strict rank-order replacement only) is not. Both remain fully
+    # visible, with all their own detail, in the "Sampling Points" sheet.
+    NEEDS_COLLECTING_EXCLUDED_TYPES = {"Non-IDP household (reserve)", "IDP Tier 2 backup point"}
+    needs_rows = [
+        row for row in meta_rows
+        if row.get("Collection Status", "") not in ("Complete", "Inaccessible")
+        and row.get("Point Type") not in NEEDS_COLLECTING_EXCLUDED_TYPES
+    ]
     ws_needs = wb_out.create_sheet("Needs Collecting")
     ws_needs.append(METADATA_COLUMNS)
     for cell in ws_needs[1]:

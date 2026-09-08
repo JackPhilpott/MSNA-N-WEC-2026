@@ -59,7 +59,7 @@ nga_wards <- sf::st_read(
 # that script's own note near its selected_clusters assignment. This run
 # was first done against the stale archive before the fix existed -
 # rerun after this edit to pick up this week's new clusters' shading.
-selected_clusters <- readRDS(here::here("output", "gis", "selected_clusters_v5_current.rds"))
+selected_clusters <- readRDS(here::here("output", "gis", "selected_clusters_v6_current.rds"))
 
 hex_polygons <- hex_access %>%
   st_make_valid() %>%
@@ -68,7 +68,7 @@ hex_polygons <- hex_access %>%
   distinct(uuid_hex, .keep_all = TRUE) %>%
   select(uuid_hex)
 
-full_strata <- read_csv(here::here(output_dir, "data", "data_collection", "NGA_MSNA_2026_strata_level_sampling_frame_v5_FULL.csv"), show_col_types = FALSE)
+full_strata <- read_csv(here::here(output_dir, "data", "data_collection", "NGA_MSNA_2026_strata_level_sampling_frame_v7_FULL.csv"), show_col_types = FALSE)
 working_pairs <- full_strata %>%
   filter(coverage_status == "covered", exclusion_reason == "none") %>%
   distinct(adm2_pcode, pop_type)

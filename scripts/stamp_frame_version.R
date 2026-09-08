@@ -44,8 +44,8 @@ stamp_file <- function(path) {
   )
 }
 
-working_csv <- file.path(DATA_COLLECTION_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v5_WORKING.csv")
-strata_csv <- file.path(DATA_COLLECTION_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v5_WORKING.csv")
+working_csv <- file.path(DATA_COLLECTION_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v7_WORKING.csv")
+strata_csv <- file.path(DATA_COLLECTION_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v7_WORKING.csv")
 stopifnot(file.exists(working_csv), file.exists(strata_csv))
 
 working_stamp <- stamp_file(working_csv)
@@ -100,4 +100,62 @@ if (length(to_archive) > 0) {
   cat("\n")
 } else {
   cat("\nNo superseded sampling-frame versions found to archive.\n")
+}
+
+# ---- Sweep stray ad hoc "PRE_*_backup" files into _archive/ (2026-09-08) --
+# The block above only ever caught files matching the clean
+# ..._v<N>_{FULL,WORKING}.csv / _v<N>_build_log_*.txt patterns - it never
+# caught the ad hoc safety-net copies scripts take before an IN-PLACE fix
+# (e.g. NGA_MSNA_2026_stage2_sampling_frame_v5_WORKING_PRE_WARD_FILTER_FIX_
+# backup_2026-09-05.csv), because those don't match either pattern. Found
+# 2026-09-08: 8 such files (19-23MB each) had accumulated at top level,
+# un-swept, going back to 2026-09-04 - the correct destination
+# (_archive/<date>_<reason>/, same convention as this folder's own
+# 2026-09-03 examples) exists and was used correctly twice, then not
+# followed for every fix since. This block catches anything left behind by
+# that lapse, every time this script runs (i.e. every version bump), so a
+# missed archive-immediately step gets caught at the next bump rather than
+# accumulating for days. The correct habit is still to archive at the moment
+# of the fix (see archive_before_fix() in this same file) - this is the
+# safety net behind that habit, not a replacement for it.
+stray_backups <- list.files(DATA_COLLECTION_DIR, pattern = "_PRE_.*\\.(csv|txt)$")
+if (length(stray_backups) > 0) {
+  for (f in stray_backups) {
+    date_match <- regmatches(f, regexpr("[0-9]{4}-[0-9]{2}-[0-9]{2}", f))
+    archive_date <- if (length(date_match) > 0 && nzchar(date_match)) date_match else format(file.info(file.path(DATA_COLLECTION_DIR, f))$mtime, "%Y-%m-%d")
+    reason_raw <- sub("^.*_PRE_", "", f)
+    reason_raw <- sub("_backup.*$", "", reason_raw)
+    reason_raw <- sub("\\.(csv|txt)$", "", reason_raw)
+    reason <- tolower(gsub("[^A-Za-z0-9]+", "_", reason_raw))
+    dest_dir <- file.path(DATA_COLLECTION_DIR, "_archive", paste0(archive_date, "_", reason))
+    dir.create(dest_dir, showWarnings = FALSE, recursive = TRUE)
+    file.rename(file.path(DATA_COLLECTION_DIR, f), file.path(dest_dir, f))
+    cat(sprintf("Swept stray backup into archive: %s -> %s\n", f, dest_dir))
+  }
+} else {
+  cat("No stray PRE_*_backup files found at top level.\n")
+}
+
+# ---- archive_before_fix() - the habit this sweep is a safety net for -----
+# Any script about to overwrite a WORKING/FULL file IN PLACE (a value
+# correction, not a version bump - see 1_sampling/CLAUDE.md's rebuild notes
+# on the distinction) should call this FIRST, not write its own ad hoc
+# "_PRE_X_backup" copy at top level. Moves the CURRENT file straight into
+# _archive/<date>_<reason>/, matching the convention this whole block
+# exists to keep consistent, so there's nothing left for the sweep above to
+# ever need to catch going forward.
+archive_before_fix <- function(reason, files = c(
+  file.path(DATA_COLLECTION_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v7_WORKING.csv"),
+  file.path(DATA_COLLECTION_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v7_WORKING.csv")
+)) {
+  reason_clean <- tolower(gsub("[^A-Za-z0-9]+", "_", reason))
+  dest_dir <- file.path(DATA_COLLECTION_DIR, "_archive", paste0(format(Sys.Date(), "%Y-%m-%d"), "_", reason_clean))
+  dir.create(dest_dir, showWarnings = FALSE, recursive = TRUE)
+  for (f in files) {
+    if (file.exists(f)) {
+      file.copy(f, file.path(dest_dir, basename(f)), overwrite = TRUE)
+    }
+  }
+  cat(sprintf("archive_before_fix(): snapshot saved to %s before proceeding.\n", dest_dir))
+  invisible(dest_dir)
 }

@@ -386,15 +386,21 @@ reallocate_zero_building_clusters <- function(
     # geometries for the whole candidate batch at once) - the same
     # discipline as the rest of this pipeline, even though this batch is
     # small enough that it would likely be fine either way.
-    hex_building_counts <-
-      purrr::map(round_building_files, function(bf) {
-        readRDS(bf) %>%
-          sf::st_drop_geometry() %>%
-          dplyr::count(uuid_hex_pop, name = "n_buildings")
-      }) %>%
-      dplyr::bind_rows() %>%
-      dplyr::group_by(uuid_hex_pop) %>%
-      dplyr::summarise(n_buildings = sum(n_buildings), .groups = "drop")
+    # 2026-09-07: same empty-batch guard as the second hex_building_counts
+    # block below (round_building_files can legitimately be length-0now).
+    if (length(round_building_files) == 0) {
+      hex_building_counts <- tibble::tibble(uuid_hex_pop = character(0), n_buildings = integer(0))
+    } else {
+      hex_building_counts <-
+        purrr::map(round_building_files, function(bf) {
+          readRDS(bf) %>%
+            sf::st_drop_geometry() %>%
+            dplyr::count(uuid_hex_pop, name = "n_buildings")
+        }) %>%
+        dplyr::bind_rows() %>%
+        dplyr::group_by(uuid_hex_pop) %>%
+        dplyr::summarise(n_buildings = sum(n_buildings), .groups = "drop")
+    }
 
     eligible_hexes <-
       hex_building_counts %>%
@@ -766,20 +772,32 @@ add_supplementary_clusters <- function(
     # no difference to the 2026 MSNA run's actual output (no meaningful
     # duplication in that candidate set), but keeps the eligibility check
     # honest for future reruns/regions where it might.
-    hex_building_counts <-
-      purrr::map(round_building_files, function(bf) {
-        part <- readRDS(bf)
-        coords <- sf::st_coordinates(part)
-        part %>%
-          sf::st_drop_geometry() %>%
-          dplyr::mutate(
-            .centroid_key = paste0(round(coords[, "X"], 1), "_", round(coords[, "Y"], 1))
-          ) %>%
-          dplyr::select(uuid_hex_pop, .centroid_key)
-      }) %>%
-      dplyr::bind_rows() %>%
-      dplyr::distinct(uuid_hex_pop, .centroid_key) %>%
-      dplyr::count(uuid_hex_pop, name = "n_buildings")
+    # 2026-09-07: round_building_files can legitimately be empty now (a
+    # small round's candidate batch found zero buildings across every GDB
+    # part - see load_building_footprints()'s relaxed stopifnot,
+    # 02_stage2_building_ingestion.R) - bind_rows() over an empty list of
+    # files has no columns at all to infer, so distinct(uuid_hex_pop, ...)
+    # below would error rather than correctly produce "zero eligible
+    # candidates this round" (found live, FACT's 2026-09-07 supplementary
+    # draw). Short-circuit to an explicitly-shaped empty tibble instead.
+    if (length(round_building_files) == 0) {
+      hex_building_counts <- tibble::tibble(uuid_hex_pop = character(0), n_buildings = integer(0))
+    } else {
+      hex_building_counts <-
+        purrr::map(round_building_files, function(bf) {
+          part <- readRDS(bf)
+          coords <- sf::st_coordinates(part)
+          part %>%
+            sf::st_drop_geometry() %>%
+            dplyr::mutate(
+              .centroid_key = paste0(round(coords[, "X"], 1), "_", round(coords[, "Y"], 1))
+            ) %>%
+            dplyr::select(uuid_hex_pop, .centroid_key)
+        }) %>%
+        dplyr::bind_rows() %>%
+        dplyr::distinct(uuid_hex_pop, .centroid_key) %>%
+        dplyr::count(uuid_hex_pop, name = "n_buildings")
+    }
 
     # Walk each stratum's round batch in PPS-rank order, greedily adding
     # eligible hexagons as new clusters until that stratum's shortfall is

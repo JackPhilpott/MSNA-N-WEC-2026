@@ -871,8 +871,18 @@ load_building_footprints <- function(
   # together.
   # ---------------------------------------------------------------------------
 
+  # 2026-09-07: relaxed from requiring length(part_cache_files) > 0. A small
+  # candidate batch (e.g. a Tier 2 fallback round with just a handful of
+  # hexes) can legitimately turn up zero buildings across all 3 GDB parts -
+  # process_single_gdb() already logs "0 chunk file(s)" as a normal
+  # completion in that case, not a failure, so unlist()-ing three empty
+  # vectors into a length-0 part_cache_files was being wrongly treated as
+  # "caching failed" and crashing the whole run before anything got written
+  # to disk (found live, FACT's 2026-09-07 supplementary draw - lost a
+  # successful 107-cluster Tier 1 round to this). The integrity check that
+  # matters - any file this DID return must actually exist - is preserved.
   stopifnot(
-    "Not all GDB parts were successfully cached" = length(part_cache_files) > 0 && all(file.exists(part_cache_files))
+    "Not all GDB parts were successfully cached" = length(part_cache_files) == 0 || all(file.exists(part_cache_files))
   )
 
   part_cache_files

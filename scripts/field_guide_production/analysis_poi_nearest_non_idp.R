@@ -58,7 +58,7 @@ poi_all <- bind_rows(st_transform(pts_sf, 4326), st_transform(polys_sf, 4326))
 cat("Curated POI count:", nrow(poi_all), "\n")
 poi_m <- st_transform(poi_all, mycrs)
 
-frame <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v5_WORKING.csv", show_col_types = FALSE) %>%
+frame <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v7_WORKING.csv", show_col_types = FALSE) %>%
   filter(pop_type == "non_idp", status == "primary") %>% distinct(cluster_id, .keep_all = TRUE) %>%
   select(cluster_id, adm2_name, adm1_name, latitude, longitude)
 

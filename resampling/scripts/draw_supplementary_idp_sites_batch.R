@@ -39,6 +39,20 @@ sf::sf_use_s2(FALSE)
 mycrs <- 31028
 
 # ---- Stage A: load the site-level PSU frame + shortfalls ----
+# Freshness gate (2026-09-08 rebuild): this frame's accessible_status column
+# is a frozen snapshot (frame itself is "don't rerun casually", but this one
+# column needs to track current accessibility) - 5 days stale during the
+# 2026-09-07 incident, fixed ad hoc with no reusable script at the time.
+# mode="stop": rebuilding is a real spatial join, not something to fire off
+# silently mid-draw.
+source("scripts/shared/assert_fresh.R")
+assert_fresh(
+  artifact_path = "input_data/population/sampling_frame/idp_site_level_psu_frame_2026-09-02.rds",
+  source_paths = "resampling/output/gis/accessible_area_lga_ward_portions.shp",
+  mode = "stop",
+  fix_hint = 'Rscript resampling/scripts/refresh_idp_site_frame_accessibility.R',
+  label = "idp_site_level_psu_frame_2026-09-02.rds (accessible_status column)"
+)
 site_frame <- readRDS("input_data/population/sampling_frame/idp_site_level_psu_frame_2026-09-02.rds") %>%
   st_transform(mycrs)
 log_msg("Site-level PSU candidate frame: %d sites nationally.", nrow(site_frame))
@@ -54,7 +68,7 @@ log_msg("%d stratum/strata in shortfalls, %d total households needed.", nrow(sho
 # uses the same site-identity logic as select_stage2_idp_sites()'s own
 # 30m dedup radius - a live cluster's GPS point within 30m of a candidate
 # site is the same physical site already fielded.
-full <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v5_FULL.csv", show_col_types = FALSE, col_types = cols(.default = "c")) %>%
+full <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v7_FULL.csv", show_col_types = FALSE, col_types = cols(.default = "c")) %>%
   filter(pop_type == "idp") %>%
   mutate(latitude = as.numeric(latitude), longitude = as.numeric(longitude)) %>%
   distinct(cluster_id, latitude, longitude)
