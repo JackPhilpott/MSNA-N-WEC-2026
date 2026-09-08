@@ -84,6 +84,7 @@ import difflib
 import os
 import re
 import shutil
+import sys
 import time
 from collections import defaultdict, Counter
 from xml.sax.saxutils import escape
@@ -91,6 +92,8 @@ from xml.sax.saxutils import escape
 import openpyxl
 
 PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling"
+sys.path.insert(0, PROJECT_DIR + r"\scripts\shared")
+from assert_plausible import assert_plausible  # noqa: E402
 # LGA-level summary maps (build_lga_summary_maps.R), copied into each
 # covering partner's LGA folder below - 2026-08-07.
 LGA_MAPS_DIR = PROJECT_DIR + r"\output\maps\lga_summary"
@@ -381,6 +384,21 @@ def _row_effectively_inaccessible(r):
     if r["pop_type"] == "non_idp":
         return _cluster_below_accessible_threshold(r["cluster_id"])
     return False
+
+# ---- Output-plausibility gate (2026-09-08 audit, pass 4) ----
+# Direct regression guard for this same day's _ward_accessible() fix (see
+# that function's own comment): a row with blank/NA ward_accessible_status
+# (unmatched geography) must ALWAYS come back effectively-inaccessible, by
+# construction - if this OR-bug ever regresses, a blank-ward row would be
+# silently treated as accessible again and could reappear as a to-do item
+# in "Needs Collecting". Checked once, nationally, before any per-partner
+# workbook is built.
+_n_unmatched_wrongly_accessible = sum(
+    1 for r in frame_rows_full
+    if r.get("ward_accessible_status") in (None, "", "NA") and not _row_effectively_inaccessible(r)
+)
+assert_plausible("unmatched-ward rows NOT flagged effectively-inaccessible", _n_unmatched_wrongly_accessible, (0, 0),
+                  context="a blank/NA ward_accessible_status must always be treated as inaccessible - regression of the 2026-09-08 _ward_accessible() fix")
 
 # ---------------------------------------------------------------------------
 # 3c. Achieved status, computed fresh from 2_monitoring's real_submissions.csv

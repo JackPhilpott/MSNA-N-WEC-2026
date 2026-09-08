@@ -45,11 +45,15 @@ import math
 import os
 from collections import defaultdict
 
+import sys
+
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026"
+sys.path.insert(0, PROJECT_DIR + r"\1_sampling\scripts\shared")
+from assert_plausible import assert_plausible  # noqa: E402
 SAMPLING_DIR = PROJECT_DIR + r"\1_sampling"
 # FULL, not WORKING (2026-09-01 fix - was WORKING right after the v2->v4
 # path bump, which is wrong for this script specifically): v4 WORKING now
@@ -565,6 +569,22 @@ def main():
         })
 
     print(f"Built {len(summary_rows)} stratum-level rows.")
+
+    # ---- Output-plausibility gate (2026-09-08 audit, pass 4) ----
+    # Bulletproof, data-independent invariants - a percentage is always in
+    # [0, 100], full stop, regardless of any legitimate real-world change
+    # (unlike achieved-vs-target, which can legitimately swing widely from
+    # real oversampling/exhaustion). A formula bug (swapped numerator/
+    # denominator, double-counted area/population) would violate this
+    # immediately - exactly the class of bug this audit found repeatedly
+    # this week, just in a different script each time.
+    n_pop_pct_out_of_range = sum(1 for r in summary_rows if not (0 <= r["% of population remaining"] <= 100))
+    assert_plausible("strata with %% of population remaining outside [0,100]", n_pop_pct_out_of_range, (0, 0),
+                      context="a percentage can never legitimately fall outside this range - a formula bug, not a real data change")
+    n_cluster_pct_out_of_range = sum(1 for r in summary_rows if not (0 <= r["% of clusters remaining"] <= 100))
+    assert_plausible("strata with %% of clusters remaining outside [0,100]", n_cluster_pct_out_of_range, (0, 0),
+                      context="a percentage can never legitimately fall outside this range - a formula bug, not a real data change")
+
     reporting_stats = compute_reporting_stats()
     write_workbook(summary_rows, cluster_rows, ward_status, provenance_lookup, min_submission_date, reporting_stats)
     write_updated_frame(household_rows)
