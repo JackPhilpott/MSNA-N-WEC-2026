@@ -70,7 +70,13 @@ MASTER_WARD_CSV = SAMPLING_DIR + r"\resampling\output\master_accessibility_statu
 GIS_WARD_CSV = SAMPLING_DIR + r"\resampling\output\gis\accessible_area_lga_ward_portions.csv"
 POOL_NON_IDP_CSV = SAMPLING_DIR + r"\resampling\output\gis\remaining_eligible_pool_non_idp.csv"
 POOL_IDP_CSV = SAMPLING_DIR + r"\resampling\output\gis\remaining_eligible_pool_idp.csv"
-REAL_SUBMISSIONS_CSV = PROJECT_DIR + r"\2_monitoring\dashboard_app\data\real_submissions.csv"
+# 2026-09-08 audit fix: was the dashboard_app/data/ bundled mirror, only
+# refreshed as a side effect of a full dashboard deploy - same bug class
+# already fixed in refresh_working_frame_daily.R/build_partner_dc_packages.py/
+# merge_partner_resample_batch.R, missed here despite this script sizing
+# every supplementary draw this week. Byte-identical to canonical at fix
+# time (md5-verified) - a live landmine, not a wrong number yet.
+REAL_SUBMISSIONS_CSV = PROJECT_DIR + r"\2_monitoring\data\real_submissions.csv"
 
 # 2026-09-06: repointed from the abandoned revised_deletion_log_for_resampling_
 # *.csv handoff (2_monitoring/cleaning/real/handoff_for_resampling/ - last fed

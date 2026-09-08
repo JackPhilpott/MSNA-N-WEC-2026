@@ -25,7 +25,9 @@ GIS_WARD_CSV = SAMPLING_DIR + r"\resampling\output\gis\accessible_area_lga_ward_
 POOL_NON_IDP_CSV = SAMPLING_DIR + r"\resampling\output\gis\remaining_eligible_pool_non_idp.csv"
 POOL_IDP_CSV = SAMPLING_DIR + r"\resampling\output\gis\remaining_eligible_pool_idp.csv"
 WORKBOOK_PATH = SAMPLING_DIR + r"\resampling\output\NGA_MSNA_2026_accessibility_impact_workbook.xlsx"
-REAL_SUBMISSIONS_CSV = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\2_monitoring\dashboard_app\data\real_submissions.csv"
+# 2026-09-08 audit fix - same stale-mirror-path bug class as every other
+# consumer this week, found here too (even the sanity checker had it).
+REAL_SUBMISSIONS_CSV = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\2_monitoring\data\real_submissions.csv"
 
 results = []  # (status, section, message)
 

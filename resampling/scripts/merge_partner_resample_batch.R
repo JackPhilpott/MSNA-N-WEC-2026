@@ -392,7 +392,14 @@ CONFIRMED_DELETIONS_OVERLAY_CSV <- "c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02.
 deletions_overlay <- read_csv(CONFIRMED_DELETIONS_OVERLAY_CSV, show_col_types = FALSE, col_types = cols(.default = "c"))
 confirmed_deletion_uuids <- deletions_overlay %>% filter(status == "confirmed") %>% pull(uuid)
 
-REAL_SUBMISSIONS_CSV <- "c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/2_monitoring/dashboard_app/data/real_submissions.csv"
+# 2026-09-08 audit fix: was the dashboard_app/data/ bundled mirror, only
+# refreshed as a side effect of a full dashboard deploy - same bug class
+# already fixed in refresh_working_frame_daily.R and build_partner_dc_
+# packages.py (see their own fix notes) but missed here. Byte-identical to
+# canonical at the time of the fix (verified via md5), so this was a live
+# landmine, not yet a wrong number - would have silently drifted the next
+# time canonical updated without an intervening deploy.
+REAL_SUBMISSIONS_CSV <- "c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/2_monitoring/data/real_submissions.csv"
 subs <- read_csv(REAL_SUBMISSIONS_CSV, show_col_types = FALSE, col_types = cols(.default = "c"))
 achieved <- subs %>%
   filter(
