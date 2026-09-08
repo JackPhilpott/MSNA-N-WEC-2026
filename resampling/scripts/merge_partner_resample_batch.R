@@ -15,6 +15,7 @@ PROJECT_DIR <- "c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N
 setwd(PROJECT_DIR)
 suppressMessages({ library(dplyr); library(readr); library(tibble) })
 source("scripts/shared/assert_fresh.R")
+source("scripts/shared/assert_plausible.R")
 MASTER_WARD_CSV <- "resampling/output/master_accessibility_status_ward_level.csv"
 
 args <- commandArgs(trailingOnly = TRUE)
@@ -493,6 +494,18 @@ for (i in seq_len(nrow(changed_rows))) {
   log_msg("  %s: achieved_clusters=%d, achieved_sample=%d, realized_moe_pct=%.2f%%",
           changed_rows$strata_id[i], changed_rows$achieved_clusters[i], changed_rows$achieved_sample[i], changed_rows$realized_moe_pct[i])
 }
+
+# ---- Output-plausibility gate (2026-09-08 audit, pass 4) - same two checks
+# as refresh_working_frame_daily.R, see that script for the full reasoning.
+n_working_in_inaccessible_ward <- working_hh_new %>%
+  filter(!is.na(ward_accessible_status), ward_accessible_status == "Inaccessible") %>%
+  nrow()
+assert_plausible("WORKING rows in a currently-Inaccessible ward", n_working_in_inaccessible_ward, c(0, 0),
+                  context = "must always be exactly 0 - this is the 2026-09-07 incident's core invariant")
+
+n_over_target <- working_sl_new %>% filter(achieved_sample > target_sample) %>% nrow()
+assert_plausible("strata with achieved_sample > target_sample", n_over_target, c(0, 40),
+                  context = "should be a small ordinary-rounding residual, not systemic overcounting")
 
 # ---- Write ----
 write_csv(full_hh_new, file.path(DC_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v7_FULL.csv"))
