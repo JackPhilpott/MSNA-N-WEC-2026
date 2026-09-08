@@ -28,6 +28,21 @@ if (length(args) < 3) stop("Usage: Rscript draw_supplementary_idp_sites_batch.R 
 SHORTFALLS_IDP_CSV <- args[1]
 STAGING_DIR <- args[2]
 SEED_BASE <- as.integer(args[3])
+# 2026-09-08 resample_runs reorg: STAGING_DIR must resolve to exactly
+# resample_runs/<Partner>/<date>/ (2 levels) - 2_monitoring's
+# prep_psu_geometries.R globs exactly that depth (non-recursive) for
+# new_clusters*.gpkg to build the Coverage Map. A 3rd nested level (e.g.
+# an idp_draw/non_idp_draw subfolder) silently drops this batch's geometry
+# off the map - exactly what happened to 21 batches before the reorg found
+# and fixed it. Use resolve_staging_dir() (scripts/shared/resolve_staging_dir.R)
+# to build this argument rather than hand-typing a path.
+.after_rr <- sub("^.*resample_runs/", "", gsub("\\\\", "/", STAGING_DIR))
+if (.after_rr != gsub("\\\\", "/", STAGING_DIR)) {
+  .depth <- length(strsplit(sub("/+$", "", .after_rr), "/")[[1]])
+  if (.depth != 2) {
+    stop(sprintf("STAGING_DIR '%s' is %d level(s) deep under resample_runs/, expected exactly 2 (<Partner>/<date>). See the note above this check.", STAGING_DIR, .depth))
+  }
+}
 dir.create(STAGING_DIR, recursive = TRUE, showWarnings = FALSE)
 
 log_con <- file(file.path(STAGING_DIR, "run_log_idp_sitelevel.txt"), open = "wt")

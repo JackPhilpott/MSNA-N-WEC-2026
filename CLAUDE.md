@@ -3586,3 +3586,256 @@ clusters.
 **Not done**: the other 7 strata nationally under this same frozen
 mechanism (Matazu, Sabuwa, and others) - Jack's explicit call to defer to
 tomorrow, alongside whatever else this may have touched.
+
+## Update 2026-09-08h — the remaining 7 strata recomputed; 4 reinstated (Matazu IDP, Musawa IDP/non-IDP, Sabuwa non-IDP); a "generally check for lost population" pass found a much bigger mirror-image bug; two of my own process mistakes corrected along the way
+
+**The ask.** Jack: finish the remaining 7 strata under `accessibility_loss_
+below_population_threshold`, and generally check for other lost strata/
+population the same way Dandume/Faskari surfaced it.
+
+**FACT had already returned the followup workbook (`build_fact_followup_
+workbook_2026-09-07.py`'s output) - found sitting unprocessed in
+`accessibility_reports_returned/`.** Ran it through `run_accessibility_
+refresh.py` (the standing 5-step orchestrator) before computing anything,
+per this week's own lesson about not trusting stale inputs. Ingest logged
+**0 new/changed rows** - the content was already in the master log.
+
+**Mistake #1, caught by Jack, not by me.** I told Jack this was FACT
+"returning the workbook overnight." Wrong, and asserted without checking:
+the returned file's own metadata shows `lastModifiedBy: Jack PHILPOTT`, not
+a FACT save. The real story - confirmed after Jack pushed back - is
+narrower and matches everything else this week: FACT's answer (Matazu A/B/
+Dissi accessible via subcontracted partner Conpad) was reported and
+correctly logged around 2026-09-03/04 (`partner_raw_comms/FACT/FACT_Main_
+accessibility_report Completed_(2).xlsx`, 2026-09-03 13:00), even got its
+own explicit flag (`fact_followup_ward_reconciled.csv`, `flag_type=
+matazu_update`, "please confirm which partner") - and nothing ever went
+back to recheck the frozen Aug-31 exclusion against it once confirmed. The
+reporting pipeline worked fine; "master status updated -> recheck anything
+frozen against it" is the piece that doesn't exist. Lesson: check a file's
+actual provenance before asserting a causal story about it, timestamp
+alone is not evidence.
+
+**Recomputed all 7 via the population-weighted %-accessible formula**
+(`05_build_accessibility_impact_workbook.py`'s `load_lga_area_pop_
+fractions()`, current GIS data - not a row-count approximation):
+- Reinstate (clears 10%): idp_NG021028 Matazu 43.73%, idp_NG021029 Musawa
+  22.36%, non_idp_NG021029 Musawa 17.96%, non_idp_NG021031 Sabuwa 25.53%.
+- Stays excluded (genuinely <1-1%): idp_NG021019 Kankara 0.00%,
+  idp_NG021031 Sabuwa 0.00% (no DTM site in its accessible wards),
+  non_idp_NG022016 Sakaba 0.65%.
+
+**Mistake #2, also caught by Jack, more serious than #1.** Earlier the same
+night I'd waved off Musawa's reinstatement case using an unstated, ad hoc
+heuristic ("it's just one dominant HQ-ward carrying the population, doesn't
+really count") - applied only to Musawa, not to Dandume/Sabuwa/Matazu which
+have the identical shape (one or two dominant HQ wards driving the %).
+Jack's correction: the mechanical test needs no judgment layered on top by
+me; if something looks like it deserves a second look, name it and ask -
+don't resolve it myself under the appearance of technical analysis. This
+is a general operating-mode fix, not a one-off, and was reported to the
+coordinating session as its own item (they logged it independently, said
+it applies to them too).
+
+**The bigger finding - the mirror-image bug.** Ran the same check against
+every currently-`covered` (never-excluded) stratum nationally. 8 strata,
+all FACT, had silently fallen *under* 10% accessible since Aug 31 and were
+never caught, because the threshold script only ever ran once and only
+ever excludes, never re-checks: idp/non_idp Gubio (Borno), idp/non_idp
+Kebbe (Sokoto), non_idp Kukawa (Borno), non_idp Kankara (Katsina), non_idp
+Guzamala (Borno), non_idp Shanga (Kebbi). Live in WORKING with real
+shortfalls (target_sample 780 combined, achieved 31) against population
+that's 0-5.5% actually reachable. Reported to the coordinating session,
+who built a proper standing tool the same day: `resampling/scripts/
+recheck_population_threshold_exclusions.py` - recomputes this check both
+directions for every in-scope stratum, read-only, full audit CSV, gated
+with `assert_fresh()`. Cross-verified my 4 reinstatement candidates against
+it before touching anything: exact match. The coordinating session applied
+the 8-strata exclusion (with achieved-credit preservation, Jack's "option
+a") separately the same day - not this session's work, no overlap with the
+4 strata below.
+
+**Reinstatement mechanics** (`scripts/one_off_analyses/patch_matazu_
+musawa_sabuwa_reinstatement_2026-09-08.R`) - flipped BOTH strata-level and
+all 780 household-level FULL rows in one pass this time (Dandume/Faskari's
+first attempt only did the strata-level row and needed a second pass).
+Added the 4 strata to strata WORKING as placeholders, ran `refresh_
+working_frame_daily.R` to get real achieved figures - real shortfall per
+stratum: Matazu IDP 36, Musawa IDP 30, Musawa non-IDP 82, Sabuwa non-IDP
+84 (232 total).
+
+**Mistake #3, caught by me before reporting anything to Jack.** Ran the
+non-IDP + site-level IDP supplementary draws and merged straight away -
+skipped the `stamp_ward_accessible_status.py` step the Dandume/Faskari
+precedent explicitly included. 270 new non-IDP household rows landed with
+`ward_accessible_status = "NA"` (not blank - the literal string "NA",
+which is why a first grep for blank values found nothing) and got silently
+excluded from WORKING pending review; strata-level achieved barely moved
+despite the draw itself reporting success. Caught by checking the merge
+log's own `NEEDS_REVIEW_unmatched_ward_status.csv` output rather than
+trusting "merge completed with no errors" as "merge did what was intended."
+Fixed forward (not a full rollback - draws were fine, only the merged FULL
+rows' status needed correcting): re-ran the same (State, LGA, Ward (GRID3))
+lookup against `master_accessibility_status_ward_level.csv` directly on
+the 270 rows. 197 matched (115 Inaccessible, 82 Accessible); 73 are
+genuinely never-reported tiny wards with no master entry at all (correctly
+stay excluded-pending-review, not a bug - matches the project's deliberate
+"unmatched leaves blank, does not default Accessible" convention as of
+today's `stamp_ward_accessible_status.py` correction). Re-ran `refresh_
+working_frame_daily.R` to propagate.
+
+**Final result**, verified (zero duplicate survey_ids in FULL or WORKING,
+`assert_plausible()` gates both passed):
+- idp_NG021029 (Musawa IDP): **fully closed**, 96/96.
+- idp_NG021028 (Matazu IDP): 24hh short - genuine DTM site-pool
+  exhaustion (draw script's own Tier 2 exhaustion message), 2 of 6 needed
+  fresh sites existed nationally.
+- non_idp_NG021029 (Musawa non-IDP): 64hh short - real candidate hexes
+  were drawn, but a real fraction of their buildings' own per-building ward
+  attribution (Stage 2's building-level point-in-polygon join) lands in a
+  different, Inaccessible ward than the hex-centroid check the draw script
+  uses for candidate selection - a hex is not wholly inside one ward, this
+  is a coarse-vs-precise mismatch inherent to the hex-cluster design, not
+  a new bug (same class already accepted for Dandume/Faskari's own
+  residuals - "small residuals from unmatched-ward-geography").
+- non_idp_NG021031 (Sabuwa non-IDP): 62hh short - partly the same
+  hex/ward-precision effect, partly genuine candidate-pool exhaustion the
+  draw itself flagged (~30hh, Tier 2 still unresolved).
+
+v7 now: 44,630 WORKING rows, 3,073 clusters; FULL 116,467 rows. Committed
+(`4808bec`) - only the script, per this project's convention (`output/` is
+gitignored; `_archive/` isn't tracked either).
+
+**Not done**: propagation to 2_monitoring/partner packages - the
+coordinating session is gating their 2_monitoring mirror refresh on this
+being finished, sequencing next.
+
+## Update 2026-09-08i — `resampling/output/resample_runs/` folder-structure audit and reorg; found and fixed a real, live Coverage Map geometry gap along the way
+
+Jack flagged the folder as messy while waiting on other work: the same
+partner split across multiple top-level folders with slight name
+variations, some folders batching multiple partners together, no temporal
+or partner-consistent organization. Asked for a review + improvement
+proposal first (delivered as a 3-tier plan), then approved implementing
+all three tiers, "you can push the instructions down" (read as: use
+judgment throughout, don't check back for each call).
+
+**Before touching anything**: full backup of `resample_runs/` (863 files)
+to the session scratchpad, since `resampling/output/` is entirely
+gitignored - no git safety net for any of this. Verified content-complete
+at the end via SHA-256 hash comparison (every content hash present in the
+backup is present somewhere in the reorganized tree - not just a file-count
+match, an actual content check) - **zero unique content lost**.
+
+**Real finding, bigger than the folder-tidiness ask itself**: while
+checking the reorg's one hard constraint - `2_monitoring/cleaning/prep/
+prep_psu_geometries.R` globs exactly `resample_runs/*/*/new_clusters*.gpkg`
+(non-recursive, exactly 2 directory levels) to build the Coverage Map's PSU
+geometry layer - found that starting 2026-09-07, batch output had drifted
+to nesting one level deeper (`<Partner>/<date>/non_idp_draw/`, `idp_draw/`,
+`merge_staging/`), invisible to that glob. **21 batches from 2026-09-07
+onward were silently missing from the Coverage Map**, including both of
+today's FACT_DandumeFaskari/FACT_MatazuMusawaSabuwa batches (see Update
+2026-09-08g/h above) - same failure class as Mobbar and the FACT
+site-level backfill earlier this week, just not caught until this reorg
+looked at the folder structure from this specific angle. Flagged to Jack
+immediately (not held for a final report) since it was live and affects
+work from today specifically. Fixed as part of Tier 1 (below); did **not**
+touch `2_monitoring` itself or re-run its geometry build - that's a call
+for Jack/the Monitoring session, not something to do unilaterally.
+
+**Tier 1 - mechanical reorg**, `<Partner>/<YYYY-MM-DD>[_<slug>]/`
+everywhere, exactly 2 levels deep:
+- Flattened `idp_draw/`/`non_idp_draw/`/`merge_staging/` up into their
+  parent date folder for every batch that had them (fixes the geometry
+  gap above). Where a flattened file's name collided with one already
+  present, compared content by hash first: identical -> silently dropped
+  the redundant copy (this is what `merge_staging` usually was - a working
+  copy of the already-drawn output, verified byte-identical to
+  `non_idp_draw`'s/`idp_draw`'s own files in every case this pattern
+  occurred); genuinely different -> stop, don't auto-resolve.
+- **`FACT/2026-09-07/` hit exactly that "genuinely different" case**: its
+  direct-level files and its `idp_draw`/`non_idp_draw` subfolders turned
+  out to be TWO separate draws sharing one date folder by coincidence -
+  the direct-level content is the ORIGINAL draw merged 02:01:54 (114
+  clusters/1,308hh, matches "Incident 2026-09-07" above exactly), the
+  nested content is the later redo (~19:25-19:28). Split explicitly into
+  `FACT/2026-09-07_TAINTED_reverted_pre_incident_purge/` and
+  `FACT/2026-09-07_redo_post_incident_purge/` rather than flattened
+  together, which would have silently overwritten one with the other.
+- Consolidated naming drift: `FACT_DandumeFaskari`/`FACT_MatazuMusawaSabuwa`
+  -> `FACT/2026-09-08_dandume_faskari` / `_matazu_musawa_sabuwa`;
+  `FHI360_Mobbar` -> `FHI360/2026-09-03_mobbar`; `SavetheChildren` ->
+  merged into `Save the Children/` (canonical spelling, matches this
+  file's own prose throughout). `COMBINED_10PARTNER` - verified via its
+  own merge logs to be entirely FHI 360/Mafa content despite the name
+  (`Partner LGAs (1): NG008019` in all three dated subfolders) - folded
+  into `FHI360/` directly. `_batch5` - a genuine 6-partner combined draw
+  with real per-partner `split_<Partner>/` subfolders already inside -
+  each moved up into that partner's own folder (CARE/COOPI/PLAN/
+  Solidarités/Street Child of Nigeria/ZOA all newly represented, none
+  existed at top level before), each also getting a copy of the batch's
+  shared `new_clusters.gpkg` (the combined geometry, all 6 partners - not
+  just that partner's own subset) plus a note file saying so explicitly,
+  so no folder silently misrepresents its own scope. What's left of the
+  unsplit original moved to `_multi_partner_batches/2026-09-07_v7_batch5/`.
+- **Two mistakes caught and fixed during execution, not after**: (1) a
+  hashtable literal in the PowerShell reorg script containing "Solidarités"
+  got double-UTF8-encoded to "SolidaritÃ©s" by Windows PowerShell 5.1's
+  script-file-encoding handling - caught immediately by checking the
+  actual byte sequence, fixed via `Rename-Item` using an explicit
+  `[char]0x00E9` codepoint rather than retyping the character (avoiding
+  the same risk twice). (2) the `_multi_partner_batches/` folder's first
+  name was long enough to push some of its files' full paths past Windows'
+  260-char `MAX_PATH` limit, making them invisible to some tools
+  (`Get-ChildItem -Recurse`/`Resolve-Path`) even though they physically
+  existed on disk - caught via the SHA-256 verification step showing 6
+  "missing" hashes that turned out not to be missing at all once the
+  folder was renamed shorter. Longest path in the final tree: 237
+  characters, comfortable margin.
+
+**Tier 2 - stop the drift from recurring**: new
+`scripts/shared/resolve_staging_dir.R` (`resolve_staging_dir(partner,
+date, suffix)` -> the canonical 2-level path) - both
+`draw_supplementary_clusters_batch.R` and
+`draw_supplementary_idp_sites_batch.R` already took `STAGING_DIR` as a
+plain CLI argument (the drift happened entirely at each day's one-off
+orchestration script, which hand-typed the path - the two draw scripts'
+own internals needed no change). Added a small guardrail to both instead:
+hard-stop at startup if `STAGING_DIR` doesn't resolve to exactly 2 levels
+under `resample_runs/`, so a future hand-typed mistake fails loudly
+instead of silently shipping bad output. Verified both scripts still parse
+cleanly and the new helper produces the expected path for both the
+plain and `suffix` cases.
+
+**Tier 3 - a generated index, not a hand-maintained one** (matches Jack's
+stated preference for self-deriving mechanisms over lists that drift):
+`resample_runs/_INDEX.csv`, one row per batch, built by walking the tree
+and extracting each batch's own `merge_log`/`run_log` DONE-line rather
+than being typed by hand - 35 rows. Surfaced two batches with no
+`new_clusters.gpkg` at all (`DRC/2026-09-03`, `IMC/2026-09-02`) and one
+with no merge log (`FACT/2026-09-07_redo_post_incident_purge`) - not
+investigated further, the index's job is to make these visible, not
+resolve them. `resample_runs/README.md` rewritten to match: the new
+structure, the hard 2-level constraint spelled out explicitly, and a
+naming-history section explaining every folder whose current name doesn't
+obviously match its contents (the FACT split, the COMBINED_10PARTNER/
+FHI360 fold-in, the _batch5 shared-geometry notes) so a future reader
+doesn't have to re-derive this reasoning from scratch.
+
+**Committed** (scripts + this file only, `resampling/output/` and
+`_archive/` stay untracked per convention): the two draw-script guardrails,
+the new shared helper, this section, and Update 2026-09-08h above (found
+uncommitted when this session started - the Matazu/Musawa/Sabuwa
+reinstatement session had committed its script change in `4808bec` but not
+this file's own write-up; bundled into the same commit here rather than
+left indefinitely uncommitted with no version-control safety net).
+
+**Not done**: no attempt to reconcile why `FACT/2026-09-07_redo_post_
+incident_purge` has no merge log of its own (whether it was superseded by
+the later v5->v7 rollback's fresh redraw, or merged under a different
+batch's log) - flagged in the index, not chased, since it doesn't block
+anything and the live frame is independently verified correct via the
+v5->v7 rollback's own checks (Update 2026-09-08e). `2_monitoring`'s
+Coverage Map has not been re-run against the now-fixed geometry - that's
+a decision for Jack/Monitoring, not executed unilaterally.
