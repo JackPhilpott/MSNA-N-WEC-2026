@@ -314,6 +314,27 @@ for r in frame_rows:
 # 221 clusters do; NOT a data bug) - always check the specific row/cluster
 # in hand, never aggregate to a single per-cluster value.
 # ---------------------------------------------------------------------------
+# 2026-09-08, Jack's decision (option a): a whole-stratum
+# accessibility_loss_below_population_threshold exclusion (build_v3_frame_
+# 2026-08-31.R) used to erase real achieved credit entirely from this
+# workbook, because frame_rows_full's own base filter (below) dropped such
+# rows before ANY per-row nuance (Achieved/Collected preservation) could
+# apply - unlike a ward-level exclusion within an otherwise-covered stratum,
+# which already preserves credit correctly. Found while building the new
+# recheck_population_threshold_exclusions.py tool and applying its first
+# real exclusions. Fix: admit these rows into the base pool too (so their
+# real Achieved/Collected still show), then treat every one of them as
+# effectively inaccessible unconditionally (see _row_effectively_
+# inaccessible below) regardless of their OWN row's ward_accessible_status -
+# the exclusion decision was made at the whole-stratum level, a broader
+# judgment than any single row's own ward.
+POPULATION_THRESHOLD_EXCLUSION_REASON = "accessibility_loss_below_population_threshold"
+
+
+def _population_threshold_excluded_stratum_row(r):
+    return r.get("coverage_status") == "excluded" and r.get("exclusion_reason") == POPULATION_THRESHOLD_EXCLUSION_REASON
+
+
 def _ward_accessible(r):
     # 2026-09-08 audit fix: was `in (None,"","NA") or != "Inaccessible"` -
     # since a blank/NA value is ALWAYS also != "Inaccessible", the first
@@ -332,9 +353,22 @@ def _ward_accessible(r):
     return status not in (None, "", "NA") and status != "Inaccessible"
 
 
+def _in_scope_row(r):
+    if r["coverage_status"] == "covered" and r["exclusion_reason"] == "none":
+        return True
+    # 2026-09-08: also admit population-threshold-excluded rows, so their
+    # real Achieved/Collected credit still shows (see the constant/helper
+    # above) - every such row is then forced effectively-inaccessible
+    # unconditionally by _row_effectively_inaccessible below, so it still
+    # correctly disappears from Needs Collecting / Still Needed.
+    if _population_threshold_excluded_stratum_row(r):
+        return True
+    return False
+
+
 with open(STAGE2_FULL_CSV, encoding="utf-8") as f:
-    frame_rows_full = [r for r in csv.DictReader(f) if r["coverage_status"] == "covered" and r["exclusion_reason"] == "none"]
-print(f"Loaded {len(frame_rows_full)} household-level rows (FULL, covered & not excluded - drives workbook sheets).")
+    frame_rows_full = [r for r in csv.DictReader(f) if _in_scope_row(r)]
+print(f"Loaded {len(frame_rows_full)} household-level rows (FULL, covered-or-population-threshold-excluded - drives workbook sheets).")
 
 rows_by_pcode_full = defaultdict(list)
 for r in frame_rows_full:
@@ -377,8 +411,11 @@ def _cluster_below_accessible_threshold(cluster_id):
 
 
 def _row_effectively_inaccessible(r):
-    """True if this row's OWN ward is inaccessible, OR (Non-IDP only) its
-    whole cluster has fallen below the accessible-household threshold."""
+    """True if this row's whole STRATUM is population-threshold-excluded,
+    OR this row's OWN ward is inaccessible, OR (Non-IDP only) its whole
+    cluster has fallen below the accessible-household threshold."""
+    if _population_threshold_excluded_stratum_row(r):
+        return True
     if not _ward_accessible(r):
         return True
     if r["pop_type"] == "non_idp":
@@ -731,7 +768,11 @@ def non_idp_cluster_summary_rows(state_name, lga_name, primary_rows, reserve_row
         # Target would be confusing). Achieved/Collected are UNAFFECTED -
         # real credit already earned in that small accessible sliver is
         # never removed, same principle as the plain 0-accessible case.
-        accessible_primary = [pr for pr in g["primary"] if _ward_accessible(pr)]
+        # 2026-09-08: also exclude population-threshold-excluded-stratum rows
+        # here directly (can't just call _row_effectively_inaccessible - that
+        # would be circular, since IT calls _cluster_below_accessible_
+        # threshold, which is what this very computation feeds).
+        accessible_primary = [pr for pr in g["primary"] if _ward_accessible(pr) and not _population_threshold_excluded_stratum_row(pr)]
         cluster_inaccessible = len(accessible_primary) < NON_IDP_MIN_ACCESSIBLE_PRIMARY_HH
         target = 0 if cluster_inaccessible else len(accessible_primary)
         nominal_target = len(g["primary"])

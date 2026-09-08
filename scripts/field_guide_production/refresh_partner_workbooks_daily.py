@@ -214,6 +214,13 @@ print(f"Partner coverage resolved for {len(partners_by_pcode)} LGAs.")
 # now ward-inaccessible; silently dropping those rows would erase real,
 # already-completed field credit).
 # ---------------------------------------------------------------------------
+POPULATION_THRESHOLD_EXCLUSION_REASON = "accessibility_loss_below_population_threshold"
+
+
+def _population_threshold_excluded_stratum_row(r):
+    return r.get("coverage_status") == "excluded" and r.get("exclusion_reason") == POPULATION_THRESHOLD_EXCLUSION_REASON
+
+
 def _ward_accessible(r):
     # 2026-09-08 audit fix - see build_partner_dc_packages.py's identical
     # fix note (this function was duplicated from it): the old
@@ -224,9 +231,24 @@ def _ward_accessible(r):
     return status not in (None, "", "NA") and status != "Inaccessible"
 
 
+def _in_scope_row(r):
+    # 2026-09-08, Jack's decision (option a) - see build_partner_dc_
+    # packages.py's identical fix note (this script was duplicated from
+    # it): also admit population-threshold-excluded rows, so their real
+    # Achieved/Collected credit still shows here, matching the same
+    # credit-preservation principle already applied to ward-level
+    # exclusions. Forced effectively-inaccessible unconditionally by
+    # _row_effectively_inaccessible below either way.
+    if r["coverage_status"] == "covered" and r["exclusion_reason"] == "none":
+        return True
+    if _population_threshold_excluded_stratum_row(r):
+        return True
+    return False
+
+
 with open(STAGE2_FULL_CSV, encoding="utf-8") as f:
-    frame_rows_full = [r for r in csv.DictReader(f) if r["coverage_status"] == "covered" and r["exclusion_reason"] == "none"]
-print(f"Loaded {len(frame_rows_full)} household-level rows (FULL, covered & not excluded - drives every workbook sheet).")
+    frame_rows_full = [r for r in csv.DictReader(f) if _in_scope_row(r)]
+print(f"Loaded {len(frame_rows_full)} household-level rows (FULL, covered-or-population-threshold-excluded - drives every workbook sheet).")
 
 rows_by_pcode_full = defaultdict(list)
 for r in frame_rows_full:
@@ -248,6 +270,8 @@ def _cluster_below_accessible_threshold(cluster_id):
 
 
 def _row_effectively_inaccessible(r):
+    if _population_threshold_excluded_stratum_row(r):
+        return True
     if not _ward_accessible(r):
         return True
     if r["pop_type"] == "non_idp":
@@ -426,7 +450,9 @@ def non_idp_cluster_summary_rows(state_name, lga_name, primary_rows, reserve_row
         achieved_dates = [achieved_date_by_survey_id[r["survey_id"]] for r in all_rows if achieved_date_by_survey_id.get(r["survey_id"])]
         n_achieved_exact = len(achieved_dates)
         collected = max(cluster_collected_n.get(cluster_id, 0), n_achieved_exact)
-        accessible_primary = [pr for pr in g["primary"] if _ward_accessible(pr)]
+        # 2026-09-08: also exclude population-threshold-excluded-stratum rows
+        # here directly - see build_partner_dc_packages.py's identical note.
+        accessible_primary = [pr for pr in g["primary"] if _ward_accessible(pr) and not _population_threshold_excluded_stratum_row(pr)]
         cluster_inaccessible = len(accessible_primary) < NON_IDP_MIN_ACCESSIBLE_PRIMARY_HH
         target = 0 if cluster_inaccessible else len(accessible_primary)
         nominal_target = len(g["primary"])
