@@ -128,6 +128,17 @@ STAGE2_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_sta
 # rebuild section) - currently byte-identical by chance, but would silently
 # drift the next time canonical updates without an intervening deploy.
 REAL_SUBMISSIONS_CSV = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\2_monitoring\data\real_submissions.csv"
+# Confirmed-only deletion basis (2026-09-08 audit fix) - this script was the
+# last of 4 consumers still reading quality_exclusion_reason directly
+# (blank=OK, ANY non-blank excludes), which wrongly drops a still-pending/
+# contested tracker row from Achieved before Jack has actually confirmed it.
+# The other 3 (refresh_working_frame_daily.R, merge_partner_resample_batch.R,
+# 05_build_accessibility_impact_workbook.py) were repointed to this overlay
+# 2026-09-06/07 - see 1_sampling/CLAUDE.md. Verified against current data
+# before fixing: 0 rows currently affected (every non-blank
+# quality_exclusion_reason row today happens to already be confirmed), so
+# this closes a live gap rather than changing any number right now.
+CONFIRMED_DELETIONS_OVERLAY_CSV = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\2_monitoring\data\CONFIRMED_DELETIONS_OVERLAY.csv"
 BACKUP_POINTS_CSV = PROJECT_DIR + r"\output\data\data_collection\idp_camp_backup_points.csv"
 # Moved 2026-08-06 by the user from "6. Outputs\partner_dc_files" - same
 # per-partner folder structure, new parent location.
@@ -301,7 +312,21 @@ for r in frame_rows:
 # in hand, never aggregate to a single per-cluster value.
 # ---------------------------------------------------------------------------
 def _ward_accessible(r):
-    return r.get("ward_accessible_status") in (None, "", "NA") or r["ward_accessible_status"] != "Inaccessible"
+    # 2026-09-08 audit fix: was `in (None,"","NA") or != "Inaccessible"` -
+    # since a blank/NA value is ALWAYS also != "Inaccessible", the first
+    # clause was dead and the whole expression collapsed to just
+    # `!= "Inaccessible"`, which evaluates True (accessible) for blank/NA
+    # too. That's the exact wrong default direction the 2026-09-08 rebuild
+    # was built to eliminate - stamp_ward_accessible_status.py's own header
+    # states the correct rule explicitly: "a blank ward_accessible_status
+    # [is] excluded-pending-review, not accessible" (a genuine ward-geography
+    # match failure, not evidence of safety). Verified against current FULL:
+    # 452 primary rows nationally (366 FACT) had blank ward_accessible_status
+    # and were wrongly showing as Needs-Collecting-eligible under the old
+    # logic. Does not affect KML - those are sourced from WORKING, which the
+    # R-side merge/refresh scripts already filter correctly.
+    status = r.get("ward_accessible_status")
+    return status not in (None, "", "NA") and status != "Inaccessible"
 
 
 with open(STAGE2_FULL_CSV, encoding="utf-8") as f:
@@ -371,13 +396,17 @@ with open(REAL_SUBMISSIONS_CSV, encoding="utf-8") as f:
     real_subs = list(csv.DictReader(f))
 print(f"Loaded {len(real_subs)} real submission rows.")
 
+with open(CONFIRMED_DELETIONS_OVERLAY_CSV, encoding="utf-8") as f:
+    _confirmed_deleted_uuids = {r["uuid"] for r in csv.DictReader(f) if r["status"] == "confirmed"}
+print(f"Confirmed-deletions overlay: {len(_confirmed_deleted_uuids)} confirmed uuid(s) excluded from Achieved.")
+
 
 def _is_achieved(r):
     return (
         r.get("interview_outcome") == "completed"
         and r.get("is_duplicate") != "TRUE"
         and r.get("matched_survey_id") not in (None, "", "NA")
-        and r.get("quality_exclusion_reason") in (None, "", "NA")
+        and r.get("submission_uuid") not in _confirmed_deleted_uuids
     )
 
 

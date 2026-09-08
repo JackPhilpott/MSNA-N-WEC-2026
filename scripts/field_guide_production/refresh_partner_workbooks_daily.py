@@ -82,6 +82,12 @@ STAGE2_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_sta
 # build_partner_dc_packages.py's 2026-09-08 fix note for the identical bug
 # this avoids from the start).
 REAL_SUBMISSIONS_CSV = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\2_monitoring\data\real_submissions.csv"
+# Confirmed-only deletion basis (2026-09-08 audit fix) - this script was
+# duplicated from build_partner_dc_packages.py before that script's own
+# 2026-09-08 fix landed, so it inherited the same stale quality_exclusion_
+# reason-blank check (any non-blank flag excludes, even a still-pending/
+# contested tracker row). See that script's fix note for the full reasoning.
+CONFIRMED_DELETIONS_OVERLAY_CSV = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\2_monitoring\data\CONFIRMED_DELETIONS_OVERLAY.csv"
 BACKUP_POINTS_CSV = PROJECT_DIR + r"\output\data\data_collection\idp_camp_backup_points.csv"
 OUT_ROOT = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\3. External coordination\NGA MSNA 2026 Package"
 
@@ -204,7 +210,13 @@ print(f"Partner coverage resolved for {len(partners_by_pcode)} LGAs.")
 # already-completed field credit).
 # ---------------------------------------------------------------------------
 def _ward_accessible(r):
-    return r.get("ward_accessible_status") in (None, "", "NA") or r["ward_accessible_status"] != "Inaccessible"
+    # 2026-09-08 audit fix - see build_partner_dc_packages.py's identical
+    # fix note (this function was duplicated from it): the old
+    # `in (None,"","NA") or != "Inaccessible"` collapsed to just
+    # `!= "Inaccessible"`, wrongly treating blank/NA (a ward-geography match
+    # failure) as accessible instead of excluded-pending-review.
+    status = r.get("ward_accessible_status")
+    return status not in (None, "", "NA") and status != "Inaccessible"
 
 
 with open(STAGE2_FULL_CSV, encoding="utf-8") as f:
@@ -247,13 +259,17 @@ with open(REAL_SUBMISSIONS_CSV, encoding="utf-8") as f:
     real_subs = list(csv.DictReader(f))
 print(f"Loaded {len(real_subs)} real submission rows.")
 
+with open(CONFIRMED_DELETIONS_OVERLAY_CSV, encoding="utf-8") as f:
+    _confirmed_deleted_uuids = {r["uuid"] for r in csv.DictReader(f) if r["status"] == "confirmed"}
+print(f"Confirmed-deletions overlay: {len(_confirmed_deleted_uuids)} confirmed uuid(s) excluded from Achieved.")
+
 
 def _is_achieved(r):
     return (
         r.get("interview_outcome") == "completed"
         and r.get("is_duplicate") != "TRUE"
         and r.get("matched_survey_id") not in (None, "", "NA")
-        and r.get("quality_exclusion_reason") in (None, "", "NA")
+        and r.get("submission_uuid") not in _confirmed_deleted_uuids
     )
 
 
