@@ -381,7 +381,13 @@ excluded_primary <- covered %>%
     # stranded-achieved credit below, same reasoning as the Inaccessible case.
     (is.na(ward_accessible_status) | ward_accessible_status == "Inaccessible") |
     (pop_type == "non_idp" & cluster_id %in% below_threshold_clusters)
-  )
+  ) %>%
+  # 2026-09-11: sampling_method == "MSNA Light" rows (government-negotiated,
+  # unverifiable collection - Malam Fatori/Gajiram/Mairari) never contribute
+  # stranded-achieved credit to a stratum's normal achieved_sample, same
+  # reasoning as the strata_agg filter below - these rows must never touch
+  # the "MSNA Full Design" achieved/target figures Jack agreed to keep pure.
+  filter(is.na(sampling_method) | sampling_method != "MSNA Light")
 
 stranded_non_idp <- excluded_primary %>%
   filter(pop_type == "non_idp", survey_id %in% achieved_non_idp_survey_ids)
@@ -408,7 +414,20 @@ log_msg(
   nrow(stranded_non_idp), nrow(stranded_idp), nrow(stranded_rows)
 )
 
-strata_agg <- bind_rows(covered_accessible %>% filter(status == "primary"), stranded_rows) %>%
+# 2026-09-11: sampling_method == "MSNA Light" rows are excluded from this
+# strata-level aggregation ONLY - they stay fully included in covered_
+# accessible itself (and therefore in household-level WORKING/non_idp_rows/
+# idp_rows above), since field teams still need them on the to-do list.
+# Jack's explicit call for the 3 government-negotiated LGAs (Abadam/
+# Nganzai/Guzamala, no georeferencing possible): this data must never blend
+# into a stratum's normal target_sample/achieved_sample, which represents
+# the verified "MSNA Full Design" - these strata's existing achieved figures
+# predate the arrangement and must stay exactly as they were. See CLAUDE.md
+# for the full discussion.
+strata_agg <- bind_rows(
+    covered_accessible %>% filter(status == "primary", is.na(sampling_method) | sampling_method != "MSNA Light"),
+    stranded_rows
+  ) %>%
   group_by(strata_id) %>%
   summarise(achieved_clusters_new = n_distinct(cluster_id), achieved_sample_new = n(), .groups = "drop")
 

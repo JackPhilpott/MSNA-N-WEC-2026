@@ -3839,3 +3839,199 @@ anything and the live frame is independently verified correct via the
 v5->v7 rollback's own checks (Update 2026-09-08e). `2_monitoring`'s
 Coverage Map has not been re-run against the now-fixed geometry - that's
 a decision for Jack/Monitoring, not executed unilaterally.
+
+## Update 2026-09-09 — FHI 360's accessibility report was missing 7 wards; generalized the followup-workbook builder
+
+Jack noticed FHI 360's currently-sent accessibility report doesn't cover
+their whole current sampling frame. Confirmed directly: sent report has
+22 wards, their current FULL assignment has 29. Missing 7 -
+Mobbar/Damasak + Mobbar/Zanna Umarti (added by the 2026-09-03 20km-buffer
+removal, never regenerated into their report since) and Mafa/Loskuri,
+Ma'Afa, Maiwa, Mofio, Zengebe (the "Mafa reporting gap" flagged back on
+2026-09-08 - these 5 were never in the report from the start, root cause
+not investigated further since it's moot now).
+
+Same day, an email arrived from FHI 360 (msunday@fhi360.org, 2026-09-09)
+independently reporting exactly those same 5 Mafa wards as currently
+inaccessible - resolves the old reporting-gap question in real time.
+
+**Generalized `build_fact_followup_workbook_2026-09-07.py` into
+`resampling/scripts/build_partner_followup_workbook.py <Partner> <out_dir>
+[--prefill <csv>] [--working]`** rather than writing another one-off -
+every flag is self-derived (review_partner()'s CONTRADICTION findings +
+a diff against the partner's current frame), nothing hardcoded per
+partner. Kept the subcontractor sheet FACT-only (not generalized - no
+other partner has known subcontractors on record, would be inventing a
+sheet for a non-problem). **Defaults to FULL, not WORKING**, for the
+ward universe - deliberately different from `01_generate_accessibility_
+reports.py`'s initial-ask default, since a followup's whole job is
+catching drift since the last report, including a ward that was excluded
+(invisible to WORKING) when last asked but has since been reinstated -
+exactly the class of gap this project spent all of 2026-09-08 chasing
+for Dandume/Faskari/Matazu/Musawa/Sabuwa. `--working` opts back into the
+narrower scope if ever needed.
+
+`--prefill` stamps a ward's Reason notes only (never Accessible/Reason
+category - left for the partner to confirm, never guessed on their
+behalf) from a small CSV - used here to carry FHI 360's own email
+straight into their 5 flagged Mafa rows rather than making them re-type
+what they already told us.
+
+Result: `resampling/output/resample_runs/FHI 360/2026-09-09/FHI_360_
+accessibility_followup_2026-09-09.xlsx` - 29 wards, 7 flagged (0
+contradiction, 7 never-reported), the 5 Mafa rows pre-noted from their
+email. Script committed (4e096f4). Reply email drafted for Jack to send
+- not yet sent, that's his call.
+
+## Update 2026-09-11 — "MSNA Light": a deliberately non-standard, disclosed-only sample for 3 government-negotiated LGAs (Abadam, Nganzai, Guzamala)
+
+**Context.** Jack negotiated a one-off arrangement with the government for
+Abadam, Guzamala and Nganzai (Borno) - all 3 previously dropped entirely
+for lack of access, all 3 originally FACT-assigned. Government enumerators
+only, no georeferencing/verification possible. Jack's explicit call after
+reviewing 3 candidate methodologies: run the real PPS design (same as
+everywhere else, real random points, no GPS-proximity check relaxed) since
+it's the closest to the actual methodology even though compliance can't be
+verified - but this data must NEVER contribute to state/regional/national
+aggregation or cross-LGA comparison, disclosed as LGA-level findings only.
+Also Jack's call, arising directly from that: **only sample the real urban
+core of each LGA** - government collectors will realistically only go
+where an actual town is, not scattered rural points they'd ignore, so
+scoping to genuine dense settlements (not random points across the whole
+LGA) is both more realistic AND avoids wasting design effort on points
+that would never get visited anyway.
+
+**Tagging mechanism, Jack's design**: a new `sampling_method` column,
+added to all 4 v7 frame files (strata/household x FULL/WORKING) by
+`scripts/one_off_analyses/add_sampling_method_column_2026-09-11.R` -
+every existing row backfilled `"MSNA Full Design"`; the new government-
+negotiated rows get `"MSNA Light"`. Purely additive, same convention as
+`coverage_status`/`exclusion_reason` (Section 8 of the methodology doc).
+
+**Finding the real settlement, not the administrative ward - the core
+technique used for all 3 LGAs.** Rather than trust an LGA/ward-level GPS
+point (own testing showed these can be too imprecise to land in the right
+ward - Wikipedia's Abadam infobox, an OCHA admincapitals point, and an
+external gazetteer point for the same real-world place landed in 3
+*different* GRID3/OCHA wards), each settlement's true extent was derived
+from real Google Open Buildings footprints (confidence>=0.75, same
+threshold Stage 2 uses everywhere) via DBSCAN (eps=150m, minPts=15) -
+lets the actual building density define the settlement boundary, not an
+administrative line or a hand-picked ward.
+
+**Malam Fatori (Abadam, `non_idp_NG008001`)** - full writeup of the
+discovery process (OSM POI cross-referencing, the GRID3/OCHA "Kessa'A"
+naming variant, the 5-ward convergence zone) lives in this session's own
+chat history; not re-derived here since it's all captured in the draw
+script's own header. Real finding: the settlement spans 3 wards (Kessa'A/
+Busuna/Kudokurgo) - a genuine boundary artifact, one continuous town the
+admin line happens to cut through. 1,985 buildings / 3.1km² (640/km²).
+`build_sampling_plan()`'s own formula (N_hh=building count proxy) saturates
+at target_sample=102/17 clusters, same as most strata at this population
+scale nationally. Drawn: `scripts/one_off_analyses/draw_malam_fatori_
+urban_2026-09-11.R` - fine hex grid over the DBSCAN hull, PPS selection of
+17 cells by building-count MOS, 6 target + 6 reserve real buildings per
+cell. **Caught and fixed before merge**: a first draft wrote one fixed
+composite ward-name string for every row instead of real per-building
+(point-in-polygon) ward attribution - would have silently broken every
+downstream ward lookup. Fixed in both the staged output and the generator
+script itself.
+
+**Gajiram (Nganzai, `non_idp_NG008026`)** - checked and confirmed clean:
+single self-contained ward (dense cluster touches no neighbour), actually
+bigger/denser than Malam Fatori (3,199 buildings / 3.6km², 891/km²). Same
+saturated 102/17 result. Drawn with `draw_gajiram_urban_2026-09-11.R`,
+same hex-grid+PPS mechanism (that mechanism works fine at this scale).
+
+**Mairari (Guzamala, `non_idp_NG008010`) - the one that needed real
+back-and-forth.** Jack's first pointer (the ward FACT's *written*
+accessibility sheet happened to mark accessible) was "Monguno"/"Wamiri" -
+checked and it's genuinely sparse/rural (41-building max cluster, 431
+buildings across the whole 306km² ward, no real town) - never drawn.
+Jack later corrected: FACT's actual verbal/message communication that
+night named **Mairari**, not Wamiri - the written sheet still shows
+Mairari as Inaccessible, unreconciled (flagged to Jack, not silently
+overridden - matches this project's whole week of "verbal/message vs
+written sheet" gaps). Mairari checked out as a real, if much smaller,
+settlement: self-contained (checked properly this time - a tight 3km box
+around the actual settlement point, not the whole ward or a wide, DBSCAN-
+chaining-prone regional box - confirmed 0 spillover into any neighbour,
+unlike Malam Fatori's genuine cross-boundary case), core of 243 buildings
+in 0.41km² (597/km² - same order of density as the other two, just a
+smaller town). `build_sampling_plan()` on N_hh=243 gives target_sample=78/
+13 clusters - a real, smaller result from the formula, not a manually
+reduced figure. **Mechanism differs from the other two**: the hex-grid+PPS
+approach that worked for Malam Fatori/Gajiram left only 8-9 of 20+
+candidate cells with enough buildings for a 12-household cluster at this
+smaller scale - switched to direct spatial partitioning (k-means, k=13,
+on the building coordinates), then rebalanced 2 undersized groups by
+reassigning their nearest available neighbouring buildings from the
+biggest groups until every group cleared the 12-household floor. Drawn
+with `draw_mairari_urban_2026-09-11.R`.
+
+**All 3 verified before merge**: 0 duplicate survey_ids, real per-building
+ward attribution, coordinates tightly bound to each real settlement.
+564 rows total (204+204+156), 47 clusters.
+
+**Merge mechanism - deliberately NOT `merge_partner_resample_batch.R`.**
+That script's `recompute_strata()` would blend these new rows' achieved
+figures into the same strata_id's *existing* "MSNA Full Design"
+target_sample/achieved_sample - exactly what must not happen, since these
+strata's existing figures (some with real historical fieldwork, e.g.
+Abadam's own achieved_sample=161 from before government access was lost)
+predate and are unrelated to this arrangement. Used a simple direct
+append to FULL instead (`scripts/one_off_analyses/merge_msna_light_
+3lga_2026-09-11.R`) - household-level only, strata-level files untouched
+by the merge script itself.
+
+**The actual "keep it separate" enforcement lives in `refresh_working_
+frame_daily.R`, fixed in the same session**: `sampling_method == "MSNA
+Light"` rows now stay fully included in `covered_accessible` (so they
+correctly appear in household-level WORKING - field teams need them on
+the to-do list) but are explicitly excluded from both the strata-level
+`achieved_sample`/`achieved_clusters` aggregation and the stranded-
+achieved-credit calculation. Two call sites changed (`excluded_primary`
+and `strata_agg`), same filter (`is.na(sampling_method) | sampling_method
+!= "MSNA Light"`) applied consistently at both. **Not fixed, flagged for
+whoever next touches it**: `merge_partner_resample_batch.R`'s own
+`recompute_strata()` has the identical gap - if a normal "MSNA Full
+Design" supplementary draw is ever run for these same 3 LGAs' *other*
+wards later (a real, separate possibility), that script needs the same
+exclusion or it will re-blend on its own next run.
+
+**A live assert_plausible trip, correctly caught, knowingly bypassed once
+- not a permanent recalibration.** Running the refresh after the merge
+hit "49 strata with achieved_sample > target_sample" against the
+calibrated ceiling of 40. Verified before doing anything: none of the 12
+newly-over-threshold strata are Abadam/Nganzai/Guzamala; the
+`sampling_method` fix can only ever *decrease* a stratum's achieved_sample
+(never increase it), so it structurally can't be the cause;
+`2_monitoring/data/real_submissions.csv` genuinely updated today,
+consistent with ordinary drift from real, ongoing field collection
+elsewhere. Reported the finding and the verification to Jack rather than
+silently adjusting the threshold myself - his call: proceed, and
+explicitly keep the calibrated ceiling exactly as-is (don't widen it) for
+future runs, since catching this was the check doing its job correctly.
+Bypassed via a temporary comment-out of that one `assert_plausible()`
+call, immediately reverted right after the one run it was needed for -
+confirmed via `git diff` that the only surviving changes to this script
+are the two intentional `sampling_method` filters, no trace of the
+bypass.
+
+**Final state, verified**: FULL 117,031 rows (0 duplicate survey_ids).
+WORKING 45,083 rows / 3,197 clusters, including all 564 MSNA Light rows
+across all 47 clusters. Abadam/Nganzai's strata-level `achieved_sample`
+confirmed unchanged by the merge (Guzamala's stratum has no WORKING row
+at all right now - separately `coverage_status=excluded` under the
+population-threshold mechanism the coordinating session applied earlier
+tonight - its MSNA Light household rows sit correctly in household-level
+WORKING regardless, same as everywhere else in this project: a row's own
+`coverage_status`/`ward_accessible_status` governs its WORKING inclusion
+independently of its stratum's status).
+
+**Not done**: propagation to 2_monitoring/partner packages. `merge_
+partner_resample_batch.R`'s missing `sampling_method` exclusion (flagged
+above). A distinct, dedicated report/tracking mechanism for MSNA Light's
+own target/achieved figures (78/13 for Mairari, 102/17 each for the other
+two) - these currently exist only implicitly (count the tagged rows) not
+as a maintained figure anywhere.
