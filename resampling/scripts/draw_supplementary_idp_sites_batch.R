@@ -98,6 +98,24 @@ candidate_pool <- site_frame %>%
   filter(!already_used_flag, accessible_status != "Inaccessible", adm2_pcode %in% shortfalls$adm2_pcode)
 log_msg("Stage B complete: %d fresh, accessible candidate site(s) remain across the %d shortfall LGA(s).", nrow(candidate_pool), n_distinct(shortfalls$adm2_pcode))
 
+# Task 3B (2026-09-13) note, checked directly rather than assumed: unlike
+# draw_supplementary_clusters_batch.R's Non-IDP Tier 2 (which deliberately
+# relaxes already_used_hexagons so a hex with an EXISTING live cluster can
+# be repeat-drawn), this script's candidate_pool already_used_flag exclusion
+# is computed ONCE, above, and used unmodified by BOTH Tier 1 and Tier 2
+# below - Tier 2 here only means "same-batch sites Tier 1 already drew in
+# THIS run become eligible again" (see the header comment), never a
+# previously-live, pre-existing site. So an access-compromised cluster's
+# site can't be repeat-drawn into by this script's current mechanism at
+# all - not just "no change needed for fresh selection", genuinely nothing
+# to fix here for Tier 2 either. The old hex-based IDP mechanism
+# (draw_supplementary_idp_clusters_batch.R, archived to _archive_one_off/)
+# DID have a real "expand an existing cluster's target_households" pathway
+# (existing_cluster_target_increases_idp.csv, still read by merge_partner_
+# resample_batch.R for backward compatibility) - that pathway is dormant
+# with the old script archived, not touched here. If it's ever revived,
+# it would need this same access-compromised-cluster guard.
+
 # ---- Stage C: PPS-weighted-without-replacement draw, per stratum, Tier 1 (fresh) then Tier 2 (repeat allowed within THIS batch's own already-drawn sites) ----
 draw_sites <- function(shortfalls_df, pool, seed) {
   set.seed(seed)

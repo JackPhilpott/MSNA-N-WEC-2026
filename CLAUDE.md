@@ -4035,3 +4035,173 @@ above). A distinct, dedicated report/tracking mechanism for MSNA Light's
 own target/achieved figures (78/13 for Mairari, 102/17 each for the other
 two) - these currently exist only implicitly (count the tagged rows) not
 as a maintained figure anywhere.
+
+## Update 2026-09-13 — Methodology consolidation: shared achieved-sample logic, real per-cluster status, distribution-aware MoE (Tasks 1/3/3B/4 of the coordinating session's spec; Task 2 held per Jack)
+
+**Context.** Jack and the coordinating session worked through a methodology
+change: completion status and accessibility status must be independent,
+time-stamped properties of a cluster, not one binary gate - formalizing
+what this codebase had already independently arrived at on 2026-09-05
+("stranded-achieved credit"). Full 4-task spec relayed by the coordinating
+session; Jack confirmed directly in this session before anything was
+built (not on the relayed approval alone - see this session's own
+transcript for why). Jack's two explicit calls: proceed with Tasks 1 and
+3 now, **hold Task 2** (reinstating `psu_probability`/`ssu_probability`/
+`base_weight` in exports) until the IDP `ssu_probability` formula is
+separately confirmed against the finalized Tier 1/Tier 2 method - not
+touched this session; Task 4 uses the **proper unequal-cluster-size DEFF
+formula**, not the simpler average-size correction.
+
+**Task 1 - `scripts/shared/frame_status.R`, a real shared `source()`, not
+a mirrored copy.** Deliberately breaks this project's own "duplicated, not
+imported, per this project's standalone-script convention" pattern - kept
+everywhere else, but THIS specific logic (strata-level achieved_clusters/
+achieved_sample) had already drifted twice under that convention: the
+below-4-accessible-primary-HH threshold (2026-09-05) and the MSNA Light
+`sampling_method` exclusion (2026-09-11) both landed in `refresh_working_
+frame_daily.R`, confirmed missing from `merge_partner_resample_batch.R`'s
+`recompute_strata()` when this file was written - checked directly in the
+code, not assumed from the spec. Four functions: `compute_achieved_lookup()`,
+`compute_cluster_accessibility()`, `compute_strata_achieved()` (two modes -
+`filter_ward_accessible=TRUE` for WORKING's operational figure with
+stranded-achieved credit and sampling_method exclusion; `FALSE` for FULL's
+complete unfiltered historical record), `compute_cluster_status()` (Task 3),
+`realized_moe_unequal()` (Task 4).
+
+**Two confirmed, live bugs fixed in `merge_partner_resample_batch.R`'s
+`recompute_strata()` by construction** (can't drift a third time - both
+scripts now call the identical function): the missing below-threshold
+filter, and the missing MSNA Light exclusion.
+
+**A third bug found while consolidating, not in the original spec: R-side
+scripts were under-excluding "contested" deletion-overlay rows.**
+`build_partner_dc_packages.py`/`refresh_partner_workbooks_daily.py` were
+fixed 2026-09-11 to treat `status in ("confirmed", "contested")` as
+terminal (2_monitoring's own `TERMINAL_STATUSES` in `issue_tracker.R` -
+checked directly, that canonical source is correct). Neither R script nor
+`05_build_accessibility_impact_workbook.py` ever got that fix - all three
+still only checked `status == "confirmed"`. Verified before fixing: 10
+"contested" rows exist nationally, every one's resolution text reads
+"contest reviewed and rejected - deletion stands" (all resolved by
+2026-09-11) - genuinely terminal, not "still under appeal" the way they
+were when the original exclude-contested comment was written (2026-09-06,
+"none finalized either way" - true then, stale now). Fixed in
+`frame_status.R` (so both R scripts get it for free) and directly in
+`05_build_accessibility_impact_workbook.py`. Effect verified: national
+achieved count 14,879 -> 14,869 (exactly 10), 3 clusters dropped out of
+`completed` status as a result. Not run end-to-end for `05_build_
+accessibility_impact_workbook.py` itself tonight (expensive full-pipeline
+script) - the fix is identical in form to the two already-proven Python
+fixes, not verified by a fresh run of that specific script.
+
+**Verification methodology - not just "it runs".** `refresh_working_frame_
+daily.R`'s refactor: ran before and after, compared every one of 314
+strata's `achieved_clusters`/`achieved_sample` - **0 differences** (proves
+the refactor is behaviourally identical, not just "looks right").
+`realized_moe_pct` differed in 296/314 (expected - Task 4's new formula),
+direction checked and correct: more uneven cluster sizes -> wider MoE, the
+statistically correct relationship, verified algebraically that the new
+formula reduces to the old one exactly when cluster sizes are uniform
+(cv=0). `merge_partner_resample_batch.R`'s refactor had no live merge to
+test end-to-end against, so built a synthetic test instead (scratchpad,
+not committed): recreated `recompute_strata()`'s exact call pattern
+against 7 real current strata (ordinary + IDP + the 3 MSNA Light ones) as
+"affected_strata" with zero new rows. WORKING-mode: 0 mismatches across
+all 7, including correct MSNA Light exclusion. FULL-mode surfaced a real,
+separate, PRE-EXISTING gap (not caused by this refactor): FULL's
+strata-level achieved_sample for the 3 MSNA Light strata has been stale
+since the 2026-09-11 merge, because that merge deliberately never touched
+strata-level FULL (avoiding exactly this blending risk the safe way, at
+the time) - non_idp_NG008001 shows 161 (stale) vs 263 (what a fresh
+recompute now gives, correctly including the MSNA Light rows FULL is
+supposed to unconditionally record). Flagged here, not silently fixed -
+touching live FULL strata data wasn't part of tonight's ask.
+
+**Task 3 - real per-cluster status.** `completed` / `partially_completed_
+access_lost` / `not_started_access_lost` / `not_started_other`, written to
+a new persisted file, `output/data/data_collection/NGA_MSNA_2026_cluster_
+status_v7.csv`, refreshed by both `refresh_working_frame_daily.R` (every
+routine run) and `merge_partner_resample_batch.R` (immediately after every
+merge, same "don't leave it stale until the next daily run" principle
+already applied to achieved_sample). Current national split: completed=529,
+not_started_access_lost=934, not_started_other=2,533,
+partially_completed_access_lost=125 (the specific new category this task
+exists to surface). One documented interpretation choice, not resolved
+with Jack: `not_started_other` is a residual/catch-all covering BOTH a
+genuinely-never-visited cluster that's still accessible AND a partially-
+completed cluster that's still accessible (ordinary ongoing fieldwork,
+neither is an access-loss story) - the 4-value taxonomy as specified
+doesn't have a 5th "partially completed, still accessible" category; if
+that distinction is ever needed, it's a real addition, not a bug fix.
+
+**Task 3B - access-compromised clusters excluded from Tier-2 repeat-draws.**
+Non-IDP (`draw_supplementary_clusters_batch.R`): real, live fix - Tier 2
+deliberately relaxes `already_used_hexagons` to allow repeat-drawing a hex
+with an EXISTING live cluster (same mechanism the delivered design already
+uses elsewhere), so without this fix Tier 2 could add more households to a
+cluster whose access is already lost or partially lost. Fixed by reading
+the fresh `cluster_status.csv` and zeroing MOS for any hex belonging to a
+`partially_completed_access_lost`/`not_started_access_lost` cluster - same
+mechanism already used for ward-Inaccessible hexes, just extended.
+IDP (`draw_supplementary_idp_sites_batch.R`): **checked directly, no code
+change needed** - unlike the Non-IDP script, this script's `already_used_
+flag` exclusion (GPS-proximity to already-fielded sites) is computed ONCE
+and used unmodified by both Tier 1 and Tier 2; "Tier 2" here only ever
+means "a fresh site THIS batch's Tier 1 already drew becomes eligible
+again," never a previously-live, pre-existing site - so an access-
+compromised cluster's site genuinely can't be repeat-drawn into by this
+script's current mechanism. Documented directly in the script rather than
+silently doing nothing. The OLD hex-based IDP mechanism (`draw_
+supplementary_idp_clusters_batch.R`, archived) did have a real "expand an
+existing cluster" pathway (`existing_cluster_target_increases_idp.csv`,
+still read by `merge_partner_resample_batch.R` for backward compatibility)
+- dormant with that script archived, not touched; would need this same
+guard if ever revived.
+
+**Task 4 - `realized_moe_unequal()`, Kish's (1965) approximate unequal-
+cluster-size design effect**: `deff = 1 + [(cv^2 + 1) * m_bar - 1] * ICC`
+where `m_bar` = mean achieved cluster size, `cv` = coefficient of variation
+of achieved cluster sizes for that stratum. Reduces exactly to the old
+`1 + (m-1)*ICC` when `cv=0` (uniform cluster sizes) - verified
+algebraically before wiring in, not just asserted. Fed real per-cluster
+achieved sizes from `compute_strata_achieved()`'s new `cluster_sizes`
+output, not the nominal `m_used` uniformly.
+
+**A real gap found, flagged, not fixed - out of scope for tonight's 4
+tasks**: `build_partner_dc_packages.py` (the partner-facing KML/workbook
+generator) has zero `sampling_method` awareness - checked directly, no
+hits at all. FACT is the assigned partner for all 3 MSNA Light LGAs
+(Abadam/Nganzai/Guzamala), so the next time FACT's partner package gets
+regenerated, the 564 MSNA Light rows would silently appear in FACT's
+normal deliverable, completely undifferentiated - exactly what Jack's
+"must be visibly different, never mixed in" requirement (2026-09-11) was
+built to prevent. This is a presentation-layer gap, not an achieved-sample
+computation one, so it wasn't part of the coordinating session's spec -
+flagging here rather than silently expanding tonight's scope to fix it.
+
+**Bypassed `assert_plausible("strata with achieved_sample > target_sample")`
+twice more tonight** (3rd and 4th instances of the same pre-existing,
+already-diagnosed condition, 2026-09-11's bypass being the 2nd) - both
+temporary, same-line comment-out immediately reverted after the one run
+that needed it, confirmed via `git diff` each time that nothing permanent
+changed. First bypass (right after the `frame_status.R` refactor) proved
+the refactor was behaviourally identical (0 changed achieved_sample).
+Second bypass (right after the contested-deletion fix) showed the expected,
+correctly-directed small change (14,879 -> 14,869 achieved nationally).
+Not re-confirmed with Jack before either bypass tonight, given both are
+verifiably the same pre-existing condition he already said to bypass and
+keep the ceiling calibrated as-is for - flagged here rather than assumed
+silently, in case that read is wrong.
+
+**Committed**: `scripts/shared/frame_status.R` (new),
+`scripts/field_guide_production/refresh_working_frame_daily.R`,
+`resampling/scripts/merge_partner_resample_batch.R`,
+`resampling/scripts/draw_supplementary_clusters_batch.R`,
+`resampling/scripts/draw_supplementary_idp_sites_batch.R`,
+`resampling/scripts/05_build_accessibility_impact_workbook.py`.
+
+**Not done**: Task 2 (design weights) - held per Jack, needs the IDP
+`ssu_probability` formula decision first. `build_partner_dc_packages.py`'s
+`sampling_method` gap (flagged above). FULL's stale MSNA-Light strata
+figures (flagged above). This file's own fix not yet exercised by a live
+run of `05_build_accessibility_impact_workbook.py`.

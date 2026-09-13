@@ -137,6 +137,40 @@ non_idp_sampling_filtered$sampling_frame <- non_idp_sampling$sampling_frame %>%
   left_join(hex_status_lookup, by = "uuid_hex_pop") %>%
   mutate(MOS = ifelse(!is.na(accessible_status) & accessible_status == "Inaccessible", 0, MOS))
 
+# ---- Task 3B (2026-09-13): access-compromised clusters are never Tier-2
+# repeat-draw candidates. -----------------------------------------------------
+# Tier 1 already can't re-hit an already-selected hex at all (already_used_
+# hexagons hard-excludes it) - this only matters for Tier 2 below, which
+# deliberately relaxes that exclusion to character(0) so a hex with an
+# EXISTING live cluster can be repeat-drawn (a second selection_count hit,
+# same mechanism the delivered design already relies on elsewhere). Without
+# this, Tier 2 could add MORE households to a cluster whose access has
+# already been lost or partially lost - exactly the scenario Jack's
+# 2026-09-05b decision against same-hex replacement for straddling clusters
+# already ruled out, generalized here rather than re-litigated. Reads the
+# per-cluster status refresh_working_frame_daily.R/merge_partner_resample_
+# batch.R write fresh every run (scripts/shared/frame_status.R) - not
+# recomputed here, so this doesn't need its own copy of the achieved-lookup
+# machinery.
+CLUSTER_STATUS_CSV <- "output/data/data_collection/NGA_MSNA_2026_cluster_status_v7.csv"
+if (file.exists(CLUSTER_STATUS_CSV)) {
+  cluster_status <- read_csv(CLUSTER_STATUS_CSV, show_col_types = FALSE)
+  access_compromised_clusters <- cluster_status %>%
+    filter(pop_type == "non_idp", status %in% c("partially_completed_access_lost", "not_started_access_lost")) %>%
+    pull(cluster_id)
+  full_for_status <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v7_FULL.csv", show_col_types = FALSE)
+  access_compromised_hex <- full_for_status %>%
+    filter(pop_type == "non_idp", cluster_id %in% access_compromised_clusters) %>%
+    mutate(uuid_hex_pop = paste0(pop_type, "_", uuid_hex)) %>%
+    distinct(uuid_hex_pop) %>% pull(uuid_hex_pop)
+  n_zeroed <- sum(non_idp_sampling_filtered$sampling_frame$uuid_hex_pop %in% access_compromised_hex & non_idp_sampling_filtered$sampling_frame$MOS > 0)
+  non_idp_sampling_filtered$sampling_frame <- non_idp_sampling_filtered$sampling_frame %>%
+    mutate(MOS = ifelse(uuid_hex_pop %in% access_compromised_hex, 0, MOS))
+  log_msg("  %d hex(es) belonging to %d access-compromised cluster(s) excluded from Tier-2 repeat-draw eligibility (MOS zeroed).", n_zeroed, length(access_compromised_clusters))
+} else {
+  log_msg("  WARNING: %s not found - Task 3B's access-compromised-cluster exclusion skipped this run (run refresh_working_frame_daily.R first to generate it).", CLUSTER_STATUS_CSV)
+}
+
 # ---- Stage C: Tier 1 draw (already-used hexes hard-excluded, function's own default behaviour) ----
 log_msg("Stage C: Tier 1 draw (fresh hexes only)...")
 # FULL, not WORKING (2026-09-01 fix, applied when bumping this script from

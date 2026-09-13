@@ -89,12 +89,14 @@ REAL_SUBMISSIONS_CSV = PROJECT_DIR + r"\2_monitoring\data\real_submissions.csv"
 # replacement, built from 2_monitoring's recovery_issue_tracker.csv. Verified
 # before repointing (not just per the orchestrator's word): join key is
 # "uuid" on both sides, same as the old log; row counts/status breakdown
-# checked directly against the file on disk. Only status=="confirmed" rows
-# count as deletions - the overlay also carries "contested" rows (10 as of
-# this writing, none finalized either way) that must NOT be treated as
-# deleted, per Jack's explicit policy: deletion confirmation requires a
-# genuine, deliberate decision (partner recovery-workbook response or a
-# reviewed internal call), never an automatic default.
+# checked directly against the file on disk. status in ("confirmed",
+# "contested") both count as deletions (2026-09-13 fix - see
+# load_real_achieved()'s own docstring for why "contested" changed from
+# excluded to included), per Jack's explicit policy: deletion confirmation
+# requires a genuine, deliberate decision (partner recovery-workbook
+# response or a reviewed internal call, never an automatic default) - both
+# statuses meet that bar once resolved, "contested" just means it was
+# appealed first.
 CONFIRMED_DELETIONS_OVERLAY_CSV = PROJECT_DIR + r"\2_monitoring\data\CONFIRMED_DELETIONS_OVERLAY.csv"
 if not os.path.exists(CONFIRMED_DELETIONS_OVERLAY_CSV):
     raise FileNotFoundError(f"CONFIRMED_DELETIONS_OVERLAY.csv not found at {CONFIRMED_DELETIONS_OVERLAY_CSV}")
@@ -362,9 +364,18 @@ def load_real_achieved():
     2026-09-06: the overlay's confirmed set was larger than real_submissions.
     csv's own column in every category at the time of this repoint - the
     overlay, not real_submissions.csv, is the authoritative source here).
-    "Contested" rows are explicitly EXCLUDED from deletion_uuids - a
-    contested-but-unresolved issue is not a genuine deliberate deletion
-    decision under Jack's policy, so it must not silently reduce achieved.
+    FIX 2026-09-13: "contested" rows used to be explicitly EXCLUDED from
+    deletion_uuids here, on the reasoning that a contested-but-unresolved
+    issue isn't a genuine deliberate deletion decision - true when this was
+    written (2026-09-06, all 10 contested rows then were genuinely still
+    open, "none finalized either way"). Found stale while consolidating the
+    R-side equivalent (scripts/shared/frame_status.R): those exact 10 rows
+    were resolved by 2026-09-11 (checked directly - every one's resolution
+    text now reads "contest reviewed and rejected - deletion stands"),
+    making "contested" here mean "appealed AND upheld", equally terminal as
+    "confirmed" - matches 2_monitoring's own TERMINAL_STATUSES = {"confirmed",
+    "contested"} (issue_tracker.R) and refresh_partner_workbooks_daily.py's
+    2026-09-11 fix, which this script had been missed by until now.
 
     NOT the same thing as load_collected_samples() above (interview_
     outcome=="completed" & any_quality_flag=="FALSE", Jack's own separate
@@ -385,7 +396,7 @@ def load_real_achieved():
     error, in case a dashboard-consistent (capped) figure is wanted instead
     for a future use of this function."""
     rows = load_csv(REAL_SUBMISSIONS_CSV)
-    deletion_uuids = {r["uuid"] for r in load_csv(CONFIRMED_DELETIONS_OVERLAY_CSV) if r["status"] == "confirmed"}
+    deletion_uuids = {r["uuid"] for r in load_csv(CONFIRMED_DELETIONS_OVERLAY_CSV) if r["status"] in ("confirmed", "contested")}
 
     def is_achieved(r):
         return (

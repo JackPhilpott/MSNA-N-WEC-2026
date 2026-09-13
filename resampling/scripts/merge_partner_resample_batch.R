@@ -16,7 +16,14 @@ setwd(PROJECT_DIR)
 suppressMessages({ library(dplyr); library(readr); library(tibble) })
 source("scripts/shared/assert_fresh.R")
 source("scripts/shared/assert_plausible.R")
+# 2026-09-13: recompute_strata()'s achieved-figure logic is now this real
+# shared call (not a mirrored copy) - this script and refresh_working_
+# frame_daily.R had already drifted twice under the "duplicated, not
+# imported" convention this project otherwise deliberately keeps elsewhere.
+# See scripts/shared/frame_status.R's own header for the full reasoning.
+source("scripts/shared/frame_status.R")
 MASTER_WARD_CSV <- "resampling/output/master_accessibility_status_ward_level.csv"
+CLUSTER_STATUS_CSV <- "output/data/data_collection/NGA_MSNA_2026_cluster_status_v7.csv"
 
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) < 4) stop("Usage: Rscript merge_partner_resample_batch.R <PartnerName> <staging_dir> <shortfalls_csv> <shortfalls_idp_csv>")
@@ -402,65 +409,42 @@ confirmed_deletion_uuids <- deletions_overlay %>% filter(status == "confirmed") 
 # time canonical updated without an intervening deploy.
 REAL_SUBMISSIONS_CSV <- "c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/2_monitoring/data/real_submissions.csv"
 subs <- read_csv(REAL_SUBMISSIONS_CSV, show_col_types = FALSE, col_types = cols(.default = "c"))
-achieved <- subs %>%
-  filter(
-    interview_outcome == "completed",
-    is_duplicate != "TRUE",
-    !(matched_survey_id %in% c(NA, "", "NA")),
-    !(submission_uuid %in% confirmed_deletion_uuids)
-  )
-achieved_non_idp_survey_ids <- achieved %>% filter(pop_type == "non_idp") %>% pull(matched_survey_id) %>% unique()
-achieved_idp_counts <- achieved %>% filter(pop_type == "idp") %>% count(matched_cluster_id, matched_status, name = "n_achieved")
+achieved_lookup <- compute_achieved_lookup(subs, deletions_overlay)
+achieved_non_idp_survey_ids <- achieved_lookup$non_idp_survey_ids
+achieved_idp_counts <- achieved_lookup$idp_counts
 
-realized_moe <- function(achieved_sample, N_hh, m, ICC, Z = qnorm(0.95), p = 0.5) {
-  deff  <- 1 + (m - 1) * ICC
-  ndeff <- achieved_sample * (N_hh - 1) / (N_hh - achieved_sample)
-  n0    <- ndeff / deff
-  sqrt(Z^2 * p * (1 - p) / n0)
-}
+# 2026-09-13: realized_moe() -> realized_moe_unequal() (scripts/shared/
+# frame_status.R) - Jack's Task 4 call, the proper Kish-style unequal-
+# cluster-size DEFF formula (strictly generalizes the old uniform-m
+# formula; reduces to it exactly when cluster sizes don't vary).
+#
+# recompute_strata() now delegates its achieved-figure computation to
+# compute_strata_achieved() (same file) instead of its own copy - this
+# closes two confirmed, live bugs found 2026-09-13 while building the
+# shared function: (1) this function never applied the below-4-accessible-
+# primary-HH threshold (refresh_working_frame_daily.R's WORKING-side
+# achieved_sample did; this one didn't - a cluster correctly dropped from
+# household-level WORKING by the threshold rule stayed counted in this
+# script's own strata-level achieved_sample forever after, same shape as
+# the original 2026-09-05 ward-accessibility bug this function was already
+# fixed for once); (2) this function never excluded sampling_method ==
+# "MSNA Light" rows (the 2026-09-11 exclusion only ever landed in refresh_
+# working_frame_daily.R). Both fixed by construction now - shared logic,
+# can't drift a third time by forgetting to mirror a fix into this file.
+NON_IDP_MIN_ACCESSIBLE_PRIMARY_HH <- 4
 
 recompute_strata <- function(sl_df, hh_df, filter_ward_accessible = FALSE) {
   affected_strata <- unique(all_new_rows$strata_id)
-  base <- hh_df %>% filter(strata_id %in% affected_strata, status == "primary")
+  base <- hh_df %>% filter(strata_id %in% affected_strata)
+
   if (filter_ward_accessible) {
-    # 2026-09-08: flipped so NA (unmatched geography) counts as excluded, not
-    # accessible - consistent with the merge-time gate above. NA rows still
-    # correctly flow into `excluded` below, so the stranded-achieved credit
-    # logic still protects a genuinely-completed interview even when the
-    # reason it's excluded is an unmatched ward rather than a confirmed
-    # Inaccessible status - a data-matching gap shouldn't cost a real
-    # achievement any more than a confirmed accessibility change should.
-    accessible <- base %>% filter(!is.na(ward_accessible_status) & ward_accessible_status != "Inaccessible")
-    excluded <- base %>% filter(is.na(ward_accessible_status) | ward_accessible_status == "Inaccessible")
-
-    stranded_non_idp <- excluded %>% filter(pop_type == "non_idp", survey_id %in% achieved_non_idp_survey_ids)
-
-    idp_excluded <- excluded %>% filter(pop_type == "idp")
-    idp_stranded_n <- idp_excluded %>%
-      count(cluster_id, name = "n_excluded") %>%
-      left_join(achieved_idp_counts %>% filter(matched_status == "primary") %>% select(cluster_id = matched_cluster_id, n_achieved), by = "cluster_id") %>%
-      mutate(n_achieved = coalesce(n_achieved, 0L), n_stranded = pmin(n_excluded, n_achieved)) %>%
-      filter(n_stranded > 0)
-    stranded_idp <- idp_excluded %>%
-      inner_join(idp_stranded_n %>% select(cluster_id, n_stranded), by = "cluster_id") %>%
-      mutate(interview_number_num = as.integer(interview_number)) %>%
-      group_by(cluster_id) %>%
-      arrange(interview_number_num, .by_group = TRUE) %>%
-      filter(row_number() <= n_stranded) %>%
-      ungroup() %>%
-      select(-interview_number_num)
-
-    if (nrow(stranded_non_idp) + nrow(stranded_idp) > 0) {
-      log_msg("  Stranded-achieved credit added back for this merge's affected strata: %d Non-IDP + %d IDP.", nrow(stranded_non_idp), nrow(stranded_idp))
+    accessibility <- compute_cluster_accessibility(base, NON_IDP_MIN_ACCESSIBLE_PRIMARY_HH)
+    result <- compute_strata_achieved(base, achieved_lookup, accessibility, filter_ward_accessible = TRUE)
+    if (nrow(result$stranded_rows) > 0) {
+      log_msg("  Stranded-achieved credit added back for this merge's affected strata: %d.", nrow(result$stranded_rows))
     }
-    eligible <- bind_rows(accessible, stranded_non_idp, stranded_idp)
-  } else {
-    eligible <- base
-  }
-  agg <- eligible %>%
-    group_by(strata_id) %>%
-    summarise(achieved_clusters_new = n_distinct(cluster_id), achieved_sample_new = n(), .groups = "drop")
-  if (filter_ward_accessible) {
+    agg <- result$agg %>% rename(achieved_clusters_new = achieved_clusters, achieved_sample_new = achieved_sample)
+    cluster_sizes <- result$cluster_sizes
     # every affected stratum must appear here, even one filtered down to
     # zero eligible rows - otherwise left_join below can't distinguish
     # "not in agg because untouched by this run" (keep the old value) from
@@ -469,23 +453,47 @@ recompute_strata <- function(sl_df, hh_df, filter_ward_accessible = FALSE) {
     agg <- tibble(strata_id = affected_strata) %>%
       left_join(agg, by = "strata_id") %>%
       mutate(achieved_clusters_new = coalesce(achieved_clusters_new, 0L), achieved_sample_new = coalesce(achieved_sample_new, 0L))
+  } else {
+    result <- compute_strata_achieved(base, achieved_lookup, filter_ward_accessible = FALSE)
+    agg <- result$agg %>% rename(achieved_clusters_new = achieved_clusters, achieved_sample_new = achieved_sample)
+    cluster_sizes <- result$cluster_sizes
   }
+  cluster_size_vecs <- split(cluster_sizes$n, cluster_sizes$strata_id)
 
-  sl_df %>%
-    left_join(agg, by = "strata_id") %>%
+  sl_joined <- sl_df %>% left_join(agg, by = "strata_id")
+
+  # Computed as a plain vector first (not inline in mutate()) - clearer and
+  # avoids relying on dplyr's NSE evaluation order for a function this
+  # stateful (looks up a per-strata_id vector from an external list).
+  new_moe <- mapply(function(strata_id, achieved_sample_new_v, N_hh, ICC) {
+    if (is.na(achieved_sample_new_v) || !(achieved_sample_new_v > 0 & achieved_sample_new_v < N_hh)) return(NA_real_)
+    sizes <- cluster_size_vecs[[strata_id]]
+    if (is.null(sizes)) return(NA_real_)
+    100 * realized_moe_unequal(achieved_sample_new_v, N_hh, sizes, ICC)
+  }, sl_joined$strata_id, sl_joined$achieved_sample_new, sl_joined$N_hh, sl_joined$ICC)
+  # Strata untouched by this merge (achieved_clusters_new is NA) keep their
+  # existing realized_moe_pct exactly as before - only a stratum this merge
+  # actually recomputed gets the new value.
+  sl_joined$realized_moe_pct <- ifelse(is.na(sl_joined$achieved_clusters_new), sl_joined$realized_moe_pct, new_moe)
+
+  sl_joined %>%
     mutate(
       achieved_clusters = if_else(!is.na(achieved_clusters_new), achieved_clusters_new, achieved_clusters),
-      achieved_sample = if_else(!is.na(achieved_sample_new), achieved_sample_new, achieved_sample),
-      realized_moe_pct = if_else(
-        !is.na(achieved_sample_new) & achieved_sample_new > 0 & achieved_sample_new < N_hh,
-        100 * realized_moe(achieved_sample_new, N_hh, m_used, ICC),
-        realized_moe_pct
-      )
+      achieved_sample = if_else(!is.na(achieved_sample_new), achieved_sample_new, achieved_sample)
     ) %>%
     select(-achieved_clusters_new, -achieved_sample_new)
 }
 full_sl_new    <- recompute_strata(full_sl, full_hh_new, filter_ward_accessible = FALSE)
 working_sl_new <- recompute_strata(working_sl, full_hh_new, filter_ward_accessible = TRUE)
+
+# ---- Per-cluster status (Task 3, 2026-09-13) - refreshed immediately after
+# this merge too, not left to go stale until the next daily refresh (same
+# "don't leave a merge's own immediate output wrong in the meantime"
+# principle already applied to achieved_sample above). ----------------------
+merge_accessibility <- compute_cluster_accessibility(full_hh_new, NON_IDP_MIN_ACCESSIBLE_PRIMARY_HH)
+cluster_status <- compute_cluster_status(full_hh_new, achieved_lookup, merge_accessibility, NON_IDP_MIN_ACCESSIBLE_PRIMARY_HH)
+write_csv(cluster_status, CLUSTER_STATUS_CSV, na = "NA")
+log_msg("Wrote %s (%d clusters).", CLUSTER_STATUS_CSV, nrow(cluster_status))
 
 changed_rows <- working_sl_new %>% filter(strata_id %in% unique(all_new_rows$strata_id)) %>%
   select(strata_id, achieved_clusters, achieved_sample, realized_moe_pct)

@@ -116,11 +116,20 @@ PROJECT_DIR <- "c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N
 MONITORING_DIR <- "c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/2_monitoring"
 setwd(PROJECT_DIR)
 source("scripts/shared/assert_plausible.R")
+# 2026-09-13: the achieved/accessibility/strata-aggregation logic below is
+# now a real shared call (scripts/shared/frame_status.R), not a mirrored
+# copy - this and merge_partner_resample_batch.R had already drifted twice
+# (the below-4-threshold rule, then the MSNA Light exclusion) under the
+# "duplicated, not imported" convention this project otherwise deliberately
+# keeps everywhere else. See that file's own header for why this one case
+# gets a real source() instead.
+source("scripts/shared/frame_status.R")
 
 SF_DIR <- "output/data/data_collection"
 FULL_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v7_FULL.csv")
 WORKING_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v7_WORKING.csv")
 STRATA_WORKING_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v7_WORKING.csv")
+CLUSTER_STATUS_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_cluster_status_v7.csv")
 # CORRECTED 2026-09-08: was hardcoded to the dashboard_app/data/ mirror,
 # which only refreshes on a full deploy_dashboard.R run - flagged repeatedly
 # during the 2026-09-07 incident review as a real, live staleness risk
@@ -132,12 +141,12 @@ REAL_SUBMISSIONS_CSV <- file.path(MONITORING_DIR, "data", "real_submissions.csv"
 log_lines <- character(0)
 log_msg <- function(...) { m <- sprintf(...); cat(m, "\n"); log_lines <<- c(log_lines, m) }
 
-realized_moe <- function(achieved_sample, N_hh, m, ICC, Z = qnorm(0.95), p = 0.5) {
-  deff  <- 1 + (m - 1) * ICC
-  ndeff <- achieved_sample * (N_hh - 1) / (N_hh - achieved_sample)
-  n0    <- ndeff / deff
-  sqrt(Z^2 * p * (1 - p) / n0)
-}
+# 2026-09-13: realized_moe() is now realized_moe_unequal() (scripts/shared/
+# frame_status.R) - Jack's explicit call (Task 4) for the proper Kish-style
+# unequal-cluster-size DEFF formula rather than the simple average-size
+# correction, since it strictly generalizes the old uniform-m formula
+# (verified algebraically to reduce to it exactly when cluster sizes don't
+# vary) rather than being a different formula for the common case.
 
 log_msg("=== WORKING frame refresh: %s ===", format(Sys.time()))
 log_msg("Real-submissions source: %s (modified %s)", REAL_SUBMISSIONS_CSV, format(file.info(REAL_SUBMISSIONS_CSV)$mtime))
@@ -200,49 +209,31 @@ subs <- read_csv(REAL_SUBMISSIONS_CSV, show_col_types = FALSE, col_types = cols(
 # workbook) - do this same fix there before rebuilding partner workbooks.
 CONFIRMED_DELETIONS_OVERLAY_CSV <- file.path(MONITORING_DIR, "data", "CONFIRMED_DELETIONS_OVERLAY.csv")
 deletions_overlay <- read_csv(CONFIRMED_DELETIONS_OVERLAY_CSV, show_col_types = FALSE, col_types = cols(.default = "c"))
-confirmed_deletion_uuids <- deletions_overlay %>% filter(status == "confirmed") %>% pull(uuid)
-log_msg("Confirmed-deletions overlay: %d rows (%d confirmed, %d contested/other).", nrow(deletions_overlay), length(confirmed_deletion_uuids), nrow(deletions_overlay) - length(confirmed_deletion_uuids))
+log_msg("Confirmed-deletions overlay: %d rows (%d confirmed, %d contested/other).",
+        nrow(deletions_overlay), sum(deletions_overlay$status == "confirmed"), sum(deletions_overlay$status != "confirmed"))
 
-achieved <- subs %>%
-  filter(
-    interview_outcome == "completed",
-    is_duplicate != "TRUE",
-    !(matched_survey_id %in% c(NA, "", "NA")),
-    !(submission_uuid %in% confirmed_deletion_uuids)
-  )
-log_msg("Real submissions: %d total, %d achieved (canonical formula).", nrow(subs), nrow(achieved))
+achieved_lookup <- compute_achieved_lookup(subs, deletions_overlay)
+log_msg("Real submissions: %d total, %d achieved (canonical formula).", achieved_lookup$n_total, achieved_lookup$n_achieved)
 
 # ---- Non-IDP: exact survey_id drop ----
-achieved_non_idp_survey_ids <- achieved %>% filter(pop_type == "non_idp") %>% pull(matched_survey_id) %>% unique()
+achieved_non_idp_survey_ids <- achieved_lookup$non_idp_survey_ids
 log_msg("Non-IDP achieved survey_ids (exact join): %d", length(achieved_non_idp_survey_ids))
 
 # ---- IDP: count-based drop per (cluster, primary/reserve) ----
-achieved_idp_counts <- achieved %>%
-  filter(pop_type == "idp") %>%
-  count(matched_cluster_id, matched_status, name = "n_achieved")
+achieved_idp_counts <- achieved_lookup$idp_counts
 log_msg("IDP (cluster, status) combinations with achieved interviews: %d", nrow(achieved_idp_counts))
 
 # ---- Stage 1: covered, not-excluded, and currently ward-accessible - the
 # design's true in-scope pool right now, BEFORE any field-completion
 # filtering. This is what strata-level achieved_clusters/achieved_sample
 # below is computed from (see header note on terminology). ------------------
-covered <- full_df %>% filter(coverage_status == "covered", exclusion_reason == "none")
-# 2026-09-08: flipped from is.na(...) | != "Inaccessible" (NA counted as
-# accessible) to !is.na(...) & != "Inaccessible" (NA excluded, pending
-# review) - same rebuild-wide rule as merge_partner_resample_batch.R's
-# identical logic (mirrored, not imported, per this project's standalone-
-# script convention - kept in sync deliberately, same as the threshold note
-# below).
-covered_accessible <- covered %>% filter(!is.na(ward_accessible_status) & ward_accessible_status != "Inaccessible")
-
-# 2026-09-05, Jack's threshold decision (same evening as the ward-
-# accessibility fix above, discussed after seeing how many straddling
-# Non-IDP hexagons - a hex spanning two wards with different status - end
-# up with only a handful of accessible households left): a cluster with
-# FEWER than NON_IDP_MIN_ACCESSIBLE_PRIMARY_HH (4) still-accessible
-# primary households is treated as fully inaccessible, not just the
-# literal 0-accessible case. Reasoning: those few remaining households sit
-# closest to the inaccessible ward's boundary (least reliable to safely
+# 2026-09-05, Jack's threshold decision (discussed after seeing how many
+# straddling Non-IDP hexagons - a hex spanning two wards with different
+# status - end up with only a handful of accessible households left): a
+# cluster with FEWER than NON_IDP_MIN_ACCESSIBLE_PRIMARY_HH (4) still-
+# accessible primary households is treated as fully inaccessible, not just
+# the literal 0-accessible case. Reasoning: those few remaining households
+# sit closest to the inaccessible ward's boundary (least reliable to safely
 # collect - the same concern that argued for a stratum-level, not same-
 # hex, supplementary redraw), a dedicated field visit for 1-3 households
 # is operationally inefficient, and the stratum-level supplementary draw
@@ -253,21 +244,21 @@ covered_accessible <- covered %>% filter(!is.na(ward_accessible_status) & ward_a
 # clearly still worth collecting - the threshold only drops clusters below
 # it, not every mixed-status one. IDP is unaffected (single-point sites,
 # no straddling-hex/accessible-household-count concept applies).
-# Mirrored (duplicated, not imported, per this project's standalone-script
-# convention) in build_partner_dc_packages.py's identical
-# NON_IDP_MIN_ACCESSIBLE_PRIMARY_HH / cluster_accessible_primary_n logic -
-# same threshold, same counting basis, kept in sync deliberately.
+# 2026-09-13: this and the covered/covered_accessible computation now come
+# from compute_cluster_accessibility() (scripts/shared/frame_status.R) -
+# still mirrored (duplicated, not imported) in build_partner_dc_packages.py's
+# own NON_IDP_MIN_ACCESSIBLE_PRIMARY_HH logic, since that's Python and can't
+# source() this R file - same threshold, same counting basis, kept in sync
+# deliberately as before.
 NON_IDP_MIN_ACCESSIBLE_PRIMARY_HH <- 4
-cluster_accessible_primary_n <- covered %>%
-  filter(pop_type == "non_idp", status == "primary", !is.na(ward_accessible_status) & ward_accessible_status != "Inaccessible") %>%
-  count(cluster_id, name = "n_accessible_primary")
-below_threshold_clusters <- cluster_accessible_primary_n %>%
-  filter(n_accessible_primary < NON_IDP_MIN_ACCESSIBLE_PRIMARY_HH) %>%
-  pull(cluster_id)
-n_before_threshold_drop <- nrow(covered_accessible)
-covered_accessible <- covered_accessible %>% filter(!(cluster_id %in% below_threshold_clusters))
-n_ward_inaccessible <- nrow(covered) - n_before_threshold_drop
-n_below_threshold_dropped <- n_before_threshold_drop - nrow(covered_accessible)
+accessibility <- compute_cluster_accessibility(full_df, NON_IDP_MIN_ACCESSIBLE_PRIMARY_HH)
+covered <- accessibility$covered
+covered_accessible <- accessibility$covered_accessible
+below_threshold_clusters <- accessibility$below_threshold_clusters
+
+covered_by_ward_only <- covered %>% filter(!is.na(ward_accessible_status) & ward_accessible_status != "Inaccessible")
+n_ward_inaccessible <- nrow(covered) - nrow(covered_by_ward_only)
+n_below_threshold_dropped <- nrow(covered_by_ward_only) - nrow(covered_accessible)
 log_msg(
   "FULL rows: %d | covered & not excluded: %d | ward-inaccessible rows dropped: %d | below-%d-accessible-HH clusters (%d clusters) also dropped entirely: %d rows | in-scope pool: %d",
   nrow(full_df), nrow(covered), n_ward_inaccessible, NON_IDP_MIN_ACCESSIBLE_PRIMARY_HH,
@@ -354,95 +345,43 @@ strata_working_old <- read_csv(STRATA_WORKING_CSV, show_col_types = FALSE, col_t
 # inaccessible, or a straddling cluster drops below the 4-accessible-HH
 # threshold?). Household-level Achieved/Collected (workbook, dashboard)
 # already keep full credit regardless of current accessibility - this is
-# the SAME principle applied to achieved_sample, which until now did not:
-# a row excluded from covered_accessible (ward-inaccessible, or dropped by
-# the threshold rule) that ALREADY has a real completed interview was
-# silently treated as still-outstanding capacity, inflating the shortfall
-# used to size the supplementary draw - i.e. asking for NEW households to
-# replace work that's already done. Quantified nationally before
-# implementing: 341 real completed interviews stranded this way (147
-# Non-IDP exact-survey_id, 194 IDP count-based, capped per cluster so it
-# can never over-credit past what's real), 254 of them inside the
-# then-current 89-strata/1,346-household shortfall list, closing 9
-# strata's shortfall to zero outright - see CLAUDE.md for the full
-# breakdown. Non-IDP: exact survey_id join (achieved_non_idp_survey_ids,
-# already computed above for the household-level drop). IDP: count-based
-# per cluster, capped at min(excluded rows, achieved count) - can't credit
-# more stranded slots than there are excluded rows to represent; specific
-# rows picked deterministically (lowest interview_number first) since IDP
-# achieved is inherently count-based, not tied to a specific physical slot
-# (same reasoning as the household-level IDP achieved-row-drop above).
-excluded_primary <- covered %>%
-  filter(status == "primary") %>%
-  filter(
-    # 2026-09-08: NA now included here too (was only true "Inaccessible"),
-    # to stay the exact complement of covered_accessible's flipped rule
-    # above - an already-achieved row with an unmatched ward still gets the
-    # stranded-achieved credit below, same reasoning as the Inaccessible case.
-    (is.na(ward_accessible_status) | ward_accessible_status == "Inaccessible") |
-    (pop_type == "non_idp" & cluster_id %in% below_threshold_clusters)
-  ) %>%
-  # 2026-09-11: sampling_method == "MSNA Light" rows (government-negotiated,
-  # unverifiable collection - Malam Fatori/Gajiram/Mairari) never contribute
-  # stranded-achieved credit to a stratum's normal achieved_sample, same
-  # reasoning as the strata_agg filter below - these rows must never touch
-  # the "MSNA Full Design" achieved/target figures Jack agreed to keep pure.
-  filter(is.na(sampling_method) | sampling_method != "MSNA Light")
-
-stranded_non_idp <- excluded_primary %>%
-  filter(pop_type == "non_idp", survey_id %in% achieved_non_idp_survey_ids)
-
-idp_excluded <- excluded_primary %>% filter(pop_type == "idp")
-idp_cluster_stranded_n <- idp_excluded %>%
-  count(cluster_id, name = "n_excluded") %>%
-  left_join(achieved_idp_counts %>% filter(matched_status == "primary") %>% select(cluster_id = matched_cluster_id, n_achieved), by = "cluster_id") %>%
-  mutate(n_achieved = coalesce(n_achieved, 0L), n_stranded = pmin(n_excluded, n_achieved)) %>%
-  filter(n_stranded > 0)
-
-stranded_idp <- idp_excluded %>%
-  inner_join(idp_cluster_stranded_n %>% select(cluster_id, n_stranded), by = "cluster_id") %>%
-  mutate(interview_number_num = as.integer(interview_number)) %>%
-  group_by(cluster_id) %>%
-  arrange(interview_number_num, .by_group = TRUE) %>%
-  filter(row_number() <= n_stranded) %>%
-  ungroup() %>%
-  select(-interview_number_num)
-
-stranded_rows <- bind_rows(stranded_non_idp, stranded_idp)
+# the SAME principle applied to achieved_sample. Formalized 2026-09-13 as
+# this project's explicit CORE PRINCIPLE (Jack): a completed interview is
+# permanent and never retroactively excluded by later accessibility loss;
+# current accessibility only gates what's still planned but not yet
+# completed. Quantified nationally when first built: 341 real completed
+# interviews stranded this way, 254 of them inside the then-current
+# 89-strata/1,346-household shortfall list, closing 9 strata's shortfall to
+# zero outright - see CLAUDE.md for the full breakdown. sampling_method ==
+# "MSNA Light" rows (government-negotiated, unverifiable collection) never
+# contribute here, same reasoning as the aggregation below - both are now
+# one shared call (scripts/shared/frame_status.R's compute_strata_achieved()),
+# not separately-maintained logic.
+strata_result <- compute_strata_achieved(full_df, achieved_lookup, accessibility, filter_ward_accessible = TRUE)
 log_msg(
-  "Stranded-achieved credit: %d Non-IDP + %d IDP = %d real completed interviews sit in rows excluded from the accessible pool (ward-inaccessible or below-threshold) - added back into strata-level achieved_sample so the shortfall doesn't double-ask for them.",
-  nrow(stranded_non_idp), nrow(stranded_idp), nrow(stranded_rows)
+  "Stranded-achieved credit: %d real completed interview(s) sit in rows excluded from the accessible pool (ward-inaccessible or below-threshold) - added back into strata-level achieved_sample so the shortfall doesn't double-ask for them.",
+  nrow(strata_result$stranded_rows)
 )
 
-# 2026-09-11: sampling_method == "MSNA Light" rows are excluded from this
-# strata-level aggregation ONLY - they stay fully included in covered_
-# accessible itself (and therefore in household-level WORKING/non_idp_rows/
-# idp_rows above), since field teams still need them on the to-do list.
-# Jack's explicit call for the 3 government-negotiated LGAs (Abadam/
-# Nganzai/Guzamala, no georeferencing possible): this data must never blend
-# into a stratum's normal target_sample/achieved_sample, which represents
-# the verified "MSNA Full Design" - these strata's existing achieved figures
-# predate the arrangement and must stay exactly as they were. See CLAUDE.md
-# for the full discussion.
-strata_agg <- bind_rows(
-    covered_accessible %>% filter(status == "primary", is.na(sampling_method) | sampling_method != "MSNA Light"),
-    stranded_rows
-  ) %>%
-  group_by(strata_id) %>%
-  summarise(achieved_clusters_new = n_distinct(cluster_id), achieved_sample_new = n(), .groups = "drop")
+# 2026-09-13: realized_moe_pct now uses realized_moe_unequal() (Task 4,
+# Jack's call - the proper Kish-style unequal-cluster-size DEFF formula),
+# fed the real per-cluster achieved sizes for each stratum from strata_
+# result$cluster_sizes, not just the nominal m_used uniformly.
+cluster_size_vecs <- split(strata_result$cluster_sizes$n, strata_result$cluster_sizes$strata_id)
 
 strata_working_new <- strata_working_old %>%
-  left_join(strata_agg, by = "strata_id") %>%
+  left_join(strata_result$agg %>% rename(achieved_clusters_new = achieved_clusters, achieved_sample_new = achieved_sample), by = "strata_id") %>%
   mutate(
     achieved_clusters_new = coalesce(achieved_clusters_new, 0L),
     achieved_sample_new = coalesce(achieved_sample_new, 0L),
     achieved_clusters = achieved_clusters_new,
     achieved_sample = achieved_sample_new,
-    realized_moe_pct = if_else(
-      achieved_sample > 0 & achieved_sample < N_hh,
-      100 * realized_moe(achieved_sample, N_hh, m_used, ICC),
-      NA_real_
-    )
+    realized_moe_pct = mapply(function(strata_id, achieved_sample, N_hh, ICC) {
+      if (!(achieved_sample > 0 & achieved_sample < N_hh)) return(NA_real_)
+      sizes <- cluster_size_vecs[[strata_id]]
+      if (is.null(sizes)) return(NA_real_)
+      100 * realized_moe_unequal(achieved_sample, N_hh, sizes, ICC)
+    }, strata_id, achieved_sample, N_hh, ICC)
   ) %>%
   select(-achieved_clusters_new, -achieved_sample_new)
 
@@ -471,6 +410,20 @@ assert_plausible("strata with achieved_sample > target_sample", nrow(still_over_
 
 write_csv(strata_working_new, STRATA_WORKING_CSV, na = "NA")
 log_msg("Wrote %s (in place, no version bump).", STRATA_WORKING_CSV)
+
+# ---- Per-cluster status (Task 3, 2026-09-13) - completed / partially_
+# completed_access_lost / not_started_access_lost / not_started_other.
+# Written fresh every run so it's always current for any downstream
+# consumer, most importantly draw_supplementary_clusters_batch.R and the
+# IDP equivalent's Tier-2 repeat-draw exclusion (Task 3B) - an access-
+# compromised cluster's hex/site must never be a repeat-draw candidate,
+# and those scripts read this file rather than recomputing cluster status
+# themselves (which would mean a 4th copy of the achieved-lookup machinery).
+cluster_status <- compute_cluster_status(full_df, achieved_lookup, accessibility, NON_IDP_MIN_ACCESSIBLE_PRIMARY_HH)
+write_csv(cluster_status, CLUSTER_STATUS_CSV, na = "NA")
+status_counts <- cluster_status %>% count(status)
+log_msg("\nPer-cluster status (%s): %d clusters - %s", CLUSTER_STATUS_CSV, nrow(cluster_status),
+        paste(sprintf("%s=%d", status_counts$status, status_counts$n), collapse = ", "))
 
 log_dir <- file.path(SF_DIR, "_working_refresh_logs")
 dir.create(log_dir, showWarnings = FALSE)
