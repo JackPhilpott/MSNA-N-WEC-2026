@@ -278,13 +278,42 @@ print(f"Partner coverage resolved for {len(partners_by_pcode)} LGAs.")
 # ---------------------------------------------------------------------------
 # 3. Household-level sampling frame (already covered-only)
 # ---------------------------------------------------------------------------
+# 2026-09-13 fix: sampling_method == "MSNA Light" rows (government-
+# negotiated, unverifiable collection - Abadam/Nganzai/Guzamala) were
+# silently flowing into the same KML/workbook structures as every normal
+# partner point, with no separation at all - checked directly, this script
+# had zero sampling_method awareness before this fix. FACT is the assigned
+# partner for all 3 MSNA Light LGAs, so their next package regen would have
+# mixed these 564 rows into FACT's normal deliverable, undifferentiated -
+# exactly what Jack's "must be visibly different, never mixed in"
+# requirement (2026-09-11) exists to prevent. Split at load time into the
+# normal MSNA Full Design stream (rows_by_pcode/_full, unchanged variable
+# names and downstream behaviour) and a separate MSNA Light stream
+# (rows_by_pcode_msna_light/_full) - the main Sampling Points/Needs
+# Collecting/Cluster Summary sheets and README headline never see MSNA
+# Light rows at all; a distinctly-labelled extra sheet and a separate KML
+# subfolder do (see write_partner_workbook() and the main loop below).
+MSNA_LIGHT_SAMPLING_METHOD = "MSNA Light"
+
+
+def _is_msna_light(r):
+    return r.get("sampling_method") == MSNA_LIGHT_SAMPLING_METHOD
+
+
 with open(STAGE2_CSV, encoding="utf-8") as f:
-    frame_rows = list(csv.DictReader(f))
-print(f"Loaded {len(frame_rows)} household-level rows (WORKING - drives KML placemarks, unchanged).")
+    frame_rows_all = list(csv.DictReader(f))
+frame_rows = [r for r in frame_rows_all if not _is_msna_light(r)]
+frame_rows_msna_light = [r for r in frame_rows_all if _is_msna_light(r)]
+print(f"Loaded {len(frame_rows_all)} household-level rows (WORKING - drives KML placemarks): "
+      f"{len(frame_rows)} MSNA Full Design, {len(frame_rows_msna_light)} MSNA Light (kept separate).")
 
 rows_by_pcode = defaultdict(list)
 for r in frame_rows:
     rows_by_pcode[r["adm2_pcode"]].append(r)
+
+rows_by_pcode_msna_light = defaultdict(list)
+for r in frame_rows_msna_light:
+    rows_by_pcode_msna_light[r["adm2_pcode"]].append(r)
 
 # ---------------------------------------------------------------------------
 # 3b. FULL household-level frame (2026-09-05) - drives the workbook's
@@ -367,12 +396,19 @@ def _in_scope_row(r):
 
 
 with open(STAGE2_FULL_CSV, encoding="utf-8") as f:
-    frame_rows_full = [r for r in csv.DictReader(f) if _in_scope_row(r)]
-print(f"Loaded {len(frame_rows_full)} household-level rows (FULL, covered-or-population-threshold-excluded - drives workbook sheets).")
+    frame_rows_full_all = [r for r in csv.DictReader(f) if _in_scope_row(r)]
+frame_rows_full = [r for r in frame_rows_full_all if not _is_msna_light(r)]
+frame_rows_full_msna_light = [r for r in frame_rows_full_all if _is_msna_light(r)]
+print(f"Loaded {len(frame_rows_full_all)} household-level rows (FULL, covered-or-population-threshold-excluded - drives workbook sheets): "
+      f"{len(frame_rows_full)} MSNA Full Design, {len(frame_rows_full_msna_light)} MSNA Light (kept separate).")
 
 rows_by_pcode_full = defaultdict(list)
 for r in frame_rows_full:
     rows_by_pcode_full[r["adm2_pcode"]].append(r)
+
+rows_by_pcode_full_msna_light = defaultdict(list)
+for r in frame_rows_full_msna_light:
+    rows_by_pcode_full_msna_light[r["adm2_pcode"]].append(r)
 
 # ---------------------------------------------------------------------------
 # 3d. Sub-4-accessible-household cluster threshold (2026-09-05, Jack's
@@ -451,9 +487,15 @@ with open(REAL_SUBMISSIONS_CSV, encoding="utf-8") as f:
     real_subs = list(csv.DictReader(f))
 print(f"Loaded {len(real_subs)} real submission rows.")
 
+# FIX 2026-09-11: was status=="confirmed" only, missing "contested" - a
+# contested row that was reviewed and upheld (deletion stands) is equally
+# settled/terminal as a plain "confirmed" one, per 2_monitoring's own
+# TERMINAL_STATUSES = {"confirmed", "contested"} (issue_tracker.R). The old
+# filter silently still counted an upheld-on-appeal deletion as Achieved.
+_CONFIRMED_OVERLAY_TERMINAL_STATUSES = {"confirmed", "contested"}
 with open(CONFIRMED_DELETIONS_OVERLAY_CSV, encoding="utf-8") as f:
-    _confirmed_deleted_uuids = {r["uuid"] for r in csv.DictReader(f) if r["status"] == "confirmed"}
-print(f"Confirmed-deletions overlay: {len(_confirmed_deleted_uuids)} confirmed uuid(s) excluded from Achieved.")
+    _confirmed_deleted_uuids = {r["uuid"] for r in csv.DictReader(f) if r["status"] in _CONFIRMED_OVERLAY_TERMINAL_STATUSES}
+print(f"Confirmed-deletions overlay: {len(_confirmed_deleted_uuids)} confirmed/contested uuid(s) excluded from Achieved.")
 
 
 def _is_achieved(r):
@@ -932,8 +974,11 @@ def build_partner_summary_table(meta_rows):
     return out
 
 
-def write_partner_workbook(partner_dir_path, partner_name, meta_rows, cluster_rows=None):
-    if not meta_rows:
+def write_partner_workbook(partner_dir_path, partner_name, meta_rows, cluster_rows=None,
+                            meta_rows_msna_light=None, cluster_rows_msna_light=None):
+    meta_rows_msna_light = meta_rows_msna_light or []
+    cluster_rows_msna_light = cluster_rows_msna_light or []
+    if not meta_rows and not meta_rows_msna_light:
         return
     cluster_rows = cluster_rows or []
     from openpyxl.worksheet.table import Table, TableStyleInfo
@@ -1140,6 +1185,70 @@ def write_partner_workbook(partner_dir_path, partner_name, meta_rows, cluster_ro
         ws_cs.conditional_formatting.add(status_range, CellIsRule(operator="equal", formula=['"Not started"'], fill=openpyxl.styles.PatternFill("solid", fgColor="F8CBAD")))
         ws_cs.conditional_formatting.add(status_range, CellIsRule(operator="equal", formula=['"Inaccessible"'], fill=openpyxl.styles.PatternFill("solid", fgColor="D9D9D9")))
 
+    # ---- Sheet 5 (2026-09-13): MSNA Light - a completely separate,
+    # distinctly-coloured sheet for the government-negotiated, unverified
+    # LGAs (Abadam/Nganzai/Guzamala as of this writing). Deliberately NOT
+    # blended into the README headline, Target Sample Summary table, or any
+    # of Sheets 2-4 above - those must keep reflecting only this partner's
+    # normal "MSNA Full Design" workload, per Jack's explicit requirement
+    # (2026-09-11) that this data must never be mixed in. Only rendered when
+    # this partner actually has MSNA Light rows (checking here, not at the
+    # call site, keeps this self-contained).
+    if meta_rows_msna_light or cluster_rows_msna_light:
+        ws_light = wb_out.create_sheet("MSNA Light")
+        ws_light.column_dimensions["A"].width = 30
+        ws_light.column_dimensions["B"].width = 95
+        rl = 1
+        ws_light.cell(row=rl, column=1, value=f"{partner_name} - MSNA Light (government-negotiated, unverified)").font = openpyxl.styles.Font(bold=True, size=14, color="A5281B")
+        rl += 1
+        ws_light.cell(
+            row=rl, column=1,
+            value=("These points are NOT part of your normal MSNA Full Design workload above - a separate, one-off "
+                   "arrangement negotiated directly with the government for specific LGAs where full access was not "
+                   "otherwise possible. Government enumerators only, no GPS-proximity verification of compliance is "
+                   "possible for these points. This data will NEVER be counted in state/regional/national aggregation "
+                   "or compared against any other LGA - it is reported as disclosed, LGA-level findings only. Kept "
+                   "entirely separate from every figure above (Target Sample Summary, Sampling Points, Needs "
+                   "Collecting, Cluster Summary) - those reflect your normal workload only.")
+        ).alignment = openpyxl.styles.Alignment(wrap_text=True, vertical="top")
+        ws_light.merge_cells(start_row=rl, start_column=1, end_row=rl, end_column=2)
+        ws_light.row_dimensions[rl].height = 90
+        rl += 2
+
+        light_target = sum(x["Target HHs (primary)"] for x in cluster_rows_msna_light)
+        light_achieved = sum(x["Achieved"] for x in cluster_rows_msna_light)
+        light_headline = [
+            ("LGAs", ", ".join(sorted({x["LGA"] for x in cluster_rows_msna_light}))),
+            ("Total clusters", len(cluster_rows_msna_light)),
+            ("Total target (MSNA Light only)", light_target),
+            ("Achieved so far (MSNA Light only)", light_achieved),
+        ]
+        for label, val in light_headline:
+            ws_light.cell(row=rl, column=1, value=label).font = openpyxl.styles.Font(bold=True)
+            cell = ws_light.cell(row=rl, column=2, value=val)
+            cell.fill = openpyxl.styles.PatternFill("solid", fgColor="FBE5D6")
+            rl += 1
+        rl += 1
+
+        ws_light.cell(row=rl, column=1, value="MSNA Light sampling points").font = openpyxl.styles.Font(bold=True, size=12)
+        rl += 1
+        pts_header_row = rl
+        for c, h in enumerate(METADATA_COLUMNS, start=1):
+            cell = ws_light.cell(row=rl, column=c, value=h)
+            cell.font = openpyxl.styles.Font(bold=True, color="FFFFFF")
+            cell.fill = openpyxl.styles.PatternFill("solid", fgColor="A5281B")
+        rl += 1
+        for row in meta_rows_msna_light:
+            for c, h in enumerate(METADATA_COLUMNS, start=1):
+                ws_light.cell(row=rl, column=c, value=row.get(h, ""))
+            rl += 1
+        if meta_rows_msna_light:
+            tbl_light = Table(displayName="MSNALightPoints", ref=f"A{pts_header_row}:{openpyxl.utils.get_column_letter(len(METADATA_COLUMNS))}{rl-1}")
+            tbl_light.tableStyleInfo = TableStyleInfo(name="TableStyleMedium3", showRowStripes=True)
+            ws_light.add_table(tbl_light)
+        for i, col in enumerate(METADATA_COLUMNS, start=1):
+            ws_light.column_dimensions[openpyxl.utils.get_column_letter(i)].width = max(12, min(28, len(col) + 4))
+
     os.makedirs(partner_dir_path, exist_ok=True)
     wb_out.save(os.path.join(partner_dir_path, f"{safe_folder_name(partner_name)}_sampling_points_summary.xlsx"))
 
@@ -1151,11 +1260,19 @@ stats = Counter()
 partner_folders = set()
 partner_meta_rows = defaultdict(list)
 partner_cluster_rows = defaultdict(list)
+# 2026-09-13: separate MSNA Light tracking - never merged into the dicts
+# above. All 3 MSNA Light LGAs (Abadam/Nganzai/Guzamala) are Non-IDP only
+# (checked directly - no idp_ MSNA Light strata exist), so this only needs
+# the Non-IDP path, not IDP's.
+partner_meta_rows_msna_light = defaultdict(list)
+partner_cluster_rows_msna_light = defaultdict(list)
 
 for pcode, partners in partners_by_pcode.items():
     rows = rows_by_pcode.get(pcode)
     rows_full = rows_by_pcode_full.get(pcode) or []
-    if not rows and not rows_full:
+    rows_msna_light = rows_by_pcode_msna_light.get(pcode) or []
+    rows_full_msna_light = rows_by_pcode_full_msna_light.get(pcode) or []
+    if not rows and not rows_full and not rows_msna_light and not rows_full_msna_light:
         continue
     v = master_lgas[pcode]
     state_name, lga_name = v["adm1_name"], v["adm2_name"]
@@ -1191,6 +1308,16 @@ for pcode, partners in partners_by_pcode.items():
         if r["pop_type"] == "idp":
             idp_rows_by_cluster_full.setdefault(r["cluster_id"], r)
 
+    # ---- MSNA Light equivalents (2026-09-13) - same construction as the
+    # normal Non-IDP path above, kept completely separate. Non-IDP only,
+    # see the note above partner_meta_rows_msna_light. ----------------------
+    non_idp_primary_rows_msna_light = [r for r in rows_msna_light if r["pop_type"] == "non_idp" and r["status"] == "primary"]
+    non_idp_reserve_rows_msna_light = [r for r in rows_msna_light if r["pop_type"] == "non_idp" and r["status"] == "reserve"]
+    non_idp_primary_msna_light = [non_idp_placemark(r) for r in non_idp_primary_rows_msna_light]
+    non_idp_reserve_msna_light = [non_idp_placemark(r) for r in non_idp_reserve_rows_msna_light]
+    non_idp_primary_rows_full_msna_light = [r for r in rows_full_msna_light if r["pop_type"] == "non_idp" and r["status"] == "primary"]
+    non_idp_reserve_rows_full_msna_light = [r for r in rows_full_msna_light if r["pop_type"] == "non_idp" and r["status"] == "reserve"]
+
     for partner in partners:
         partner_dir = safe_folder_name(partner)
         partner_root = os.path.join(OUT_ROOT, partner_dir)
@@ -1210,6 +1337,18 @@ for pcode, partners in partners_by_pcode.items():
         wrote_c = write_kml(os.path.join(idp_kml_dir, "idp_clusters_primary.kml"), "IDP clusters (Tier 1 primary)", idp_primary, icon_href=ICON_IDP_PRIMARY)
         wrote_d = write_kml(os.path.join(idp_kml_dir, "idp_clusters_tier2_backup.kml"), "IDP clusters (Tier 2 backup points)", idp_tier2_backup, icon_href=ICON_IDP_TIER2_BACKUP)
 
+        # 2026-09-13: MSNA Light points go in a physically separate top-level
+        # folder (MSNA_Light/KML/, a sibling of Non_IDP/ and IDP/, not nested
+        # inside either) - never merged into FACT's normal Non_IDP/KML/ folder.
+        # This is for the government-negotiated arrangement specifically, so
+        # it stays visibly distinct in the delivered folder structure, not
+        # just in the workbook.
+        msna_light_kml_dir = os.path.join(lga_dir, "MSNA_Light", "KML")
+        wrote_e = write_kml(os.path.join(msna_light_kml_dir, "msna_light_households_primary.kml"), "MSNA Light households (primary) - government-negotiated, unverified", non_idp_primary_msna_light, icon_href=ICON_NON_IDP_PRIMARY)
+        wrote_f = write_kml(os.path.join(msna_light_kml_dir, "msna_light_households_reserve.kml"), "MSNA Light households (reserve) - government-negotiated, unverified", non_idp_reserve_msna_light, icon_href=ICON_NON_IDP_RESERVE)
+        stats["msna_light_primary_pts"] += len(non_idp_primary_msna_light) if wrote_e else 0
+        stats["msna_light_reserve_pts"] += len(non_idp_reserve_msna_light) if wrote_f else 0
+
         # Cluster_guide/ subfolders created up front (even though the docx
         # files themselves are copied in later by build_cluster_factsheets.py)
         # so the folder skeleton is complete/consistent even for an LGA
@@ -1219,7 +1358,7 @@ for pcode, partners in partners_by_pcode.items():
         if wrote_c or wrote_d:
             os.makedirs(os.path.join(lga_dir, "IDP", "Cluster_guide"), exist_ok=True)
 
-        if wrote_a or wrote_b or wrote_c or wrote_d:
+        if wrote_a or wrote_b or wrote_c or wrote_d or wrote_e or wrote_f:
             stats["lga_folders"] += 1
             map_src = os.path.join(LGA_MAPS_DIR, lga_map_filename(pcode, lga_name))
             if os.path.exists(map_src):
@@ -1259,16 +1398,42 @@ for pcode, partners in partners_by_pcode.items():
         if idp_rows_by_cluster_full:
             cluster_rows.extend(idp_cluster_summary_row(state_name, lga_name, cid, r) for cid, r in idp_rows_by_cluster_full.items())
 
+        # 2026-09-13: MSNA Light meta/cluster rows - completely separate
+        # dicts, same FULL-sourced construction, Non-IDP only (see the note
+        # where partner_meta_rows_msna_light is created). These never touch
+        # `meta`/`cluster_rows` above, so FACT's normal Target/Achieved/
+        # Collected figures are unaffected by them.
+        meta_msna_light = partner_meta_rows_msna_light[(partner_dir, partner)]
+        if non_idp_primary_rows_full_msna_light:
+            meta_msna_light.extend(non_idp_metadata_row(partner, state_name, lga_name, r) for r in non_idp_primary_rows_full_msna_light)
+        if non_idp_reserve_rows_full_msna_light:
+            meta_msna_light.extend(non_idp_metadata_row(partner, state_name, lga_name, r) for r in non_idp_reserve_rows_full_msna_light)
+
+        cluster_rows_msna_light = partner_cluster_rows_msna_light[(partner_dir, partner)]
+        if non_idp_primary_rows_full_msna_light or non_idp_reserve_rows_full_msna_light:
+            cluster_rows_msna_light.extend(non_idp_cluster_summary_rows(state_name, lga_name, non_idp_primary_rows_full_msna_light, non_idp_reserve_rows_full_msna_light))
+
 # ---------------------------------------------------------------------------
 # 8. One summary Excel workbook per partner, at the partner's root folder
 # ---------------------------------------------------------------------------
 failed_workbooks = []
-for (partner_dir, partner_name), meta_rows in partner_meta_rows.items():
+# 2026-09-13: union with the MSNA Light keys too, in case a partner ever has
+# MSNA Light rows with zero normal rows (doesn't happen for FACT today -
+# checked directly - but this loop shouldn't silently skip that partner's
+# workbook entirely if it ever does).
+all_partner_keys = set(partner_meta_rows.keys()) | set(partner_meta_rows_msna_light.keys())
+for partner_dir, partner_name in sorted(all_partner_keys):
+    meta_rows = partner_meta_rows.get((partner_dir, partner_name), [])
     meta_rows.sort(key=lambda r: (r["State"], r["LGA"], r["Point Type"], r.get("Cluster ID", ""), r.get("Survey ID", "")))
     cluster_rows = partner_cluster_rows.get((partner_dir, partner_name), [])
     cluster_rows.sort(key=lambda r: (r["State"], r["LGA"], r["Population Type"], r["Cluster ID"]))
+    meta_rows_msna_light = partner_meta_rows_msna_light.get((partner_dir, partner_name), [])
+    meta_rows_msna_light.sort(key=lambda r: (r["State"], r["LGA"], r["Point Type"], r.get("Cluster ID", ""), r.get("Survey ID", "")))
+    cluster_rows_msna_light = partner_cluster_rows_msna_light.get((partner_dir, partner_name), [])
+    cluster_rows_msna_light.sort(key=lambda r: (r["State"], r["LGA"], r["Population Type"], r["Cluster ID"]))
     try:
-        write_partner_workbook(os.path.join(OUT_ROOT, partner_dir), partner_name, meta_rows, cluster_rows)
+        write_partner_workbook(os.path.join(OUT_ROOT, partner_dir), partner_name, meta_rows, cluster_rows,
+                                meta_rows_msna_light=meta_rows_msna_light, cluster_rows_msna_light=cluster_rows_msna_light)
     except PermissionError:
         # File open/locked (e.g. in Excel) at run time - don't let one locked
         # partner file block every other partner's workbook from writing.
@@ -1284,6 +1449,8 @@ print(f"Non-IDP primary points: {stats['non_idp_primary_pts']}")
 print(f"Non-IDP reserve points: {stats['non_idp_reserve_pts']}")
 print(f"IDP Tier 1 primary points: {stats['idp_primary_pts']}")
 print(f"IDP Tier 2 backup points: {stats['idp_tier2_pts']}")
+print(f"MSNA Light primary points: {stats['msna_light_primary_pts']}")
+print(f"MSNA Light reserve points: {stats['msna_light_reserve_pts']}")
 print(f"LGA summary maps copied: {stats['lga_maps_copied']} (missing: {stats['lga_maps_missing']})")
 print(f"Per-partner summary workbooks written: {len(partner_meta_rows)}")
 print("\nDONE")
