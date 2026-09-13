@@ -4201,7 +4201,55 @@ silently, in case that read is wrong.
 `resampling/scripts/05_build_accessibility_impact_workbook.py`.
 
 **Not done**: Task 2 (design weights) - held per Jack, needs the IDP
-`ssu_probability` formula decision first. `build_partner_dc_packages.py`'s
-`sampling_method` gap (flagged above). FULL's stale MSNA-Light strata
-figures (flagged above). This file's own fix not yet exercised by a live
-run of `05_build_accessibility_impact_workbook.py`.
+`ssu_probability` formula decision first. This file's own contested-status
+fix not yet exercised by a live run of `05_build_accessibility_impact_
+workbook.py`.
+
+## Update 2026-09-13b — Both flagged gaps closed same night, ahead of a DO/Kobo handoff
+
+Jack: needs the frame fresh and correct before handing to the DO for Kobo
+import, more work coming on top of this. Confirmed directly in this
+session before either fix started.
+
+**`build_partner_dc_packages.py`'s `sampling_method` blindness, fixed.**
+Split `frame_rows`/`frame_rows_full` at load time into the normal MSNA
+Full Design stream (unchanged variable names/behaviour) and a separate
+MSNA Light stream - the main README headline, Target Sample Summary,
+Sampling Points, Needs Collecting, and Cluster Summary sheets never see
+MSNA Light rows at all. MSNA Light gets its own distinctly-coloured sheet
+(own headline: LGAs/clusters/target/achieved, own points table) and a
+physically separate `MSNA_Light/KML/` folder per LGA (never merged into
+`Non_IDP/KML/`) - visible in the delivered folder structure, not just the
+workbook. All 3 MSNA Light LGAs are Non-IDP only (checked directly, no
+`idp_` MSNA Light strata exist), so this only needed the Non-IDP code
+path. Regenerated FACT's real live package (`BUILD_DC_ONLY_PARTNER=FACT`,
+scoped - not all 19 partners; backed up the pre-existing Borno/Katsina
+folders and workbook first). Verified thoroughly, not just "it ran": main
+Cluster Summary sheet has zero MSNA Light cluster_ids (grepped for
+`"light"` across all 3 LGAs' rows, empty); MSNA Light sheet shows the
+correct 282 target/47 clusters/0 achieved; KML placemark counts match the
+original draws exactly (204/204/156 across the 3 LGAs).
+
+**FULL's stale MSNA Light strata figures, recomputed.** `non_idp_NG008001`
+29->46 achieved_clusters / 161->263 achieved_sample, `non_idp_NG008010`
+36->49 / 203->281, `non_idp_NG008026` 44->61 / 284->386 - each increase
+matches the 17/13/17 clusters actually drawn for that LGA exactly, a
+strong correctness signal independent of re-deriving the arithmetic by
+hand.
+
+**Kobo/DO question, answered directly rather than assumed either way** (no
+code change from this - informational for whoever configures the Kobo
+tool): `sampling_method` shouldn't need different handling in the FORM
+itself - MSNA Light rows share the same survey_id/cluster_id schema, same
+target/reserve structure, real GPS coordinates as everywhere else. Two
+things flagged as genuinely unknown from this side, not guessed at: (1)
+case routing/assignment - if Kobo assigns cases to specific enumerator
+accounts, the 47 MSNA Light clusters need to route to the government
+enumerators specifically, not FACT's normal field staff; (2) whether the
+form's GPS-capture validation (if it enforces proximity-matching against
+the preloaded point) needs relaxing for MSNA Light entries specifically,
+given compliance there can't be verified either way.
+
+**Not done**: Task 2 still held. The `05_build_accessibility_impact_
+workbook.py` contested-status fix from Update 2026-09-13 still not
+exercised by a live run.
