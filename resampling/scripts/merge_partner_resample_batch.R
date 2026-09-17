@@ -271,6 +271,34 @@ log_msg("Total new household row(s) to append (both FULL and WORKING - all %s LG
 # below, not silently dropped.
 full_hh_new    <- bind_rows(full_hh, all_new_rows)
 unmatched_ward_rows <- all_new_rows %>% filter(is.na(ward_accessible_status))
+# 2026-09-17 (Coordinator, per Jack's ask to close this recurring failure
+# shape - see stamp_ward_accessible_status.py skip, same night, itself a
+# repeat of the 2026-09-07 incident): assert_fresh() above is a TIMESTAMP
+# check and can be defeated if the staged file gets rewritten by some other
+# process AFTER being correctly stamped once - the rewrite bumps mtime
+# without re-running the stamping step, and assert_fresh sees "newer than
+# source" and passes. A genuine per-row unmatched-geography gap (the case
+# the warning below is designed for) affects a FEW rows, never literally
+# every row in a batch - if 100% of a nonempty batch has no
+# ward_accessible_status match, that's not a geography edge case, it's the
+# stamping step never having run on this file at all. Hard-stop that
+# specific, unambiguous signature rather than let it fall through to the
+# same soft warning a real partial mismatch gets - this is exactly the
+# failure mode that shipped 30 unstamped rows silently into a merge tonight
+# before being caught by hand from the log output.
+if (nrow(unmatched_ward_rows) > 0 && nrow(unmatched_ward_rows) == nrow(all_new_rows)) {
+  stop(sprintf(
+    paste0(
+      "merge_partner_resample_batch.R: ALL %d new row(s) have no ward_accessible_status match - ",
+      "this is not a genuine geography gap (those affect a few rows, not every row), it means the ",
+      "staged file was never run through the stamping step, or was rewritten after stamping without ",
+      "re-stamping. Run this first, then re-run the merge:\n\n    %s\n"
+    ),
+    nrow(all_new_rows),
+    sprintf('python "scripts/shared/../../resampling/scripts/stamp_ward_accessible_status.py" "%s"',
+            file.path(STAGING, "new_households.csv"))
+  ))
+}
 if (nrow(unmatched_ward_rows) > 0) {
   log_msg("WARNING: %d new row(s) have no ward_accessible_status match (unmatched geography, not 'not yet computed') - excluded from WORKING pending review: %s",
           nrow(unmatched_ward_rows), paste(unique(unmatched_ward_rows$cluster_id), collapse = ", "))
