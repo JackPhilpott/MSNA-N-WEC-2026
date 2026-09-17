@@ -147,6 +147,32 @@ REAL_SUBMISSIONS_CSV <- file.path(MONITORING_DIR, "data", "real_submissions.csv"
 log_lines <- character(0)
 log_msg <- function(...) { m <- sprintf(...); cat(m, "\n"); log_lines <<- c(log_lines, m) }
 
+# ---- Step 0 (2026-09-17): resweep FULL's ward_accessible_status against
+# the current master ward file BEFORE anything below reads it. Closes the
+# gap documented in CLAUDE.md's "Incident 2026-09-07" / Update 2026-09-08d
+# ("FACT legacy-gap") - ward_accessible_status on an already-merged row was
+# only ever a one-time snapshot from whenever that row was staged/last
+# resweeped, with nothing keeping it in sync as the live master file moved
+# on. That gap was previously closed only once, by hand
+# (resweep_full_ward_accessible_status_2026-09-07.py, run manually
+# 2026-09-08), and has been silently reaccumulating since - exactly the
+# "two steps, someone forgets the order" shape flagged repeatedly this
+# project's history. Wired in here as this script's own first step instead
+# of a separately-remembered standalone script, so it can't be skipped.
+# Real transition counts logged below (not just "ran successfully") so a
+# genuinely partner-facing flip (Inaccessible -> Accessible reopens a
+# cluster into WORKING) is always visible, not a silent diff.
+resweep_result <- system2(
+  "python3",
+  args = shQuote("resampling/scripts/resweep_full_ward_accessible_status_2026-09-07.py"),
+  stdout = TRUE, stderr = TRUE
+)
+log_msg("\n---- Step 0: FULL ward_accessible_status resweep ----")
+for (l in resweep_result) log_msg("%s", l)
+if (!is.null(attr(resweep_result, "status")) && attr(resweep_result, "status") != 0) {
+  stop("resweep_full_ward_accessible_status_2026-09-07.py failed - see output above. Not safe to continue with a FULL frame the resweep may have left half-written.")
+}
+
 # 2026-09-13: realized_moe() is now realized_moe_unequal() (scripts/shared/
 # frame_status.R) - Jack's explicit call (Task 4) for the proper Kish-style
 # unequal-cluster-size DEFF formula rather than the simple average-size
@@ -443,6 +469,28 @@ write_csv(cluster_status, CLUSTER_STATUS_CSV, na = "NA")
 status_counts <- cluster_status %>% count(status)
 log_msg("\nPer-cluster status (%s): %d clusters - %s", CLUSTER_STATUS_CSV, nrow(cluster_status),
         paste(sprintf("%s=%d", status_counts$status, status_counts$n), collapse = ", "))
+
+# ---- Final step (2026-09-17): rebuild the combined sampling frame workbook
+# (NGA_MSNA_2026_sampling_frame_workbook_v8.xlsx) so it never drifts out of
+# sync with the CSVs this run just wrote - Jack's explicit instruction
+# ("they should all come together"), same "don't let two related outputs
+# drift apart" shape as Step 0's ward-status resweep above. Overwritten IN
+# PLACE at its current v8 name every routine refresh (same convention as
+# WORKING/strata-level - only a roster-changing version bump gets a new
+# v-number, a routine content refresh doesn't). Runs last, after every
+# other output this script produces is already on disk, since the
+# workbook script reads the FULL/WORKING/strata CSVs directly from disk
+# rather than taking them as in-memory objects.
+workbook_result <- system2(
+  "python3",
+  args = shQuote("scripts/partner_coverage/build_partner_coverage_workbook.py"),
+  stdout = TRUE, stderr = TRUE
+)
+log_msg("\n---- Final step: combined sampling frame workbook rebuild ----")
+for (l in workbook_result) log_msg("%s", l)
+if (!is.null(attr(workbook_result, "status")) && attr(workbook_result, "status") != 0) {
+  log_msg("WARNING: combined workbook rebuild failed (see output above) - CSV outputs above are still correct and were written first; only the .xlsx is stale/missing until this is investigated.")
+}
 
 log_dir <- file.path(SF_DIR, "_working_refresh_logs")
 dir.create(log_dir, showWarnings = FALSE)
