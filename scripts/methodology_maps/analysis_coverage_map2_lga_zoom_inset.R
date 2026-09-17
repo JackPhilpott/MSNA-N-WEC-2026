@@ -42,7 +42,7 @@ hex_polygons <- hex_access %>%
   distinct(uuid_hex, .keep_all = TRUE) %>% select(uuid_hex)
 
 coverage_summary <- read_csv(here::here(output_dir, "data", "data_collection", "NGA_MSNA_2026_coverage_summary_v2.csv"), show_col_types = FALSE)
-full_strata <- read_csv(here::here(output_dir, "data", "data_collection", "NGA_MSNA_2026_strata_level_sampling_frame_v7_FULL.csv"), show_col_types = FALSE)
+full_strata <- read_csv(here::here(output_dir, "data", "data_collection", "NGA_MSNA_2026_strata_level_sampling_frame_v10_FULL.csv"), show_col_types = FALSE)
 
 working_pairs <- full_strata %>%
   filter(coverage_status == "covered", exclusion_reason == "none") %>%

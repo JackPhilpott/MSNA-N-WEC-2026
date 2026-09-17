@@ -146,7 +146,7 @@ file.remove("temp_boundaries_mapex.R")
 # CLAUDE.md's PSU redesign entry). See uuid_hex_lookup below for the
 # matching fix that makes those site-level clusters degrade gracefully
 # instead of crashing, now that they're correctly absent from this file.
-selected_clusters <- readRDS(here::here("output", "gis", "selected_clusters_v7_current.rds"))
+selected_clusters <- readRDS(here::here("output", "gis", "selected_clusters_v10_current.rds"))
 
 # hex_polygons: canonical hex geometry, keyed by uuid_hex. Two known gaps in
 # hex_access alone, found while running this batch (2026-08-12) - both
@@ -182,7 +182,7 @@ selected_clusters_hex <- selected_clusters %>%
 missing_uuid_hex <- setdiff(selected_clusters_hex$uuid_hex, hex_access_dedup$uuid_hex)
 hex_polygons <- bind_rows(hex_access_dedup, selected_clusters_hex %>% filter(uuid_hex %in% missing_uuid_hex))
 if (length(missing_uuid_hex) > 0) {
-  cat(sprintf("hex_polygons: supplemented %d uuid_hex value(s) missing from hex_access, from selected_clusters_v7_current.rds.\n", length(missing_uuid_hex)))
+  cat(sprintf("hex_polygons: supplemented %d uuid_hex value(s) missing from hex_access, from selected_clusters_v10_current.rds.\n", length(missing_uuid_hex)))
 }
 
 iom_idp_wgs84 <- st_transform(iom_idp_df, 4326)
@@ -205,7 +205,7 @@ fn_end <- fn_start - 1 + which(grepl("^\\}$", lines2[fn_start:length(lines2)]))[
 eval(parse(text = paste(lines2[fn_start:fn_end], collapse = "\n")))
 
 stage2 <- read_csv(
-  here::here(output_dir, "data", "data_collection", "NGA_MSNA_2026_stage2_sampling_frame_v7_WORKING.csv"),
+  here::here(output_dir, "data", "data_collection", "NGA_MSNA_2026_stage2_sampling_frame_v10_WORKING.csv"),
   show_col_types = FALSE
 )
 backup_pts <- read_csv(

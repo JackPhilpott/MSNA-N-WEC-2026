@@ -6,7 +6,7 @@
 # Reads:
 #   - input_data/boundaries/partner_coverage/Partnerscoverage.xlsx (which
 #     partner(s) cover which LGA - wide format, one column per partner)
-#   - output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v7_WORKING.csv
+#   - output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v10_WORKING.csv
 #     (household-level sampling frame, already restricted to covered LGAs)
 #   - output/data/data_collection/idp_camp_backup_points.csv (re-delineated
 #     backup GPS point for the 15 flagged large in-camp sites)
@@ -122,8 +122,8 @@ if os.path.exists(_LOCKED_FALLBACK_COPY):
         f"{_copy_age_s / 60:.0f}-minute-old fallback copy instead: {_LOCKED_FALLBACK_COPY}"
     )
     COVERAGE_XLSX = _LOCKED_FALLBACK_COPY
-STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v7_WORKING.csv"
-STAGE2_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v7_FULL.csv"
+STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v10_WORKING.csv"
+STAGE2_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v10_FULL.csv"
 # 2026-09-08 fix: was pointed at dashboard_app/data/ - the BUNDLED MIRROR
 # that only updates as a side effect of a full dashboard deploy, not the
 # canonical daily-refreshed source. Same bug class already found and fixed
@@ -437,7 +437,29 @@ for r in frame_rows_full_msna_light:
 NON_IDP_MIN_ACCESSIBLE_PRIMARY_HH = 4
 
 cluster_accessible_primary_n = Counter()
-for r in frame_rows_full:
+# 2026-09-14 fix (found investigating a real Jack-reported issue - MSNA
+# Light points showing wrong/missing status for his DO): this used to
+# iterate frame_rows_full ONLY, which the 2026-09-13b split deliberately
+# excludes MSNA Light rows from (to keep them out of normal Target/
+# Achieved figures - correct for THAT purpose). But _row_effectively_
+# inaccessible() below reuses this SAME counter for MSNA Light rows too
+# (non_idp_metadata_row() is called on both streams) - so every MSNA
+# Light cluster_id was permanently invisible to this counter, always
+# read as 0 accessible, always failing the <4 threshold regardless of its
+# real ward_accessible_status. Verified directly: Abadam/Nganzai's MSNA
+# Light rows (genuinely Accessible-ward) were showing Collection
+# Status="Inaccessible" in the live workbook before this fix - not a data
+# problem, a pure code gap. Fixed by also counting frame_rows_full_msna_
+# light's own accessible primary rows into the same counter - MSNA Light
+# cluster_ids use a distinct "_lightN" suffix, so there's no collision
+# risk with normal design cluster_ids sharing a count. Does NOT affect
+# Target/Achieved anywhere - those stay correctly separate per the
+# 2026-09-13b split (non_idp_cluster_summary_rows(), which feeds the MSNA
+# Light headline block, already computed accessible_primary locally from
+# whatever rows it's given and was never affected by this bug - confirmed
+# by checking today's headline figures against ward_accessible_status by
+# hand before writing this fix).
+for r in frame_rows_full + frame_rows_full_msna_light:
     if r["pop_type"] == "non_idp" and r["status"] == "primary" and _ward_accessible(r):
         cluster_accessible_primary_n[r["cluster_id"]] += 1
 
@@ -474,6 +496,70 @@ assert_plausible("unmatched-ward rows NOT flagged effectively-inaccessible", _n_
                   context="a blank/NA ward_accessible_status must always be treated as inaccessible - regression of the 2026-09-08 _ward_accessible() fix")
 
 # ---------------------------------------------------------------------------
+# 3e. target_sample / target_sample_representativity per stratum (2026-09-16,
+# Decision A of the coordination-session target/achieved consistency review,
+# confirmed directly by Jack: "target_sample (frozen) becomes canonical
+# headline Target everywhere (dashboard, main frame, partner workbooks);
+# target_sample_representativity shown alongside as reference, not
+# replaced"). Dashboard/2_monitoring already implemented their own side
+# (0 mismatches across 325 strata, per their report-back) - this is the
+# matching change on the partner-workbook side, so all three surfaces show
+# the same headline Target for the same stratum.
+#
+# Deliberately a SEPARATE figure from "Target HHs (primary)" on the Cluster
+# Summary sheet (per-cluster, live/accessibility-aware, real field-level
+# "collect N more households at this exact point" detail) - that column is
+# UNCHANGED by this decision, same as target_households was never touched
+# by the earlier per-row vs Cluster-Summary-rollup distinction. Only the
+# PARTNER/STRATUM-level rollup figures (this README's headline block, and
+# the Target Sample Summary table) move to target_sample - matching the
+# same "per-row detail stays, only the competing headline rollup changes"
+# shape as every other consistency fix in this project's history.
+#
+# strata-level FULL (not WORKING) is the correct source here, same
+# "covered, exclusion_reason=none" scope as frame_rows_full's own
+# _in_scope_row() - a population-threshold-excluded stratum's target_sample
+# is deliberately excluded from a partner's headline Target (that stratum
+# isn't part of their real current design assignment), matching this
+# script's own pre-existing precedent of already zeroing "Target HHs
+# (primary)" for a population-threshold-excluded cluster - not a new
+# asymmetry introduced by this change.
+STRATA_LEVEL_V9_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v10_FULL.csv"
+TARGET_SAMPLE_REPRESENTATIVITY_CSV = PROJECT_DIR + r"\resampling\output\target_sample_representativity_last_run.csv"
+
+with open(STRATA_LEVEL_V9_FULL_CSV, encoding="utf-8") as f:
+    _strata_v10_rows = list(csv.DictReader(f))
+
+strata_target_sample = {}
+strata_partners_covering = {}
+strata_lga_key = {}   # strata_id -> (adm1_name, adm2_name)
+strata_pop_type = {}
+for _r in _strata_v10_rows:
+    sid = _r["strata_id"]
+    if _r.get("coverage_status") == "covered" and _r.get("exclusion_reason") == "none":
+        strata_target_sample[sid] = float(_r["target_sample"]) if _r.get("target_sample") not in (None, "", "NA") else 0.0
+        strata_partners_covering[sid] = {p.strip() for p in (_r.get("partners_covering") or "").split(",") if p.strip()}
+        strata_lga_key[sid] = (_r["adm1_name"], _r["adm2_name"])
+        strata_pop_type[sid] = _r["pop_type"]
+print(f"Loaded target_sample for {len(strata_target_sample)} covered strata (Decision A headline Target basis).")
+
+strata_target_repr = {}
+if os.path.exists(TARGET_SAMPLE_REPRESENTATIVITY_CSV):
+    with open(TARGET_SAMPLE_REPRESENTATIVITY_CSV, encoding="utf-8") as f:
+        for _r in csv.DictReader(f):
+            strata_target_repr[_r["strata_id"]] = float(_r["target_sample_representativity"])
+    _n_missing_repr = sum(1 for sid in strata_target_sample if sid not in strata_target_repr)
+    print(f"Loaded target_sample_representativity for {len(strata_target_repr)} strata "
+          f"({_n_missing_repr} covered strata have no representativity figure yet - shown as partial where relevant).")
+else:
+    print(f"WARNING: {TARGET_SAMPLE_REPRESENTATIVITY_CSV} not found - representativity reference line will be omitted from every workbook's headline.")
+
+
+def partner_covered_strata_ids(partner_name):
+    return [sid for sid, partners in strata_partners_covering.items() if partner_name in partners]
+
+
+# ---------------------------------------------------------------------------
 # 3c. Achieved status, computed fresh from 2_monitoring's real_submissions.csv
 # every run - mirrors dashboard_app/global.R's is_achieved()/is_collected()
 # exactly (see header note). Two lookups:
@@ -497,11 +583,23 @@ with open(CONFIRMED_DELETIONS_OVERLAY_CSV, encoding="utf-8") as f:
     _confirmed_deleted_uuids = {r["uuid"] for r in csv.DictReader(f) if r["status"] in _CONFIRMED_OVERLAY_TERMINAL_STATUSES}
 print(f"Confirmed-deletions overlay: {len(_confirmed_deleted_uuids)} confirmed/contested uuid(s) excluded from Achieved.")
 
+# FIX 2026-09-14 (Coordinator cross-check, msna-n-wec-2026-91): dropped an
+# independent is_duplicate=="TRUE" exclusion here - a raw/pending signal on
+# real_submissions.csv, not a confirmed deletion decision, so it silently
+# reimposed the pre-2026-09-11 pessimistic policy (Jack: "the team would
+# rather risk asking a field team to go back for a specific interview later
+# than have them oversample now against a pessimistic count") through a
+# side door the 2026-09-08 quality_exclusion_reason audit never looked at,
+# since it's a different column. 1,323 real completed interviews nationally
+# were wrongly excluded this way (is_duplicate=="TRUE" but never actually
+# confirmed/contested in the overlay) - ~7% of all completed interviews.
+# Only the overlay's confirmed/contested status is authoritative for
+# exclusion now, matching 2_monitoring's global.R is_achieved() exactly.
+
 
 def _is_achieved(r):
     return (
         r.get("interview_outcome") == "completed"
-        and r.get("is_duplicate") != "TRUE"
         and r.get("matched_survey_id") not in (None, "", "NA")
         and r.get("submission_uuid") not in _confirmed_deleted_uuids
     )
@@ -826,9 +924,34 @@ def non_idp_cluster_summary_rows(state_name, lga_name, primary_rows, reserve_row
         # this matters, 417 real interviews nationally).
         achieved = min(n_achieved_exact, nominal_target) if nominal_target else n_achieved_exact
         any_r = g["primary"][0] if g["primary"] else g["reserve"][0]
-        still_needed = 0 if cluster_inaccessible else sum(
-            1 for pr in accessible_primary if achieved_date_by_survey_id.get(pr["survey_id"]) is None
-        )
+        # 2026-09-14 fix (found by Coordinator tracing a ZOA "target/
+        # achieved/still needed don't add up" question, independently
+        # re-verified here before applying): this used to count individual
+        # accessible primary points with no achieved_date - a per-POINT
+        # to-do count, not the household-count gap the "Still Needed"
+        # column's own documented definition promises ("Target minus
+        # Achieved, floored at 0" - see the column-definitions block below,
+        # and the IDP side's matching max(nominal_target-achieved,0) at
+        # idp_primary_metadata_row). Consequence: a cluster that already
+        # hit its household target via reserve substitution (a different
+        # survey_id than the original primary point) still showed a
+        # nonzero Still Needed for whichever specific primary points
+        # happened to remain individually unvisited - verified on ZOA's
+        # live workbook, 4 clusters where the true gap was 41 but this
+        # formula reported 52 (an 11-household phantom overstatement).
+        # Fixed to match "Target minus Achieved" literally, using the SAME
+        # accessible-only `target` already shown in this row's own "Target
+        # HHs (primary)" column - not nominal_target - so the two columns
+        # stay internally consistent (a nonzero Still Needed next to a
+        # Target that already equals Achieved would be its own new,
+        # different inconsistency). Naturally floors to 0 whenever achieved
+        # (capped at nominal_target, can legitimately exceed the smaller
+        # accessible-only target for a straddling cluster) already covers
+        # the accessible target - resolves the exact "achieved can exceed
+        # target" case the 2026-09-05 per-point design was originally
+        # trying to sidestep, just via max(..., 0) instead of a parallel
+        # point-count mechanism.
+        still_needed = 0 if cluster_inaccessible else max(target - achieved, 0)
         # Status driven by still_needed (not achieved>=target) - achieved
         # is capped at nominal_target and can exceed the smaller
         # accessible-only target for a straddling cluster, so comparing
@@ -932,7 +1055,7 @@ CLUSTER_SUMMARY_FIELD_NOTES = [
     ("Collected", "Every real interview matched to this cluster so far, uncapped - includes any surplus beyond target (see 'Still Needed' - if this is 0 while Collected keeps growing, that cluster is oversampled; further visits there don't help your remaining total)."),
     ("Achieved", "Collected, capped at this cluster's own target - what actually counts toward finishing it. Matches the dashboard's own definition. Kept in full even for a cluster now marked Inaccessible - real completed work isn't erased by the area becoming unreachable afterward."),
     ("Still Needed", "Target minus Achieved, floored at 0 - EXCEPT for a cluster marked Inaccessible, where this is always 0 regardless of the gap: you are not being asked to go back there right now, however far from target it is."),
-    ("Collection Status = Inaccessible", "This cluster's ward is currently flagged as not safely reachable. It's excluded from 'Total target'/'Still needed' in the README headline above and from the 'Needs Collecting' sheet, but its Achieved/Collected figures still count in full."),
+    ("Collection Status = Inaccessible", "This cluster's ward is currently flagged as not safely reachable. It's excluded from the 'Needs Collecting' sheet, but its Achieved/Collected figures still count in full. Note: the README headline's 'Total target' is now the frozen, stratum-level target_sample figure (2026-09-16) - it does not vary with any individual cluster's accessibility, so an Inaccessible cluster here does not change the headline Target the way it used to; only Achieved/Still-needed at that headline level move."),
 ]
 
 LGA_WARD_SOURCE_NOTE = (
@@ -948,28 +1071,80 @@ LGA_WARD_SOURCE_NOTE = (
     "track these case by case."
 )
 
+# 2026-09-16 (Decision C, coordination methodology review): documentation-only
+# addition - shared-LGA attribution itself is unchanged, deliberately not
+# redesigned. Some LGAs are assigned to more than one partner at once
+# (Partnerscoverage.xlsx can mark >1 partner column for the same LGA row);
+# this workbook does not split a shared LGA's points/clusters between its
+# partners in any way - every partner covering that LGA sees the LGA's full
+# point set and full target/achieved figures in their own package, not a
+# geographic or household-level subset. Never changed unilaterally here - a
+# partner-level split would need a real field-assignment decision (who
+# physically covers which specific points) that this project doesn't
+# currently make; this note exists so a partner comparing notes with a
+# co-covering partner in a shared LGA isn't surprised to see the same
+# figures in both packages.
+TWO_TARGET_FIGURES_NOTE = (
+    "This workbook shows target figures at two different levels, on purpose - they answer different questions and "
+    "are not meant to match each other. The headline 'Total target' above (and the Target Sample Summary table "
+    "below) is target_sample: a fixed number set at survey design time for your whole stratum (LGA x population "
+    "group), the same number the dashboard and every other report use - this is what to compare against another "
+    "report. The 'Target HHs (primary)' column on the Cluster Summary sheet is a different, live figure: exactly "
+    "how many accessible households remain assigned at that ONE specific cluster right now, which shrinks if that "
+    "cluster's area loses accessibility. Use the headline figure to check your overall progress against what's "
+    "reported elsewhere; use the Cluster Summary column to see real, current, point-level fieldwork remaining."
+)
 
-def build_partner_summary_table(meta_rows):
-    agg = defaultdict(lambda: {"non_idp_target": 0, "non_idp_reserve": 0, "idp_clusters": 0, "idp_target": 0, "idp_reserve": 0})
+SHARED_LGA_ATTRIBUTION_NOTE = (
+    "A small number of LGAs in this assessment are assigned to more than one partner at once. Where that happens, "
+    "this workbook does NOT split that LGA's points or target/achieved figures between the covering partners - "
+    "every partner assigned to a shared LGA sees that LGA's FULL point set and FULL target/achieved numbers in "
+    "their own package, the same as every other partner covering it. This is a deliberate simplification, not an "
+    "error: this assessment does not currently divide a shared LGA's actual field assignment between partners at "
+    "the point level, so this workbook doesn't either. If you're covering a shared LGA, coordinate directly with "
+    "your IMPACT focal point and any co-covering partner on which specific points your team will physically visit, "
+    "so the same points aren't double-collected."
+)
+
+
+def build_partner_summary_table(meta_rows, partner_name):
+    # 2026-09-16 (Decision A): "Non-IDP target sample" / "IDP target sample" /
+    # "Total target sample" below are a rollup HEADLINE figure (one number
+    # per LGA/pop_type), same class of thing as the README's own top
+    # headline - so, per Decision A, these three columns now come from
+    # target_sample (frozen design figure), NOT a count/sum of meta_rows.
+    # "Non-IDP reserve" / "IDP clusters" / "IDP reserve" stay meta_rows-
+    # derived - real operational counts (how many reserve slots exist, how
+    # many physical IDP cluster sites), never a competing "target" claim,
+    # so Decision A doesn't touch them.
+    target_sample_by_lga_poptype = {}
+    for sid in partner_covered_strata_ids(partner_name):
+        target_sample_by_lga_poptype[(strata_lga_key[sid][0], strata_lga_key[sid][1], strata_pop_type[sid])] = strata_target_sample[sid]
+
+    agg = defaultdict(lambda: {"non_idp_reserve": 0, "idp_clusters": 0, "idp_reserve": 0})
     for row in meta_rows:
         key = (row["State"], row["LGA"])
         a = agg[key]
         pt = row["Point Type"]
-        if pt == "Non-IDP household (primary)":
-            a["non_idp_target"] += 1
-        elif pt == "Non-IDP household (reserve)":
+        if pt == "Non-IDP household (reserve)":
             a["non_idp_reserve"] += 1
         elif pt == "IDP cluster (Tier 1 primary)":
             a["idp_clusters"] += 1
-            a["idp_target"] += int(row.get("Target HHs (primary)") or 0)
             a["idp_reserve"] += int(row.get("Reserve HHs") or 0)
+    # Also seed a row for any (State, LGA) covered by a target_sample stratum
+    # but with zero meta_rows currently (e.g. a stratum with real target but
+    # no achieved/collected activity yet still deserves a summary row).
+    for (state, lga, pop_type) in target_sample_by_lga_poptype:
+        agg[(state, lga)]  # noqa: B018 - defaultdict touch, ensures the key exists
     out = []
     for (state, lga), a in sorted(agg.items()):
+        non_idp_target = target_sample_by_lga_poptype.get((state, lga, "non_idp"), 0)
+        idp_target = target_sample_by_lga_poptype.get((state, lga, "idp"), 0)
         out.append({
             "State": state, "LGA": lga,
-            "Non-IDP target sample": a["non_idp_target"], "Non-IDP reserve": a["non_idp_reserve"],
-            "IDP clusters": a["idp_clusters"], "IDP target sample": a["idp_target"], "IDP reserve": a["idp_reserve"],
-            "Total target sample": a["non_idp_target"] + a["idp_target"],
+            "Non-IDP target sample": non_idp_target, "Non-IDP reserve": a["non_idp_reserve"],
+            "IDP clusters": a["idp_clusters"], "IDP target sample": idp_target, "IDP reserve": a["idp_reserve"],
+            "Total target sample": non_idp_target + idp_target,
         })
     return out
 
@@ -998,23 +1173,38 @@ def write_partner_workbook(partner_dir_path, partner_name, meta_rows, cluster_ro
     ws_readme.cell(row=r, column=1, value="Every GPS sampling point assigned to this partner, across all covered LGAs, with live achieved status. 'Sampling Points' = every point, done or not. 'Needs Collecting' = just what's still outstanding - start there if you want a straight to-do list. 'Cluster Summary' = one row per cluster (target/achieved/still needed) - start there if you want the big picture before the point-by-point detail. This sheet gives definitions and a per-LGA target-sample summary.").font = openpyxl.styles.Font(italic=True)
     r += 2
 
-    # ---- headline block (2026-09-05): this partner's own target/achieved/
-    # remaining at a glance, before the detailed per-LGA table below.
-    # "Total target"/"Still needed" deliberately EXCLUDE clusters currently
-    # marked Inaccessible - that's not part of your active, currently-
-    # askable workload. "Achieved so far" deliberately does NOT exclude
-    # them - real completed interviews still count in full even if the
-    # area has since become inaccessible; see the header note above
-    # frame_rows_full for why (417 real interviews nationally would
-    # otherwise silently lose credit). This means Target may not always
-    # equal Achieved + Still needed exactly - the gap, if any, is credited
-    # work sitting in areas no longer part of your active target, called
-    # out separately below rather than folded silently into either figure.
+    # ---- headline block (2026-09-05, REVISED 2026-09-16 per Decision A):
+    # this partner's own target/achieved/remaining at a glance, before the
+    # detailed per-LGA table below.
+    #
+    # 2026-09-16 change: "Total target"/"Still needed" now use target_sample
+    # (the frozen, stratum-level design figure) rather than a live sum of
+    # per-cluster "Target HHs (primary)" - this is the canonical Target
+    # figure everywhere now (dashboard, this workbook, and wherever else
+    # reports it), so a partner comparing this workbook against the
+    # dashboard sees the same number, not two different "targets" computed
+    # two different ways. target_sample_representativity is shown as a
+    # separate REFERENCE line right below it, not as a replacement - it's
+    # useful context (a live, accessibility-adjusted view of the same
+    # stratum) but is not itself the headline Target. "Achieved so far"
+    # is unchanged - real completed interviews still count in full even if
+    # the area has since become inaccessible (417+ real interviews
+    # nationally would otherwise silently lose credit - see the header note
+    # above frame_rows_full). "Still needed" = Target minus Achieved at this
+    # SAME stratum-level basis (floored at 0), so Target - Achieved =
+    # Still needed holds exactly within this headline block, the whole
+    # point of Decision A (previously Target and Still Needed were both
+    # live/cluster-based and self-consistent, but disagreed with the
+    # dashboard's own frozen target_sample figure for the same stratum).
     active_rows = [x for x in cluster_rows if x["Collection Status"] != "Inaccessible"]
     inaccessible_rows = [x for x in cluster_rows if x["Collection Status"] == "Inaccessible"]
-    total_target = sum(x["Target HHs (primary)"] for x in active_rows)
+    partner_strata_ids = partner_covered_strata_ids(partner_name)
+    total_target = round(sum(strata_target_sample[sid] for sid in partner_strata_ids))
     total_achieved = sum(x["Achieved"] for x in cluster_rows)
-    total_remaining = sum(x["Still Needed"] for x in active_rows)
+    total_remaining = max(0, total_target - total_achieved)
+    _strata_with_repr = [sid for sid in partner_strata_ids if sid in strata_target_repr]
+    total_target_repr = round(sum(strata_target_repr[sid] for sid in _strata_with_repr)) if _strata_with_repr else None
+    _n_strata_missing_repr = len(partner_strata_ids) - len(_strata_with_repr)
     achieved_in_inaccessible = sum(x["Achieved"] for x in inaccessible_rows)
     n_clusters_complete = sum(1 for x in cluster_rows if x["Collection Status"] == "Complete")
     n_clusters_not_started = sum(1 for x in active_rows if x["Collection Status"] == "Not started")
@@ -1023,21 +1213,32 @@ def write_partner_workbook(partner_dir_path, partner_name, meta_rows, cluster_ro
     r += 1
     headline_start = r
     headline = [
-        ("Total target (your currently active clusters)", total_target),
+        ("Total target", total_target),
+        ("Reference: target adjusted for current accessibility (not the headline Target - see note below)",
+         total_target_repr if total_target_repr is not None else "n/a"),
         ("Achieved so far (all real interviews, including any since become inaccessible)", total_achieved),
-        ("Still needed (active clusters only)", total_remaining),
-        ("% of active target achieved", f"{pct_complete:.0%}"),
+        ("Still needed (Total target minus Achieved so far)", total_remaining),
+        ("% of target achieved", f"{pct_complete:.0%}"),
         ("Clusters fully complete", f"{n_clusters_complete} of {len(cluster_rows)}"),
-        ("Clusters not yet started (active)", n_clusters_not_started),
-        ("Clusters currently inaccessible (excluded from your active target above)", len(inaccessible_rows)),
-        ("...of which, real interviews already achieved there (counted above, not asking for more)", achieved_in_inaccessible),
+        ("Clusters not yet started (currently accessible)", n_clusters_not_started),
+        ("Clusters currently inaccessible", len(inaccessible_rows)),
+        ("...of which, real interviews already achieved there (counted in Achieved above, not asking for more)", achieved_in_inaccessible),
     ]
+    if _n_strata_missing_repr:
+        headline.append((f"({_n_strata_missing_repr} of your {len(partner_strata_ids)} strata have no representativity figure yet - reference line above is partial)", ""))
     for label, val in headline:
         ws_readme.cell(row=r, column=1, value=label).font = openpyxl.styles.Font(bold=True)
         cell = ws_readme.cell(row=r, column=2, value=val)
         cell.fill = openpyxl.styles.PatternFill("solid", fgColor="D9E2F3")
         r += 1
     r += 1
+
+    ws_readme.cell(row=r, column=1, value="A note on the two different 'target' figures in this workbook").font = openpyxl.styles.Font(bold=True, size=12)
+    r += 1
+    ws_readme.cell(row=r, column=1, value=TWO_TARGET_FIGURES_NOTE).alignment = openpyxl.styles.Alignment(wrap_text=True, vertical="top")
+    ws_readme.merge_cells(start_row=r, start_column=1, end_row=r, end_column=2)
+    ws_readme.row_dimensions[r].height = 115
+    r += 2
 
     ws_readme.cell(row=r, column=1, value="Point Type definitions").font = openpyxl.styles.Font(bold=True, size=12)
     r += 1
@@ -1052,6 +1253,13 @@ def write_partner_workbook(partner_dir_path, partner_name, meta_rows, cluster_ro
     ws_readme.cell(row=r, column=1, value=LGA_WARD_SOURCE_NOTE).alignment = openpyxl.styles.Alignment(wrap_text=True, vertical="top")
     ws_readme.merge_cells(start_row=r, start_column=1, end_row=r, end_column=2)
     ws_readme.row_dimensions[r].height = 130
+    r += 2
+
+    ws_readme.cell(row=r, column=1, value="A note on LGAs covered by more than one partner").font = openpyxl.styles.Font(bold=True, size=12)
+    r += 1
+    ws_readme.cell(row=r, column=1, value=SHARED_LGA_ATTRIBUTION_NOTE).alignment = openpyxl.styles.Alignment(wrap_text=True, vertical="top")
+    ws_readme.merge_cells(start_row=r, start_column=1, end_row=r, end_column=2)
+    ws_readme.row_dimensions[r].height = 100
     r += 2
 
     ws_readme.cell(row=r, column=1, value="Other column notes (Sampling Points / Needs Collecting sheets)").font = openpyxl.styles.Font(bold=True, size=12)
@@ -1079,7 +1287,7 @@ def write_partner_workbook(partner_dir_path, partner_name, meta_rows, cluster_ro
         cell.font = openpyxl.styles.Font(bold=True, color="FFFFFF")
         cell.fill = openpyxl.styles.PatternFill("solid", fgColor="2C5F8A")
     r += 1
-    summary_rows = build_partner_summary_table(meta_rows)
+    summary_rows = build_partner_summary_table(meta_rows, partner_name)
     for row in summary_rows:
         for c, h in enumerate(summary_headers, start=1):
             ws_readme.cell(row=r, column=c, value=row[h])

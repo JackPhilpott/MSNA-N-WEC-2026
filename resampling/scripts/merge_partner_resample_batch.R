@@ -22,8 +22,12 @@ source("scripts/shared/assert_plausible.R")
 # imported" convention this project otherwise deliberately keeps elsewhere.
 # See scripts/shared/frame_status.R's own header for the full reasoning.
 source("scripts/shared/frame_status.R")
+# 2026-09-14 (Jack-approved, Coordinator co-designed - Part 1 of the
+# "2_monitoring sat stale on our fixes" two-part fix): see that file's own
+# header - a pure-logging audit trail of when WORKING materially changes.
+source("scripts/shared/log_pipeline_change.R")
 MASTER_WARD_CSV <- "resampling/output/master_accessibility_status_ward_level.csv"
-CLUSTER_STATUS_CSV <- "output/data/data_collection/NGA_MSNA_2026_cluster_status_v7.csv"
+CLUSTER_STATUS_CSV <- "output/data/data_collection/NGA_MSNA_2026_cluster_status_v10.csv"
 
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) < 4) stop("Usage: Rscript merge_partner_resample_batch.R <PartnerName> <staging_dir> <shortfalls_csv> <shortfalls_idp_csv>")
@@ -45,10 +49,10 @@ log_msg("==== Merge %s resample into live frame - %s ====", PARTNER, format(Sys.
 log_msg("Partner LGAs (%d): %s", length(PARTNER_PCODES), paste(PARTNER_PCODES, collapse = ", "))
 
 # ---- Load live frame ----
-full_hh    <- read_csv(file.path(DC_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v7_FULL.csv"), show_col_types = FALSE)
-working_hh <- read_csv(file.path(DC_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v7_WORKING.csv"), show_col_types = FALSE)
-full_sl    <- read_csv(file.path(DC_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v7_FULL.csv"), show_col_types = FALSE)
-working_sl <- read_csv(file.path(DC_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v7_WORKING.csv"), show_col_types = FALSE)
+full_hh    <- read_csv(file.path(DC_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v10_FULL.csv"), show_col_types = FALSE)
+working_hh <- read_csv(file.path(DC_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v10_WORKING.csv"), show_col_types = FALSE)
+full_sl    <- read_csv(file.path(DC_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v10_FULL.csv"), show_col_types = FALSE)
+working_sl <- read_csv(file.path(DC_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v10_WORKING.csv"), show_col_types = FALSE)
 
 live_survey_ids <- union(full_hh$survey_id, working_hh$survey_id)
 live_cluster_ids <- union(full_hh$cluster_id, working_hh$cluster_id)
@@ -197,7 +201,38 @@ if (nrow(all_new_rows) > 0) {
   missing_cols <- setdiff(names(working_hh), names(all_new_rows))
   if (length(missing_cols) > 0) {
     log_msg("Adding %d column(s) missing from every staged source this batch, as NA: %s", length(missing_cols), paste(missing_cols, collapse = ", "))
-    for (col in missing_cols) all_new_rows[[col]] <- NA
+    # 2026-09-14 fix: plain `NA` is always type logical, regardless of the
+    # real column's type in working_hh - harmless while all_new_rows still
+    # has rows surviving into working_new_rows further down (bind_rows can
+    # promote a populated logical-NA column against a character column), but
+    # a batch whose ENTIRE new-row set gets excluded from WORKING (e.g. a
+    # Non-IDP-only batch landing in unmatched/inaccessible wards, so
+    # working_new_rows ends up with 0 rows) turns this into a genuinely
+    # empty 0-row logical column, which bind_rows(working_hh, working_new_rows)
+    # then refuses to reconcile against working_hh's real character column -
+    # caught on the DRC/IRC/LHI (Isa) merge. Fix generically, not just for
+    # this one column: pull a same-typed NA from working_hh itself.
+    for (col in missing_cols) all_new_rows[[col]] <- rep(working_hh[[col]][NA_integer_], nrow(all_new_rows))
+  }
+  # 2026-09-14 fix (found by Jack, post-comprehensive-draw audit): NA is the
+  # right default for most missing columns (they get resolved by a later
+  # step, e.g. ward_accessible_status), but WRONG for sampling_method - a
+  # blank there doesn't mean "not yet known", it silently drops the row out
+  # of "MSNA Full Design" for anything that filters/groups on this column
+  # (dashboards, partner-package MSNA Light/Full Design splitting, any
+  # future equality-based filter that wouldn't degrade as safely as this
+  # script's own %in%-based ward_gate() checks already do). This generic
+  # merge path is NEVER used for MSNA Light rows - those are added only via
+  # the dedicated one-off scripts/one_off_analyses/merge_msna_light_3lga_
+  # 2026-09-11.R, a direct append that never touches this file - so every
+  # row that reaches here is unconditionally "MSNA Full Design". Found via
+  # 4,323 live rows already stuck on NA, accumulated across every merge
+  # since sampling_method was introduced 2026-09-11 (not just tonight's) -
+  # see patch_backfill_sampling_method_na_2026-09-14.R for the retroactive
+  # data fix. msna_light_settlement_name is deliberately left as NA here -
+  # blank is its correct value for a non-MSNA-Light row.
+  if ("sampling_method" %in% missing_cols) {
+    all_new_rows$sampling_method <- "MSNA Full Design"
   }
   all_new_rows <- all_new_rows %>% select(all_of(names(working_hh)))
 }
@@ -243,7 +278,21 @@ if (nrow(unmatched_ward_rows) > 0) {
   write_csv(unmatched_ward_rows, needs_review_path)
   log_msg("Unmatched rows written to %s for the accessibility review queue.", needs_review_path)
 }
-working_new_rows <- all_new_rows %>% filter(!is.na(ward_accessible_status) & ward_accessible_status != "Inaccessible")
+# 2026-09-14 (found during Jack's requested post-MSNA-Light audit): added
+# the same ward_exempt_sampling_methods carve-out just fixed in frame_
+# status.R's compute_cluster_accessibility()/compute_cluster_status() -
+# this block is a separate, hand-rolled gate (not a call into that shared
+# function), so it had the identical gap. Narrower risk than the other two
+# (this only fires for NEW rows appended during an actual merge batch, and
+# refresh_working_frame_daily.R's next routine run would self-heal it
+# regardless - see the "defense-in-depth" note above) but a partner package
+# built immediately after a merge, before that next daily refresh, could
+# still show a wrongly-excluded MSNA Light row in the interim. Fixed for
+# full consistency with the other two instances of this same pattern.
+working_new_rows <- all_new_rows %>% filter(
+  (sampling_method %in% "MSNA Light") |
+  (!is.na(ward_accessible_status) & ward_accessible_status != "Inaccessible")
+)
 
 # 2026-09-05, Jack's threshold decision (same evening, discussed after the
 # ward-accessibility fix above): a Non-IDP cluster with FEWER than
@@ -270,7 +319,11 @@ NON_IDP_MIN_ACCESSIBLE_PRIMARY_HH <- 4
 # rationale as the freshness-gated exclusion above, applied consistently
 # here so this threshold check can't be fooled by an unmatched row either.
 cluster_accessible_primary_n <- full_hh_new %>%
-  filter(pop_type == "non_idp", status == "primary", !is.na(ward_accessible_status) & ward_accessible_status != "Inaccessible") %>%
+  filter(pop_type == "non_idp", status == "primary") %>%
+  filter(
+    (sampling_method %in% "MSNA Light") |
+    (!is.na(ward_accessible_status) & ward_accessible_status != "Inaccessible")
+  ) %>%
   count(cluster_id, name = "n_accessible_primary")
 below_threshold_clusters <- cluster_accessible_primary_n %>%
   filter(n_accessible_primary < NON_IDP_MIN_ACCESSIBLE_PRIMARY_HH) %>%
@@ -398,7 +451,13 @@ log_msg("Verified: zero duplicate survey_ids, row counts match exactly. FULL %d 
 # refresh_working_frame_daily.R for the full reasoning.
 CONFIRMED_DELETIONS_OVERLAY_CSV <- "c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/2_monitoring/data/CONFIRMED_DELETIONS_OVERLAY.csv"
 deletions_overlay <- read_csv(CONFIRMED_DELETIONS_OVERLAY_CSV, show_col_types = FALSE, col_types = cols(.default = "c"))
-confirmed_deletion_uuids <- deletions_overlay %>% filter(status == "confirmed") %>% pull(uuid)
+# 2026-09-14: removed a dead, unused confirmed_deletion_uuids variable that
+# used to sit here (filter(status == "confirmed") only, missing "contested")
+# - project-wide TERMINAL_STATUSES grep found it, traced its usage, and it
+# was never actually referenced anywhere - compute_achieved_lookup() below
+# reads the full deletions_overlay directly and already handles both
+# statuses correctly. Zero live impact, just removing the bug-pattern-shaped
+# clutter before someone starts using it.
 
 # 2026-09-08 audit fix: was the dashboard_app/data/ bundled mirror, only
 # refreshed as a side effect of a full dashboard deploy - same bug class
@@ -503,24 +562,34 @@ for (i in seq_len(nrow(changed_rows))) {
           changed_rows$strata_id[i], changed_rows$achieved_clusters[i], changed_rows$achieved_sample[i], changed_rows$realized_moe_pct[i])
 }
 
-# ---- Output-plausibility gate (2026-09-08 audit, pass 4) - same two checks
-# as refresh_working_frame_daily.R, see that script for the full reasoning.
+# ---- Output-plausibility gate (2026-09-08 audit, pass 4) ----
+# The companion "strata with achieved_sample > target_sample" ceiling check
+# that used to live here was retired 2026-09-14 (Jack approved) - see
+# refresh_working_frame_daily.R for the reasoning. Task 4's
+# target_sample_representativity STOP-mode gate (05_build_accessibility_
+# impact_workbook.py) is the correct replacement.
 n_working_in_inaccessible_ward <- working_hh_new %>%
   filter(!is.na(ward_accessible_status), ward_accessible_status == "Inaccessible") %>%
   nrow()
 assert_plausible("WORKING rows in a currently-Inaccessible ward", n_working_in_inaccessible_ward, c(0, 0),
                   context = "must always be exactly 0 - this is the 2026-09-07 incident's core invariant")
 
-n_over_target <- working_sl_new %>% filter(achieved_sample > target_sample) %>% nrow()
-assert_plausible("strata with achieved_sample > target_sample", n_over_target, c(0, 40),
-                  context = "should be a small ordinary-rounding residual, not systemic overcounting")
-
 # ---- Write ----
-write_csv(full_hh_new, file.path(DC_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v7_FULL.csv"))
-write_csv(working_hh_new, file.path(DC_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v7_WORKING.csv"))
-write_csv(full_sl_new, file.path(DC_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v7_FULL.csv"))
-write_csv(working_sl_new, file.path(DC_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v7_WORKING.csv"))
+write_csv(full_hh_new, file.path(DC_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v10_FULL.csv"))
+write_csv(working_hh_new, file.path(DC_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v10_WORKING.csv"))
+write_csv(full_sl_new, file.path(DC_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v10_FULL.csv"))
+write_csv(working_sl_new, file.path(DC_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v10_WORKING.csv"))
 log_msg("Written: FULL + WORKING household-level and strata-level CSVs in %s.", DC_DIR)
+
+# 2026-09-14: changelog entry - a real merge always represents a real event
+# (even a merge that adds zero live WORKING rows, e.g. everything landed
+# excluded, is still worth a 0-delta record for a complete audit trail) -
+# unlike the daily refresh's no-op-skip, always log here.
+log_pipeline_change(
+  script = "merge_partner_resample_batch.R", description = sprintf("merged %s's resample batch", PARTNER),
+  old_rows = nrow(working_hh), new_rows = nrow(working_hh_new),
+  old_clusters = n_distinct(working_hh$cluster_id), new_clusters = n_distinct(working_hh_new$cluster_id)
+)
 
 writeLines(log_lines, file.path(STAGING, paste0("merge_", tolower(gsub("[^A-Za-z0-9]", "_", PARTNER)), "_log.txt")))
 log_msg("==== DONE merging %s. ====", PARTNER)

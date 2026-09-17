@@ -58,20 +58,33 @@ sync_sampling_frame_mirrors <- function() {
   )
   for (f in src_files) stopifnot(file.exists(file.path(DC_DIR, f)))
 
+  # 2026-09-14 (Coordinator's suggestion, low-risk/no-rush - same "auto"
+  # bucket as everything else here): also mirror _pipeline_changelog.csv,
+  # the new log_pipeline_change() audit trail, so 2_monitoring's own future
+  # audits/debugging have it without a separate ask. Kept OUT of the hard-
+  # required src_files/stopifnot above - unlike the frame CSVs, this is a
+  # genuinely optional/auxiliary artifact (won't exist until the first
+  # material WORKING change after 2026-09-14), so its own copy step is
+  # best-effort and silently skipped if absent, never blocks the real sync.
+  changelog_file <- "_pipeline_changelog.csv"
+  changelog_present <- file.exists(file.path(DC_DIR, changelog_file))
+  sync_files <- if (changelog_present) c(src_files, changelog_file) else src_files
+
   for (mirror_dir in MIRROR_DIRS) {
     dir.create(mirror_dir, showWarnings = FALSE, recursive = TRUE)
-    existing <- list.files(mirror_dir, pattern = "^(NGA_MSNA_2026_.*\\.csv|_frame_version\\.txt)$", full.names = FALSE)
-    stale <- setdiff(existing, src_files)
+    existing <- list.files(mirror_dir, pattern = "^(NGA_MSNA_2026_.*\\.csv|_frame_version\\.txt|_pipeline_changelog\\.csv)$", full.names = FALSE)
+    stale <- setdiff(existing, sync_files)
     if (length(stale) > 0) {
       archive_dir <- file.path(mirror_dir, paste0("_archive_", format(Sys.Date(), "%Y-%m-%d"), "_pre_", version_tag, "_sync"))
       dir.create(archive_dir, showWarnings = FALSE, recursive = TRUE)
       file.rename(file.path(mirror_dir, stale), file.path(archive_dir, stale))
       cat(sprintf("sync_sampling_frame_mirrors(): archived %d stale file(s) in %s\n", length(stale), mirror_dir))
     }
-    for (f in src_files) {
+    for (f in sync_files) {
       file.copy(file.path(DC_DIR, f), file.path(mirror_dir, f), overwrite = TRUE)
     }
-    cat(sprintf("sync_sampling_frame_mirrors(): synced %s to %s\n", version_tag, mirror_dir))
+    cat(sprintf("sync_sampling_frame_mirrors(): synced %s%s to %s\n", version_tag,
+                if (changelog_present) " + changelog" else "", mirror_dir))
   }
   invisible(TRUE)
 }

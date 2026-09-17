@@ -25,7 +25,7 @@ from collections import defaultdict
 from docx import Document
 
 PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling"
-STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v7_WORKING.csv"
+STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v10_WORKING.csv"
 CLUSTER_MAPS_DIR = PROJECT_DIR + r"\output\maps\cluster_map_examples_v3"
 LGA_MAPS_DIR = PROJECT_DIR + r"\output\maps\cluster_lga_context_v1"
 BUILD_LOG_CSV = PROJECT_DIR + r"\output\maps\_production_build_log.csv"
@@ -50,14 +50,25 @@ with open(STAGE2_CSV, encoding="utf-8") as f:
     rows = list(csv.DictReader(f))
 
 clusters = {}
+n_light_skipped = 0
 for r in rows:
     if r["status"] != "primary":
+        continue
+    # 2026-09-14: MSNA Light clusters are deliberately excluded from
+    # build_cluster_factsheets.py's batch (see that script's own 2026-09-14
+    # comment - the standard enumerator-procedure factsheet content is
+    # wrong for MSNA Light's government-enumerator methodology, needs
+    # Jack's design input first). Excluded here too so this QA pass
+    # doesn't flag 34 correct, deliberate absences as missing_docx errors.
+    if r.get("sampling_method") == "MSNA Light":
+        n_light_skipped += 1
         continue
     cid = r["cluster_id"]
     if cid not in clusters:
         clusters[cid] = {"pop_type": r["pop_type"], "adm2_pcode": r["adm2_pcode"], "adm2_name": r["adm2_name"]}
 
-print(f"Loaded {len(clusters)} clusters from the WORKING frame.")
+print(f"Loaded {len(clusters)} clusters from the WORKING frame "
+      f"({n_light_skipped} MSNA Light row(s) excluded - see comment above).")
 
 # ---------------------------------------------------------------------------
 # 2. Map PNG existence + minimum size

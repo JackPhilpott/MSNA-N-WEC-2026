@@ -36,7 +36,7 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
 PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling"
-STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v7_WORKING.csv"
+STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v10_WORKING.csv"
 BACKUP_POINTS_CSV = PROJECT_DIR + r"\output\data\data_collection\idp_camp_backup_points.csv"
 HOST_FEASIBILITY_CSV = PROJECT_DIR + r"\output\data\supporting_analysis\idp_host_feasibility\idp_host_community_feasibility_flags.csv"
 POI_NEAREST_CSV = PROJECT_DIR + r"\output\data\supporting_analysis\poi\poi_nearest_non_idp.csv"
@@ -297,8 +297,35 @@ def safe_folder_name(s):
 
 print("Loading data...")
 with open(STAGE2_CSV, encoding="utf-8") as f:
-    frame_rows = list(csv.DictReader(f))
-print(f"  {len(frame_rows)} household-level rows")
+    frame_rows_all = list(csv.DictReader(f))
+print(f"  {len(frame_rows_all)} household-level rows")
+
+# 2026-09-14: MSNA Light clusters (Abadam/Nganzai/Guzamala, government-
+# negotiated PPS, added 2026-09-11 - see 1_sampling/CLAUDE.md "MSNA Light")
+# excluded from this batch entirely. Checked directly before running the
+# comprehensive cluster-field-guide sweep tonight: this script (unlike
+# build_partner_dc_packages.py, fixed for this 2026-09-13b) has zero
+# sampling_method awareness - a normal run would silently generate the
+# standard enumerator-procedure factsheet (Maps.me navigation, Kobo
+# auto-selection, "call your FACT/IMPACT focal point", GPS-offset
+# tolerance rules) for these clusters and drop it straight into FACT's
+# ordinary Non_IDP/Cluster_guide folder, completely undifferentiated -
+# exactly what Jack's explicit "must be visibly different, never mixed
+# in" requirement exists to prevent. Unlike the partner workbook, this
+# content is written FOR IMPACT-trained enumerators specifically (every
+# instruction assumes Maps.me/Kobo/a FACT focal point) - it would be
+# actively wrong, not just mislabeled, for MSNA Light's independent
+# government-enumerator methodology. Building a correct MSNA Light field
+# guide needs Jack's own design input on what that methodology's guide
+# should actually say - left for him, not decided unilaterally here.
+# Verified 0 factsheets currently exist for any MSNA Light cluster_id
+# before applying this exclusion (nothing being newly hidden - this is a
+# prospective-only guard, not a fix to something already leaked).
+frame_rows = [r for r in frame_rows_all if r.get("sampling_method") != "MSNA Light"]
+n_light_excluded = len(frame_rows_all) - len(frame_rows)
+if n_light_excluded:
+    print(f"  {n_light_excluded} household-level row(s) excluded (sampling_method == 'MSNA Light' - "
+          f"see 2026-09-14 comment above; not built by this script, needs Jack's design input first).")
 
 with open(BACKUP_POINTS_CSV, encoding="utf-8") as f:
     backup_rows = list(csv.DictReader(f))
@@ -366,6 +393,32 @@ print(f"  POI legend tables: {len(poi_legend_cluster_map)} cluster maps, {len(po
 clusters = defaultdict(list)
 for r in frame_rows:
     clusters[r["cluster_id"]].append(r)
+
+# 2026-09-14: exclude any cluster with ZERO primary rows in WORKING -
+# found while running the comprehensive cluster-field-guide sweep tonight,
+# checked directly before applying: 693 such clusters exist nationally
+# (663 status=="completed" - every primary row already achieved and
+# correctly dropped from household-level WORKING by refresh_working_
+# frame_daily.R's own to-do-list logic, only its never-used reserve rows
+# remain; 20 partially_completed_access_lost + 10 not_started_access_lost
+# - primary rows dropped via ward-inaccessibility, only some reserve rows
+# happen to sit in a still-accessible ward sub-area, per the documented
+# straddling-cluster per-row behaviour). None of these need a fresh field
+# guide: a completed cluster has no remaining task, and an access-lost
+# cluster's primary work is blocked regardless of what reserve capacity
+# is nominally left. This exactly matches build_cluster_maps_production.R's
+# own existing cluster_meta convention (status=="primary" required) -
+# without this filter here too, this script would generate ~693 factsheets
+# with no possible map (that R script never rendered one for a cluster
+# with no primary row) and a nonsensical "target households (primary): 0"
+# task block - not a new judgment call, just bringing this script in line
+# with a convention the sibling script already enforces.
+_cluster_ids_with_primary = {r["cluster_id"] for r in frame_rows if r["status"] == "primary"}
+_n_reserve_only = len(clusters) - len(_cluster_ids_with_primary)
+clusters = {cid: rows for cid, rows in clusters.items() if cid in _cluster_ids_with_primary}
+if _n_reserve_only:
+    print(f"  {_n_reserve_only} cluster(s) excluded (zero primary rows remaining in WORKING - "
+          f"see 2026-09-14 comment above; no field guide needed).")
 
 if _only_partner:
     clusters = {cid: rows for cid, rows in clusters.items() if rows[0]["adm2_pcode"] in partners_by_pcode}

@@ -4253,3 +4253,437 @@ given compliance there can't be verified either way.
 **Not done**: Task 2 still held. The `05_build_accessibility_impact_
 workbook.py` contested-status fix from Update 2026-09-13 still not
 exercised by a live run.
+
+## Update 2026-09-13c — cluster-level accessibility overlay: closes the gap between what a partner reports at CLUSTER grain and what the whole redraw mechanism can see
+
+**Found while cleaning up tonight's returned accessibility reports**: ACF's
+Cluster Accessibility sheet reported 4 Tambuwal (Sokoto) IDP sites
+(`idp_NG034018_1/13/14/3`) as relocated/inaccessible while their wards stay
+accessible overall - real, legitimate information (confirmed by Jack
+directly with the field team: IDPs moved, sites genuinely gone). Traced the
+mechanism before assuming it would just work: the entire accessibility-
+gating chain in this project - `ward_accessible_status` -> `compute_cluster_
+status()` -> the accessibility impact workbook's shortfall column ->
+`extract_partner_shortfalls.R` -> the redraw scripts - runs on WARD-level
+status only, via a straight `(State, LGA, Ward)` lookup. A partner-reported
+CLUSTER-level exclusion had no pathway into any of it. `02_ingest_
+accessibility_reports.py` has always logged these rows (`report_level=
+"cluster"`, `cluster_id`, `accessible`) into `resampling_requests_log.csv` -
+nothing downstream ever read them back out. Checked the scale before
+building anything: **1,863 cluster-level "No" reports exist in the log
+historically**, not an ACF-only edge case.
+
+**Precedence rule, Jack's explicit call**: a cluster-level report only ever
+ADDS an exclusion on top of ward-level status - never overrides it in
+either direction. A cluster-level "No" on an otherwise-accessible ward
+excludes just that cluster; a cluster-level "Yes" on an inaccessible ward
+does not make it accessible again (and in fact can't - see the mechanism
+below, which only ever derives a "No" set).
+
+**Mechanism, three pieces**:
+1. **`resampling/scripts/build_cluster_accessibility_overlay.py`** (new) -
+   derives `resampling/output/cluster_accessibility_overlay.csv` from
+   `resampling_requests_log.csv`: latest report per `cluster_id` (same
+   "latest wins" logic as `02_ingest_accessibility_reports.py`'s own
+   `latest_by_key()`, just keyed on `cluster_id` alone here since a
+   cluster_id belongs to exactly one partner in this project's frame), kept
+   only where that latest report is "No". A positive exclusion list, not a
+   status override - purely additive by construction, so the precedence
+   rule holds without needing separate enforcement anywhere it's consumed.
+   Rerun any time `02_ingest_accessibility_reports.py` runs.
+2. **`scripts/shared/frame_status.R`** - new `load_cluster_accessibility_
+   overlay()` (missing file = no exclusions, not an error - this overlay is
+   optional/additive, unlike `CONFIRMED_DELETIONS_OVERLAY.csv` which every
+   caller already requires). `compute_cluster_accessibility()` takes a new
+   `cluster_overlay_excluded` argument (default: the live overlay file),
+   folded into `covered_accessible`'s existing exclusion condition alongside
+   ward-inaccessible and below-threshold. Because `compute_strata_
+   achieved()` and `compute_cluster_status()` both already consume this
+   function's output via the shared `accessibility` list, both inherit the
+   fix automatically - no separate wiring needed, which is the whole reason
+   this module is a real `source()` and not a mirrored copy (see Task 1,
+   Update 2026-09-13 above). Non-IDP's Task 3B MOS-zeroing in `draw_
+   supplementary_clusters_batch.R` (reads `compute_cluster_status()`'s
+   output) inherits it for free too.
+3. **`05_build_accessibility_impact_workbook.py`** - separate Python mirror
+   of the same ward-only logic (checked directly, NOT shared with the R
+   side - `classify_households()` has its own independent `(adm1_name,
+   adm2_name, adm3_name)` lookup). This is the one that actually closes
+   Jack's stated gap, since its Strata Level sheet's "Additional clusters
+   needed" column is exactly what `extract_partner_shortfalls.R` reads to
+   size a redraw - the R-side fix alone would have made WORKING's internal
+   figures correct while leaving the actual redraw trigger unmoved. New
+   `load_cluster_accessibility_overlay()` (same file, independently loaded
+   - no cross-language import), wired into `classify_households()` as an
+   additional per-row override to "Inaccessible", same additive-only rule.
+   `build_partner_dc_packages.py` deliberately left alone - same blind spot,
+   but partner-facing display only, not redraw mechanics; lower priority,
+   not fixed tonight.
+
+**Verified, not just "it runs"**:
+- Read-only impact test (`compute_cluster_accessibility()` with the overlay
+  on vs off, no file writes): 1,107 clusters currently excluded nationally.
+  69 of 313 strata show a changed `achieved_sample`, total -1,090 households
+  nationally - and **zero strata increased**, confirming the additive-only
+  rule holds in practice, not just by design. Tambuwal's 4 clusters flip
+  cleanly from `not_started_other`/`currently_accessible=TRUE` to `not_
+  started_access_lost`/`FALSE`.
+- **Retrospective check, per Jack's explicit ask**: does this fix explain
+  why any of the known genuinely-exhausted IDP strata (Maru/idp_NG037010,
+  Kebbe/idp_NG034010, Malumfashi-IDP/idp_NG021025, Maradun/idp_NG037009,
+  Dan Musa/idp_NG021007, Abadam/non_idp_NG008001 - all previously disclosed
+  as hard limits, candidate pool = 0) actually had a fixable shortfall
+  hiding behind this gap? **No** - checked directly: 51 overlay-excluded
+  clusters exist across 5 of these 6 strata, but every single one already
+  carried `ward_accessible_status = "Inaccessible"` beforehand - the
+  cluster-level overlay is fully redundant for these specific historical
+  cases, changes zero shortfall figures for any of them. Their exhaustion
+  was, and remains, genuine DTM/building-candidate-pool exhaustion (a
+  completely separate mechanism, `analysis_remaining_eligible_pool.R`'s
+  GPS-proximity matching), not a miscounted achieved figure. This fix is
+  prospective, not retrospective - it prevents a FUTURE redraw from being
+  undersized by this blind spot, it doesn't rescue a past one.
+- Live run, `refresh_working_frame_daily.R` (backed up `output/data/
+  data_collection/` first to `_archive/2026-09-13_pre_cluster_accessibility_
+  overlay/`): both `assert_plausible()` gates passed within their
+  calibrated ranges with no bypass needed (0 WORKING rows in an
+  Inaccessible ward; 29 strata over target, within the [0,40] ceiling).
+  Per-cluster status tally matched the read-only prediction exactly
+  (completed=637, not_started_access_lost=1032, not_started_other=2271,
+  partially_completed_access_lost=181). Tambuwal's 4 clusters confirmed
+  live: `not_started_access_lost`, zero rows in household-level WORKING.
+- Live run, `05_build_accessibility_impact_workbook.py`: both its own
+  `assert_plausible()` gates passed clean. Tambuwal's stratum
+  (`idp_NG034018`) "Additional clusters needed for 10% MoE" went **0 -> 3**
+  - the actual shortfall this whole fix exists to surface, now visible to
+  `extract_partner_shortfalls.R`. 50 strata nationally show a changed
+  figure.
+- `stamp_frame_version.R` rerun, manifest refreshed (WORKING 40,443 rows /
+  2,969 clusters).
+
+**Not done**: propagation to `2_monitoring/input_data/sampling_frame/` -
+this WORKING refresh is real and live-affecting nationally (well beyond
+just the overlay fix - normal field-achieved rows dropped off the to-do
+list too, in the same run), so the dashboard mirror is now stale relative
+to it. Deliberately not pushed unilaterally - flagged for Jack/Monitoring
+to action, matching this project's established pattern of treating that
+copy as its own explicit step, not an automatic side effect. `build_
+partner_dc_packages.py`'s own blind spot (item 3 above) also not fixed.
+
+## Update 2026-09-13d — target-inflation fix, Tasks 1/2/3/4/6 built and verified; Task 5 built, dry-run only pending Jack's go-ahead
+
+Coordinator-led investigation into resampling's ever-growing per-stratum
+targets (see project memory `project_resampling_target_inflation_fix_
+2026-09-13` for the full root-cause writeup and the two rounds of amendment
+Jack made to the spec) - all in `resampling/scripts/05_build_
+accessibility_impact_workbook.py` unless noted.
+
+**Task 1 - unified accessibility definition.** `frame_status.R`'s
+`compute_cluster_status()` now also emits `n_accessible_primary_post_
+threshold` per cluster (0 for a fully-excluded cluster - ward-inaccessible,
+below the 4-accessible-primary-HH threshold, or cluster-overlay-excluded;
+otherwise the real accessible-row count, which can be less than the full
+primary count for a straddling cluster). `build_cluster_level()` in the
+workbook script now reads this from `NGA_MSNA_2026_cluster_status_v7.csv`
+instead of recomputing its own raw per-row count - the two disagreed for
+every straddling/below-threshold cluster before this (121 clusters
+nationally show a genuine partial count, confirmed directly). `n_capacity_
+accessible` (primary+reserve, reference-only ceiling) deliberately left
+raw/uncorrected - out of this task's stated scope.
+
+**Task 2 - `target_sample_representativity` (AMENDED per Jack, same
+night)**: `min(N_hh_accessible, sample_needed_for_moe(10.0, N_hh_
+accessible, m, ICC=0.06) * 1.05)`. ICC fixed at 0.06 everywhere (no
+empirical/per-stratum estimation); zero disaggregation logic; the x1.05 is
+a flat, uniform 5% operational margin (grounded in the real national
+confirmed-deletion rate, 6.53%/94.7% duration_under_20 - verified directly
+against `CONFIRMED_DELETIONS_OVERLAY.csv` vs `real_submissions.csv`),
+explicitly separate from the existing 10% non-response reserve buffer.
+Computed fresh every run, every stratum, against the CURRENT accessible
+frame - this IS the retroactive correction, not just prospective. Both
+`sample_needed_for_moe()` and `N_hh_accessible` (population-based, via the
+existing GIS ward-portion accessible-fraction mechanism) already existed
+in this script - no new statistical infrastructure needed, just assembly +
+persistence. Persisted per stratum in the workbook's "Strata Level" sheet
+and in a new dedicated tracking file, `resampling/output/target_sample_
+representativity_last_run.csv` (Task 4's own baseline).
+
+**Verified nationally before trusting it**: `target_sample_
+representativity` is SMALLER than the frozen `target_sample` for all 314
+covered strata, zero exceptions - the expected direction, given accessible
+population has only ever shrunk across this project's history. Feasibility
+category counts after the fix: 250 Already at/under target, 34 Closeable
+with a modest top-up, 14 Not closeable - no pool left, 9 Not closeable -
+exceeds pool, 4 Closeable only via most of remaining pool, 3 Negligible
+gap (Task 3, see below) - 250 of 314 strata already meeting their TRUE
+requirement is itself the clearest evidence of how much `target_sample_
+current`'s never-shrinking figure had been overstating real need.
+
+**Task 3 - negligible-gap threshold, pinned down directly with Jack before
+building (see the target-inflation memory for the two rounds this took -
+first a flat household-count proxy, revised to the real thing after Jack
+correctly pushed back that it should be about MoE, not a proxy for it)**:
+single check - would half a cluster more (`m/2` households) bring this
+stratum's realized MoE to <=10%? Uses `realized_moe()` (same formula
+already in this script), not a new one. If yes - whether already there or
+just within reach - new Feasibility category "Negligible gap - not worth a
+supplementary draw," `additional_clusters_needed = 0`. Subsumes "already
+at target" and "gap too small to bother with" in one check, since MoE only
+ever shrinks as achieved grows. Also settled in the same discussion,
+explicitly rejected: topping up existing clusters instead of drawing new
+ones to avoid any overshoot - breaks this design's self-weighting
+(epsem) PPS structure; a whole new supplementary cluster stays
+self-weighting by construction, a few extra ad hoc households in existing
+clusters don't, with no clean weight correction available (design weights
+are separately already on hold - see Task 2 of the EARLIER, differently-
+numbered `project_completion_vs_accessibility_redesign_2026-09-13` spec,
+not to be confused with this batch's own Task 2).
+
+**Task 4 - standing STOP-mode gate**, reusing the existing `assert_
+plausible()` infrastructure (no new mechanism): compares every stratum's
+freshly-computed `target_sample_representativity` against `target_sample_
+representativity_last_run.csv`'s prior value; any increase (beyond a
+1e-6 float-noise tolerance) hard-stops with the affected strata named, no
+built-in override - a legitimate increase (a border-buffer reopening, new
+partner coverage) needs a deliberate look before being trusted, not a
+reflexive comment-out. First run has no baseline and passes trivially;
+verified on a second, unchanged run that it correctly shows 0 (not a
+false-positive machine).
+
+**Task 6 (NEW) - "Partner Reference" sheet**, added to the same workbook:
+one row per stratum - state/LGA/pop_type/partners/current accessible
+N_hh/`target_sample_representativity`/REAL field-collected achieved
+(deliberately not the design-capacity ceiling Feasibility uses - what
+matters for a live partner conversation is real progress)/remaining
+needed/plain-language status, sorted by remaining-needed descending. For
+Jack's own use filtering himself, not an automated partner distribution.
+README carries an explicit note (own section) that "no new resampling
+triggered" (the Feasibility column's own signal) is NOT the same claim as
+"partner can stop pursuing this stratum" (this sheet's Status column) - a
+stratum can need zero new clusters while its existing incomplete clusters
+still have real outstanding work.
+
+**Task 5 - retroactive drop-rule, BUILT AND DRY-RUN VERIFIED, NOT YET
+WIRED LIVE.** New script `resampling/scripts/compute_target_correction_
+drops.R` - candidate pool is exactly `not_started_other` status (the only
+one of the 4-value taxonomy meaning "currently accessible, actively
+assigned, not yet fully done" - the other 3 are either already access-
+excluded or permanently completed, neither in scope). For each stratum:
+`achieved_locked` = sum of `n_achieved` across `completed` clusters
+(permanent, untouchable); `clusters_still_needed = ceil(max(0, target_
+sample_representativity - achieved_locked) / m)`; excess = current
+`not_started_other` count minus that. Where excess > 0, drops least-
+progressed first (`n_achieved` ascending), most-recently-drawn as tiebreak
+(no real draw-date column exists anywhere in the frame - uses the numeric
+`_suppN` cluster-ID suffix as a recency proxy within each stratum's own
+sequence, explicitly flagged as an approximation, not a real timestamp).
+
+Status-taxonomy question the spec explicitly asked to be flagged before
+building, not silently decided: a capacity-driven drop is a genuinely
+different reason for exclusion than the existing 4-value completion-status
+taxonomy captures (all 4 are accessibility/completion-driven). Rather than
+force a 5th value into `compute_cluster_status()` (shared, other scripts
+depend on its current semantics), this reuses this project's own overlay
+pattern instead - the same shape as tonight's earlier `cluster_
+accessibility_overlay.csv` - a new derived file, `resampling/output/
+target_correction_dropped_clusters.csv`, that `refresh_working_frame_
+daily.R` would additionally exclude from WORKING (not yet wired - see
+below). Automatically also removes these clusters from partner "Needs
+Collecting" with no separate change needed there, since that sheet is
+built from WORKING.
+
+**A real bug caught in this script's own first dry run, fixed before it
+went anywhere**: MSNA Light clusters (Abadam/Nganzai/Guzamala,
+2026-09-11) - which must NEVER be touched by ordinary target/achieved
+logic, per Jack's explicit, repeatedly-reinforced requirement - are
+included in `compute_cluster_status()`'s output (that function doesn't
+filter `sampling_method`, unlike `compute_strata_achieved()`'s own
+`not_msna_light()` filter). First dry run flagged 3 MSNA Light clusters (2
+Abadam, 1 Nganzai) for drop. Fixed by excluding `sampling_method ==
+"MSNA Light"` entirely from this script's own computation (47 clusters
+excluded nationally) before it ever reached a live exclusion - re-verified
+clean on the corrected run.
+
+**Current dry-run result**: 36 of 314 strata have any excess, 51 clusters
+flagged total (35 FACT, the rest spread thinly across CRS/ACF/CARE/NRC/
+COOPI/DRC/INTERSOS/IRC/Malteser/Save the Children/Solidarités - 1-3 each).
+Full per-stratum detail in `resampling/output/target_correction_drop_
+rule_report.csv`.
+
+**Why this one wasn't wired live tonight, unlike everything else in this
+batch**: of all 6 tasks, this is the only one that would directly and
+immediately change what's visible to partners as their currently-assigned
+workload - removing an already-assigned, not-yet-complete cluster is a
+different kind of consequential than a reporting/sizing correction.
+Computed, verified, reported for Jack's explicit go-ahead before the
+actual WORKING exclusion gets wired in and run - not executed unilaterally
+just because the other 5 tasks were.
+
+**Not done**: Task 5's live wiring (pending Jack). Propagation to
+`2_monitoring` (already owed from the cluster-overlay fix earlier tonight,
+now compounded by everything in this update too - still one deliberate
+step, not yet taken). 2_monitoring's own `global.R` still needs to be
+repointed from `target_sample_current` to `target_sample_
+representativity` - that's 2_monitoring's own code, out of this session's
+scope to touch directly.
+
+## Update 2026-09-14 — Task 5 wired live, per Jack's explicit go-ahead
+
+**Mechanism, once Jack approved proceeding**: rather than invent a 5th
+`compute_cluster_status()` taxonomy value for "dropped, excess capacity"
+(a genuinely different reason for exclusion than the existing 4, all
+accessibility/completion-driven), `target_correction_dropped_clusters.csv`
+became a THIRD overlay input to `frame_status.R`'s `compute_cluster_
+accessibility()` (`load_target_correction_drops()`, same shape as the
+cluster-accessibility overlay), folded into `covered_accessible`/
+`excluded_primary` (so WORKING correctly excludes these clusters AND
+`compute_strata_achieved()`'s existing stranded-credit mechanism correctly
+preserves any real progress already made there) - but DELIBERATELY NOT
+folded into `compute_cluster_status()`'s own `currently_accessible`/
+`status` computation, which stays accessibility-only. A dropped cluster
+still honestly shows `status = "not_started_other"` (it genuinely IS still
+accessible, just no longer being pursued) - Task 1's `n_accessible_
+primary_post_threshold` column correctly zeroes for it anyway, since that
+column reads from `covered_accessible`, not from `status` directly.
+
+**`compute_target_correction_drops.R` made cumulative/append-only** before
+going live - a cluster already dropped in a prior run is carried forward
+unchanged and excluded from being re-considered as a candidate, so a
+future rerun can't flip-flop or re-decide something already dropped.
+Verified by running it a second time before wiring anything: 0 new drops,
+all 51 correctly carried forward - stable.
+
+**Live run** (`refresh_working_frame_daily.R`, `output/data/data_
+collection/` backed up first to `_archive/2026-09-14_pre_task5_live_
+drop/`): both `assert_plausible()` gates passed clean (0 rows in an
+Inaccessible ward; 26 strata over target, within the [0,40] ceiling - down
+from 29 before this run, since dropping excess capacity naturally resolves
+some of the over-target residual too). WORKING household-level 40,443 ->
+39,792 rows (2,969 -> 2,918 clusters, -51 exactly matching the drop list).
+**Stranded-achieved credit verified precisely**: 1,181 -> 1,301 real
+completed interviews preserved (+120) - hand-summed the `n_achieved`
+across the 19 partially-progressed dropped clusters independently and it
+matches +120 exactly, zero real completed work lost. Cluster-status tally
+unchanged from before the drop (completed=637/not_started_access_
+lost=1032/not_started_other=2271/partially_completed_access_lost=181),
+confirming the taxonomy correctly stayed blind to this, as designed.
+Workbook rebuilt after (`05_build_accessibility_impact_workbook.py`) -
+all 3 `assert_plausible()` gates (including Task 4's) passed clean.
+
+**Per-partner impact, for the end-of-batch partner emails Jack asked
+for** (new script `resampling/scripts/summarize_target_correction_drops_
+by_partner.R`, output in `resampling/output/target_correction_drops_by_
+partner_summary.csv` + `..._for_emails.csv` for the full per-cluster
+detail):
+
+| Partner | Clusters dropped | Nominal households | Already-achieved (preserved) | Strata affected |
+|---|---|---|---|---|
+| FACT | 35 | 276 | 96 | 20 |
+| CRS | 3 | 18 | 0 | 3 |
+| ACF | 2 | 30 | 23 | 2 |
+| CARE | 2 | 12 | 0 | 2 |
+| NRC | 2 | 12 | 0 | 2 |
+| COOPI | 1 | 6 | 0 | 1 |
+| DRC | 1 | 6 | 1 | 1 |
+| INTERSOS | 1 | 6 | 0 | 1 |
+| IRC | 1 | 6 | 0 | 1 |
+| Malteser | 1 | 6 | 0 | 1 |
+| Save the Children | 1 | 6 | 0 | 1 |
+| Solidarités | 1 | 6 | 0 | 1 |
+
+Totals: 51 clusters / 390 nominal households / 120 already-achieved
+households preserved via stranded credit / 12 partners. Framing worth
+keeping for the emails: this isn't "your data was discarded" (nothing
+achieved is lost, ever) - it's "these specific not-yet-started-or-barely-
+started clusters are no longer needed to hit the survey's precision
+target, so they've been removed from your active list." ACF's 23-of-30
+and FACT's 96-of-276 already-achieved figures mean some of what's being
+dropped was meaningfully underway - worth partners knowing their prior
+effort there still counts in full, it just won't be topped up further.
+
+**Not done**: propagation to `2_monitoring` (now further compounded by
+this update too - still one deliberate step, not yet taken). The actual
+partner emails themselves - Jack's own call on timing/wording, this is
+the data to wrap into them, not a draft.
+
+## Update 2026-09-14b — a real, pre-existing ceiling-undercounting bug, found via Coordinator's independent audit of the 6-task report, fixed with Jack's direct sign-off
+
+Coordinator ran a genuine independent re-derivation of the 6-task report
+(Jack's explicit ask, not a formality) and caught a real discrepancy: the
+Feasibility counts I'd reported (250/34/14/9/4/3) were the PRE-Task-5-drop
+figures from Update 2026-09-13d - I never re-pulled the tally after the
+final post-drop workbook rebuild in Update 2026-09-14. Live file read
+245/35/14/12/5/3. Both sum to 314; "no pool left" and "negligible gap"
+matched exactly; "already at/under target" was 5 lower and "exceeds
+remaining pool" 3 higher live.
+
+**Traced concretely (Coordinator independently re-verified every number,
+catching and fixing a flaw in their own first attempt along the way -
+joining cluster_id->strata_id via WORKING silently drops currently-
+inaccessible clusters' rows, undercounting which completed clusters
+existed; redone via direct matching against the pre-drop backup, matched
+exactly)**: `primary_ceiling_accessible` (the Achievable Ceiling driving
+Feasibility/additional-clusters-needed - unchanged since well before
+tonight) sums each cluster's row count, capped at that cluster's nominal
+`target_households` - blind to real over-collection. `idp_NG002001`'s 7
+completed clusters: `target_households` sum = 60, but real `n_achieved`
+sum = 111 (one cluster alone: target=6, achieved=20). 3 of the 7 are now
+in an inaccessible ward (permanently completed regardless, correctly still
+counted for achieved_locked, correctly zeroed for the ceiling) - only 4
+still-accessible completed clusters, nominal sum 42. Before Task 5's drop,
+5 not-yet-needed `not_started_other` candidates (36 nominal households)
+were ALSO sitting in the ceiling, propping it to 78 - enough to read
+"Already at/under target." Task 5 correctly used `achieved_locked` (real,
+uncapped) = 111, already exceeding `target_sample_representativity` =
+89.8, and correctly dropped all 5 as genuinely unneeded. Once those
+nominal-only households left the ceiling, it fell to 42 - now below
+target, so the OLD ceiling formula read a fresh shortfall against a thin
+remaining pool (2) and mislabeled a stratum that already has MORE real
+data than it needs as "Not closeable - exceeds remaining pool (recommend
+indicative)." Same shape confirmed in the other 2 flagged strata
+(`idp_NG034011`: 2/4 completed clusters over-collected; `idp_NG037014`:
+2/2).
+
+**Verdict, agreed by both sessions**: not a bug in Task 5's own logic - it
+used the correct, more accurate achieved figure throughout and made the
+right call for all 3. The bug is upstream and pre-existing: the ceiling
+formula has always undercounted real achieved capacity wherever a
+completed cluster over-collected beyond its nominal target - masked until
+now by unneeded nominal capacity sitting in `not_started_other` clusters
+providing an accidental cushion. Task 5 correctly removed that cushion,
+which exposed the gap underneath, rather than causing it.
+
+**Fix, Jack confirmed directly before it was wired in** (`05_build_
+accessibility_impact_workbook.py`): a new, SEPARATE field, `n_primary_
+ceiling_contribution`, computed per cluster - for a `completed` cluster,
+`max(n_primary_accessible, n_achieved)` instead of just `n_primary_
+accessible`; unchanged for any other status (mathematically a no-op there,
+since non-completed by definition means achieved < nominal target).
+Deliberately NOT touching `n_primary_accessible`/`primaries_accessible`
+itself (Task 1's own precise "real accessible primary row count," used
+for `[UPDATED AREA] Target samples` and elsewhere) - this correction is
+scoped only to the Achievable Ceiling's own sum. `load_cluster_status()`
+extended to also carry `status`/`n_achieved` per cluster (previously only
+the post-threshold count) so `build_cluster_level()` can compute this.
+
+**Verified after rebuilding**: all 3 traced strata now correctly show
+"Already at/under target" (`idp_NG002001` ceiling 42->111, MoE 14.37%->
+8.74%; `idp_NG034011` MoE ->8.88%; `idp_NG037014` MoE ->8.88% - all
+comfortably under 10%, confirming they genuinely already meet
+representativity). **The fix generalized correctly beyond just the 3
+traced strata** - national Feasibility tally moved 245/35/14/12/5/3 ->
+**258/30/13/8/3/2** (all 6 totals still sum to 314) - "Already at/under
+target" +13, "exceeds remaining pool" -4 (only 3 of which were the
+strata individually traced, confirming this was a real, systemic pattern
+across the frame, not limited to Task 5's specific drop list). All 3
+`assert_plausible()` gates (including Task 4's, since `target_sample_
+representativity` itself is untouched by this fix) passed clean.
+
+**Sequencing note worth keeping**: both this session and Coordinator
+independently agreed to hold this fix for Jack's direct confirmation
+before wiring it in, specifically because it's a live reclassification of
+Feasibility (donor/coverage-facing) for real strata - not because either
+session doubted the methodology. Confirmed directly by Jack in the
+Resampling session ("yes proceed") before implementation started.
+
+**Not done**: propagation to `2_monitoring` (unchanged from above).

@@ -72,7 +72,34 @@ site_frame <- readRDS("input_data/population/sampling_frame/idp_site_level_psu_f
   st_transform(mycrs)
 log_msg("Site-level PSU candidate frame: %d sites nationally.", nrow(site_frame))
 
-shortfalls <- read_csv(SHORTFALLS_IDP_CSV, show_col_types = FALSE) %>%
+shortfalls_idp_raw <- read_csv(SHORTFALLS_IDP_CSV, show_col_types = FALSE)
+
+# 2026-09-14 fix - same gap and same fix as draw_supplementary_clusters_
+# batch.R's identical addition (see that script's own detailed comment):
+# re-validate every shortfall row's coverage_status against the CURRENT
+# strata-level WORKING frame immediately before spending any draw effort on
+# it, since a shortfalls CSV's age relative to a LATER, independent
+# exclusion decision (not a staleness-of-its-own-source problem
+# assert_fresh() would catch) can otherwise waste a real draw on a stratum
+# that's since left the sampling universe entirely.
+strata_frame_current_idp <- read_csv(
+  "output/data/data_collection/NGA_MSNA_2026_strata_level_sampling_frame_v10_WORKING.csv",
+  show_col_types = FALSE, col_types = cols(.default = "c")
+)
+still_covered_strata_ids_idp <- strata_frame_current_idp$strata_id
+shortfalls_idp_id_col <- if ("strata_id" %in% names(shortfalls_idp_raw)) {
+  shortfalls_idp_raw$strata_id
+} else {
+  paste0("idp_", shortfalls_idp_raw$adm2_pcode)
+}
+now_excluded_idp <- !(shortfalls_idp_id_col %in% still_covered_strata_ids_idp)
+if (any(now_excluded_idp)) {
+  log_msg("  WARNING: %d IDP shortfall row(s) reference a stratum no longer covered in the CURRENT strata-level WORKING frame - dropping from this draw: %s",
+          sum(now_excluded_idp), paste(shortfalls_idp_id_col[now_excluded_idp], collapse = ", "))
+}
+shortfalls_idp_raw <- shortfalls_idp_raw[!now_excluded_idp, ]
+
+shortfalls <- shortfalls_idp_raw %>%
   transmute(adm2_pcode = adm2_pcode, households_needed = additional_clusters_needed * 6)
 log_msg("%d stratum/strata in shortfalls, %d total households needed.", nrow(shortfalls), sum(shortfalls$households_needed))
 
@@ -83,7 +110,7 @@ log_msg("%d stratum/strata in shortfalls, %d total households needed.", nrow(sho
 # uses the same site-identity logic as select_stage2_idp_sites()'s own
 # 30m dedup radius - a live cluster's GPS point within 30m of a candidate
 # site is the same physical site already fielded.
-full <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v7_FULL.csv", show_col_types = FALSE, col_types = cols(.default = "c")) %>%
+full <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v10_FULL.csv", show_col_types = FALSE, col_types = cols(.default = "c")) %>%
   filter(pop_type == "idp") %>%
   mutate(latitude = as.numeric(latitude), longitude = as.numeric(longitude)) %>%
   distinct(cluster_id, latitude, longitude)

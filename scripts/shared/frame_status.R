@@ -36,6 +36,52 @@
 # ==============================================================================
 suppressMessages({ library(dplyr) })
 
+#' Cluster-level accessibility overlay (2026-09-13): the set of cluster_ids a
+#' partner has explicitly reported inaccessible at CLUSTER level (as opposed
+#' to the ward-level status every other mechanism here runs on), built by
+#' resampling/scripts/build_cluster_accessibility_overlay.py from
+#' resampling_requests_log.csv. Precedence rule (Jack, 2026-09-13): this only
+#' ever ADDS an exclusion on top of ward-level status, never overrides it in
+#' either direction - a cluster-level "Yes" on an inaccessible ward does NOT
+#' get read from this file at all (build_cluster_accessibility_overlay.py
+#' only ever emits the "No" set), so there is nothing here that could
+#' override a ward-level exclusion back to accessible.
+#'
+#' Missing file returns character(0) (no exclusions) rather than erroring -
+#' this overlay is additive/optional, unlike CONFIRMED_DELETIONS_OVERLAY.csv
+#' which every caller already requires to exist.
+load_cluster_accessibility_overlay <- function(path = "resampling/output/cluster_accessibility_overlay.csv") {
+  if (!file.exists(path)) return(character(0))
+  readr::read_csv(path, show_col_types = FALSE, col_types = readr::cols(.default = "c"))$cluster_id
+}
+
+#' Target-correction drop list (Task 5, 2026-09-13): clusters removed from
+#' active capacity NOT because they're inaccessible, but because the
+#' stratum's TRUE requirement (target_sample_representativity, Task 2) needs
+#' fewer clusters than are currently assigned - excess, least-progressed-
+#' first capacity, per resampling/scripts/compute_target_correction_drops.R.
+#'
+#' Deliberately excluded from compute_cluster_status()'s currently_
+#' accessible/status computation (these clusters remain genuinely
+#' accessible in the real world - being unneeded isn't the same fact as
+#' being unreachable, and compute_target_correction_drops.R's own candidate
+#' selection depends on "not_started_other" continuing to mean exactly
+#' that). Folded ONLY into compute_cluster_accessibility()'s covered_
+#' accessible (below) - which correctly (a) excludes these clusters from
+#' WORKING, (b) still lets compute_strata_achieved() apply stranded-achieved
+#' credit for any real progress a dropped cluster already had (19 of the
+#' first 51 flagged did - this is not a hypothetical), and (c) correctly
+#' zeroes Task 1's n_accessible_primary_post_threshold for them, since that
+#' column is meant to mirror "real active capacity," which dropping
+#' genuinely changes.
+#'
+#' Missing file returns character(0), same convention as the cluster-
+#' accessibility overlay above.
+load_target_correction_drops <- function(path = "resampling/output/target_correction_dropped_clusters.csv") {
+  if (!file.exists(path)) return(character(0))
+  readr::read_csv(path, show_col_types = FALSE, col_types = readr::cols(.default = "c"))$cluster_id
+}
+
 #' Which specific submissions count as "achieved" - the canonical is_achieved()
 #' definition, mirrored from 2_monitoring/dashboard_app/global.R (duplicated
 #' there deliberately, per this project's cross-repo convention - this file
@@ -58,12 +104,27 @@ compute_achieved_lookup <- function(subs_df, deletions_overlay_df) {
   # deletion stands", genuinely terminal, not "still pending review". Both R
   # scripts had been silently still counting these 10 as achieved since
   # 2026-09-11. Fixed here, in the one place both scripts now read from.
+  #
+  # 2026-09-14 fix (Coordinator's cross-check, msna-n-wec-2026-91): a
+  # SEPARATE, independent `is_duplicate != "TRUE"` condition here was
+  # excluding real_submissions.csv's own raw/automated duplicate-candidate
+  # flag - a PENDING signal, not a confirmed deletion decision - on top of
+  # the overlay check above. This silently reimposed the pre-2026-09-11
+  # pessimistic policy (Jack: "the team would rather risk asking a field
+  # team to go back for a specific interview later than have them oversample
+  # now against a pessimistic count") through a side door the 2026-09-08
+  # quality_exclusion_reason audit never looked at, since it's a different
+  # column. Verified nationally before removing: 1,323 real completed
+  # interviews were being wrongly excluded this way (is_duplicate=="TRUE"
+  # but never actually confirmed/contested in the overlay) - about 7% of all
+  # completed interviews. Only the overlay's confirmed/contested status is
+  # authoritative for exclusion now, matching 2_monitoring's global.R
+  # is_achieved() exactly - no independent raw-flag check here.
   TERMINAL_DELETION_STATUSES <- c("confirmed", "contested")
   confirmed_deletion_uuids <- deletions_overlay_df %>% filter(status %in% TERMINAL_DELETION_STATUSES) %>% pull(uuid)
   achieved <- subs_df %>%
     filter(
       interview_outcome == "completed",
-      is_duplicate != "TRUE",
       !(matched_survey_id %in% c(NA, "", "NA")),
       !(submission_uuid %in% confirmed_deletion_uuids)
     )
@@ -85,24 +146,72 @@ compute_achieved_lookup <- function(subs_df, deletions_overlay_df) {
 #' @param non_idp_min_accessible_primary_hh the threshold (4 at every
 #'   existing call site - Jack's 2026-09-05 decision, CLAUDE.md "Revision
 #'   2026-09-05").
-#' @return list(covered, covered_accessible, below_threshold_clusters)
-compute_cluster_accessibility <- function(full_df, non_idp_min_accessible_primary_hh = 4) {
+#' @param cluster_overlay_excluded character vector of cluster_ids explicitly
+#'   reported inaccessible at CLUSTER level (see load_cluster_accessibility_
+#'   overlay() above) - additive on top of ward-level status, default reads
+#'   the live overlay file. Pass character(0) to disable (e.g. for a
+#'   before/after comparison).
+#' @param target_correction_dropped character vector of cluster_ids excess
+#'   to a stratum's corrected target (Task 5, see load_target_correction_
+#'   drops() above) - default reads the live drop-list file. NOT an
+#'   accessibility signal (these clusters are genuinely still reachable) -
+#'   deliberately excluded from compute_cluster_status()'s own accessible/
+#'   status computation, see that function's own comment.
+#' @param ward_exempt_sampling_methods sampling_method values exempt from the
+#'   ward_accessible_status gate below (default "MSNA Light" -
+#'   government-negotiated, unverifiable collection that must stay available
+#'   to field teams regardless of ward_accessible_status, per Jack's
+#'   2026-09-11 design decision - see CLAUDE.md "Update 2026-09-11"). Found
+#'   2026-09-14: this function had NO such exemption despite one already
+#'   existing in compute_strata_achieved() below (added 2026-09-11, for the
+#'   achieved-sample AGGREGATE only) - the two were never the same
+#'   protection. Concretely, all 156 Guzamala/Mairari MSNA Light rows were
+#'   silently absent from WORKING the entire time Mairari's ward was
+#'   Inaccessible (Abadam/Nganzai only survived because their own wards
+#'   happened to be Accessible - no code protected them either). Fixed here,
+#'   generically, rather than per-LGA - protects all 3 MSNA Light LGAs now
+#'   and any future one, not just today's Guzamala case.
+#' @return list(covered, covered_accessible, below_threshold_clusters,
+#'   cluster_overlay_excluded, target_correction_dropped)
+compute_cluster_accessibility <- function(full_df, non_idp_min_accessible_primary_hh = 4,
+                                           cluster_overlay_excluded = load_cluster_accessibility_overlay(),
+                                           target_correction_dropped = load_target_correction_drops(),
+                                           ward_exempt_sampling_methods = "MSNA Light") {
   covered <- full_df %>% filter(coverage_status == "covered", exclusion_reason == "none")
 
-  # NA (unmatched ward geography) counts as excluded, not accessible -
-  # 2026-09-08 rebuild-wide rule, both existing call sites already agree.
+  # A row clears the ward gate either by a real Accessible ward status, or by
+  # belonging to ward_exempt_sampling_methods (see @param above). NA
+  # (unmatched ward geography) still counts as excluded for everyone else -
+  # 2026-09-08 rebuild-wide rule, unaffected by this exemption. sampling_method
+  # is NA for the vast majority of rows (pre-dates the column) - %in% against
+  # NA correctly evaluates FALSE, not NA, so no separate is.na() guard is
+  # needed on the exemption side (unlike not_msna_light() below, which
+  # inverts the condition and so does need one).
+  ward_gate <- function(df) {
+    df %>% filter(
+      (sampling_method %in% ward_exempt_sampling_methods) |
+      (!is.na(ward_accessible_status) & ward_accessible_status != "Inaccessible")
+    )
+  }
+
   cluster_accessible_primary_n <- covered %>%
-    filter(pop_type == "non_idp", status == "primary", !is.na(ward_accessible_status) & ward_accessible_status != "Inaccessible") %>%
+    filter(pop_type == "non_idp", status == "primary") %>%
+    ward_gate() %>%
     count(cluster_id, name = "n_accessible_primary")
   below_threshold_clusters <- cluster_accessible_primary_n %>%
     filter(n_accessible_primary < non_idp_min_accessible_primary_hh) %>%
     pull(cluster_id)
 
   covered_accessible <- covered %>%
-    filter(!is.na(ward_accessible_status) & ward_accessible_status != "Inaccessible") %>%
-    filter(!(cluster_id %in% below_threshold_clusters))
+    ward_gate() %>%
+    filter(!(cluster_id %in% below_threshold_clusters)) %>%
+    filter(!(cluster_id %in% cluster_overlay_excluded)) %>%
+    filter(!(cluster_id %in% target_correction_dropped))
 
-  list(covered = covered, covered_accessible = covered_accessible, below_threshold_clusters = below_threshold_clusters)
+  list(covered = covered, covered_accessible = covered_accessible,
+       below_threshold_clusters = below_threshold_clusters,
+       cluster_overlay_excluded = cluster_overlay_excluded,
+       target_correction_dropped = target_correction_dropped)
 }
 
 #' Strata-level achieved_clusters/achieved_sample - the DESIGN-capacity
@@ -150,6 +259,8 @@ compute_strata_achieved <- function(full_df, achieved_lookup, accessibility = NU
   covered <- accessibility$covered
   covered_accessible <- accessibility$covered_accessible
   below_threshold_clusters <- accessibility$below_threshold_clusters
+  cluster_overlay_excluded <- accessibility$cluster_overlay_excluded
+  target_correction_dropped <- accessibility$target_correction_dropped
 
   not_msna_light <- function(df) df %>% filter(is.na(sampling_method) | !(sampling_method %in% exclude_sampling_methods))
 
@@ -157,7 +268,9 @@ compute_strata_achieved <- function(full_df, achieved_lookup, accessibility = NU
     filter(status == "primary") %>%
     filter(
       (is.na(ward_accessible_status) | ward_accessible_status == "Inaccessible") |
-      (pop_type == "non_idp" & cluster_id %in% below_threshold_clusters)
+      (pop_type == "non_idp" & cluster_id %in% below_threshold_clusters) |
+      (cluster_id %in% cluster_overlay_excluded) |
+      (cluster_id %in% target_correction_dropped)
     ) %>%
     not_msna_light()
 
@@ -220,17 +333,57 @@ compute_strata_achieved <- function(full_df, achieved_lookup, accessibility = NU
 #' explicitly documented exception applied elsewhere, never a default this
 #' function triggers.
 #'
+#' 2026-09-13 (Task 1 of the target-inflation-fix batch): also carries
+#' n_accessible_primary_post_threshold - the count of this cluster's primary
+#' rows that survive compute_cluster_accessibility()'s FULL filter chain
+#' (ward-accessible, above the below-4-threshold, not cluster-overlay-
+#' excluded), i.e. exactly what's actually in covered_accessible for this
+#' cluster - 0 for a fully-excluded cluster, otherwise the real accessible-
+#' row count (which can be less than the cluster's full primary count for a
+#' straddling cluster with a partially-inaccessible ward split). This is the
+#' single source of truth 05_build_accessibility_impact_workbook.py's
+#' build_cluster_level() now reads instead of recomputing its own raw
+#' per-row count - the two were disagreeing for every straddling/below-
+#' threshold cluster before this (see project memory
+#' project_resampling_target_inflation_fix_2026-09-13 for the full
+#' before/after).
+#'
 #' @return tibble(cluster_id, pop_type, target_households, n_achieved,
-#'   currently_accessible, status) - one row per covered cluster.
-compute_cluster_status <- function(full_df, achieved_lookup, accessibility, non_idp_min_accessible_primary_hh = 4) {
+#'   currently_accessible, n_accessible_primary_post_threshold, status) -
+#'   one row per covered cluster.
+compute_cluster_status <- function(full_df, achieved_lookup, accessibility, non_idp_min_accessible_primary_hh = 4,
+                                    ward_exempt_sampling_methods = "MSNA Light") {
   covered <- accessibility$covered
+  covered_accessible <- accessibility$covered_accessible
   below_threshold_clusters <- accessibility$below_threshold_clusters
+  cluster_overlay_excluded <- accessibility$cluster_overlay_excluded
   primary <- covered %>% filter(status == "primary")
 
+  accessible_primary_n <- covered_accessible %>%
+    filter(status == "primary") %>%
+    count(cluster_id, name = "n_accessible_primary_post_threshold")
+
+  # 2026-09-14 (found during Jack's requested post-MSNA-Light audit): this
+  # function had the SAME missing ward_exempt_sampling_methods gap that was
+  # just fixed in compute_cluster_accessibility() above - a fix landed in
+  # one function of this file's 4-function family, not propagated to a
+  # sibling computing a related but separate concept (per-cluster STATUS,
+  # not WORKING membership). Currently a latent gap, not a live wrong
+  # output - every MSNA Light ward happens to be Accessible right now, so
+  # any_inaccessible already evaluates FALSE for them regardless of this
+  # exemption - but the moment any MSNA Light ward is ever reported
+  # Inaccessible again (exactly the scenario today's fix exists for), this
+  # would have mislabelled those clusters "not_started_access_lost"/
+  # "partially_completed_access_lost" even though their rows correctly stay
+  # in WORKING - a visible, confusing inconsistency between cluster_status
+  # and WORKING membership for the exact clusters this mechanism protects.
   cluster_accessible <- primary %>%
     group_by(cluster_id, pop_type) %>%
-    summarise(any_inaccessible = any(is.na(ward_accessible_status) | ward_accessible_status == "Inaccessible"), .groups = "drop") %>%
-    mutate(currently_accessible = !any_inaccessible & !(cluster_id %in% below_threshold_clusters)) %>%
+    summarise(any_inaccessible = any(
+      !(sampling_method %in% ward_exempt_sampling_methods) &
+      (is.na(ward_accessible_status) | ward_accessible_status == "Inaccessible")
+    ), .groups = "drop") %>%
+    mutate(currently_accessible = !any_inaccessible & !(cluster_id %in% below_threshold_clusters) & !(cluster_id %in% cluster_overlay_excluded)) %>%
     select(-any_inaccessible)
 
   achieved_non_idp_n <- primary %>%
@@ -249,8 +402,10 @@ compute_cluster_status <- function(full_df, achieved_lookup, accessibility, non_
   cluster_accessible %>%
     left_join(achieved_by_cluster, by = "cluster_id") %>%
     left_join(target_by_cluster, by = "cluster_id") %>%
+    left_join(accessible_primary_n, by = "cluster_id") %>%
     mutate(
       n_achieved = coalesce(n_achieved, 0L),
+      n_accessible_primary_post_threshold = coalesce(n_accessible_primary_post_threshold, 0L),
       status = case_when(
         n_achieved >= target_households ~ "completed",
         n_achieved > 0 & !currently_accessible ~ "partially_completed_access_lost",
@@ -258,7 +413,8 @@ compute_cluster_status <- function(full_df, achieved_lookup, accessibility, non_
         TRUE ~ "not_started_other"
       )
     ) %>%
-    select(cluster_id, pop_type, target_households, n_achieved, currently_accessible, status)
+    select(cluster_id, pop_type, target_households, n_achieved, currently_accessible,
+           n_accessible_primary_post_threshold, status)
 }
 
 #' Task 4 (2026-09-13, Jack's call: proper formula, not the simple average-

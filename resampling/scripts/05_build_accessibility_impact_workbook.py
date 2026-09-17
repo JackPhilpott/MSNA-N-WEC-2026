@@ -32,7 +32,16 @@
 # realized_moe() is ported verbatim from 01_sampling_pipeline_main.R (same
 # formula, same defaults) - a summary-statistic formula, not something that
 # needs cluster reselection, so it's valid to apply directly to the
-# accessible-only achieved_sample/N_hh figures computed here.
+# accessible-only achieved_sample/N_hh figures computed here. Still used by
+# sample_needed_for_moe()/target_sample_representativity() - a forward-
+# looking "how many households would a uniform future draw need" question,
+# where there's no real achieved distribution yet to measure unevenness in.
+# realized_moe_unequal() (2026-09-14 port of scripts/shared/frame_status.R's
+# Task 4 formula - see its own docstring) replaces realized_moe() wherever
+# this script measures MoE against the REAL, already-uneven achieved
+# distribution (the Feasibility column's moe_updated/moe_if_half_cluster_
+# more) - the R pipeline switched 2026-09-13; this script had been left
+# behind on the uniform formula until the overnight audit caught it.
 #
 # "Collected samples" = real_submissions.csv, interview_outcome == "completed"
 # AND any_quality_flag == "FALSE" (per user decision 2026-08-25) - both
@@ -54,6 +63,7 @@ from openpyxl.utils import get_column_letter
 PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026"
 sys.path.insert(0, PROJECT_DIR + r"\1_sampling\scripts\shared")
 from assert_plausible import assert_plausible  # noqa: E402
+from assert_fresh import assert_fresh  # noqa: E402
 SAMPLING_DIR = PROJECT_DIR + r"\1_sampling"
 # FULL, not WORKING (2026-09-01 fix - was WORKING right after the v2->v4
 # path bump, which is wrong for this script specifically): v4 WORKING now
@@ -68,8 +78,24 @@ SAMPLING_DIR = PROJECT_DIR + r"\1_sampling"
 # round. Filtered below to coverage_status=="covered" & exclusion_reason
 # =="none" to still exclude population-floor/certainty-excluded strata,
 # which genuinely shouldn't reappear here.
-STRATA_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v7_FULL.csv"
-HOUSEHOLD_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v7_FULL.csv"
+STRATA_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v10_FULL.csv"
+HOUSEHOLD_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v10_FULL.csv"
+# 2026-09-13 (Task 1, target-inflation-fix batch): the single source of truth
+# for "how many of this cluster's primary rows are actually accessible" -
+# written by frame_status.R's compute_cluster_status(), which applies the
+# FULL chain (ward-accessible, below-4-threshold, cluster-overlay-excluded).
+# build_cluster_level() below used to recompute its own raw per-row count,
+# which disagreed with this file for every straddling/below-threshold
+# cluster - see project memory project_resampling_target_inflation_fix_
+# 2026-09-13 for the before/after.
+CLUSTER_STATUS_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_cluster_status_v10.csv"
+# Task 4 (2026-09-13): the STOP-mode gate's own baseline - each run's
+# target_sample_representativity per stratum, compared against THIS run's.
+# Not part of the workbook itself (an .xlsx is for humans to read/annotate,
+# not a reliable round-trip source for a plausibility gate) - a small,
+# dedicated, single-purpose tracking file, same pattern as _frame_
+# version.txt/NGA_MSNA_2026_cluster_status_v10.csv elsewhere in this project.
+TARGET_REPR_LAST_RUN_CSV = SAMPLING_DIR + r"\resampling\output\target_sample_representativity_last_run.csv"
 MASTER_WARD_CSV = SAMPLING_DIR + r"\resampling\output\master_accessibility_status_ward_level.csv"
 GIS_WARD_CSV = SAMPLING_DIR + r"\resampling\output\gis\accessible_area_lga_ward_portions.csv"
 POOL_NON_IDP_CSV = SAMPLING_DIR + r"\resampling\output\gis\remaining_eligible_pool_non_idp.csv"
@@ -102,11 +128,35 @@ if not os.path.exists(CONFIRMED_DELETIONS_OVERLAY_CSV):
     raise FileNotFoundError(f"CONFIRMED_DELETIONS_OVERLAY.csv not found at {CONFIRMED_DELETIONS_OVERLAY_CSV}")
 print(f"Using confirmed-deletions overlay: {os.path.basename(CONFIRMED_DELETIONS_OVERLAY_CSV)}")
 
+# 2026-09-13 fix: the whole accessibility chain in this script (classify_
+# households() below) was ward-level only - a partner reporting a SPECIFIC
+# cluster inaccessible via the "Cluster Accessibility" sheet (while its ward
+# stays accessible overall - found via ACF's returned report, 4 Tambuwal IDP
+# sites reported relocated/inaccessible) had no pathway into this workbook at
+# all, which is what extract_partner_shortfalls.R reads to size every
+# redraw. resampling/scripts/build_cluster_accessibility_overlay.py derives
+# this from resampling_requests_log.csv's cluster-level rows (already logged
+# by 02_ingest_accessibility_reports.py, never read back out before now).
+# Precedence rule (Jack, 2026-09-13, same as scripts/shared/frame_status.R's
+# load_cluster_accessibility_overlay()): additive only - a cluster-level
+# "No" excludes just that cluster on top of whatever the ward already says;
+# it never overrides a ward-level status in either direction. Missing file
+# is not an error (unlike the deletions overlay above) - this overlay is
+# optional/additive, and build_cluster_accessibility_overlay.py may not have
+# been run yet in a fresh checkout.
+CLUSTER_ACCESSIBILITY_OVERLAY_CSV = SAMPLING_DIR + r"\resampling\output\cluster_accessibility_overlay.csv"
+
+
+def load_cluster_accessibility_overlay():
+    if not os.path.exists(CLUSTER_ACCESSIBILITY_OVERLAY_CSV):
+        return set()
+    return {r["cluster_id"] for r in load_csv(CLUSTER_ACCESSIBILITY_OVERLAY_CSV)}
+
 TARGET_MOE_PCT = 10.0
 
 OUT_DIR = SAMPLING_DIR + r"\resampling\output"
 WORKBOOK_PATH = OUT_DIR + r"\NGA_MSNA_2026_accessibility_impact_workbook.xlsx"
-UPDATED_FRAME_CSV = OUT_DIR + r"\NGA_MSNA_2026_stage2_sampling_frame_v7_WORKING_with_accessibility.csv"
+UPDATED_FRAME_CSV = OUT_DIR + r"\NGA_MSNA_2026_stage2_sampling_frame_v10_WORKING_with_accessibility.csv"
 
 
 def realized_moe(achieved_sample, N_hh, m, ICC=0.06, Z=1.6448536269514722, p=0.5):
@@ -115,6 +165,47 @@ def realized_moe(achieved_sample, N_hh, m, ICC=0.06, Z=1.6448536269514722, p=0.5
     if achieved_sample <= 0 or N_hh <= achieved_sample:
         return None
     deff = 1 + (m - 1) * ICC
+    ndeff = achieved_sample * (N_hh - 1) / (N_hh - achieved_sample)
+    n0 = ndeff / deff
+    if n0 <= 0:
+        return None
+    return math.sqrt(Z ** 2 * p * (1 - p) / n0) * 100
+
+
+def realized_moe_unequal(achieved_sample, N_hh, cluster_sizes, ICC, Z=1.6448536269514722, p=0.5):
+    """2026-09-14 port of scripts/shared/frame_status.R's realized_moe_
+    unequal() (Task 4, built and verified there 2026-09-13) - this script
+    had been left on the old realized_moe()'s simple deff = 1 + (m-1)*ICC,
+    blind to how unevenly achieved sample is actually distributed across
+    full vs. partial clusters (same "fixed in one place, not propagated"
+    pattern as the achieved-counting bug from the night before - flagged in
+    the overnight audit, Jack confirmed porting it here too).
+
+    Kish's (1965) approximate design effect for unequal cluster sizes:
+        deff = 1 + [(cv^2 + 1) * m_bar - 1] * ICC
+    where m_bar = mean achieved cluster size, cv = coefficient of variation
+    (sd/mean) of achieved cluster sizes. Reduces EXACTLY to the old
+    1 + (m_bar - 1) * ICC when cv = 0 (uniform cluster sizes) - same
+    algebraic identity already verified on the R side, not re-derived here:
+    (0^2+1)*m_bar - 1 = m_bar - 1.
+
+    @param cluster_sizes: achieved-primary-count per cluster in this
+    stratum (i.e. n_primary_ceiling_contribution values, mirroring
+    compute_strata_achieved()'s cluster_sizes output on the R side) - not
+    required to pre-filter zeros/None, matches R's own defensive filter.
+    Uses the sample standard deviation (n-1 divisor, matching R's sd())."""
+    sizes = [s for s in cluster_sizes if s is not None and s > 0]
+    if not sizes:
+        return None
+    if achieved_sample <= 0 or N_hh <= achieved_sample:
+        return None
+    m_bar = sum(sizes) / len(sizes)
+    if len(sizes) > 1 and m_bar > 0:
+        variance = sum((s - m_bar) ** 2 for s in sizes) / (len(sizes) - 1)
+        cv = math.sqrt(variance) / m_bar
+    else:
+        cv = 0.0
+    deff = 1 + ((cv ** 2 + 1) * m_bar - 1) * ICC
     ndeff = achieved_sample * (N_hh - 1) / (N_hh - achieved_sample)
     n0 = ndeff / deff
     if n0 <= 0:
@@ -137,6 +228,48 @@ def sample_needed_for_moe(target_moe_pct, N_hh, m, ICC=0.06, Z=1.644853626951472
     # invert ndeff = n*(N-1)/(N-n)  =>  n = ndeff*N / (ndeff + N - 1)
     achieved_needed = ndeff_needed * N_hh / (ndeff_needed + N_hh - 1)
     return min(achieved_needed, N_hh)  # can never need to sample more than exists
+
+
+# Task 2 (2026-09-13, target-inflation-fix batch, AMENDED per Jack's 2026-09-13
+# night decision): replaces target_sample_current (2_monitoring's own copy,
+# which sums target_households from FULL and never subtracts a cluster once
+# it goes inaccessible - only ever grows) with a freshly-computed TRUE
+# requirement, persisted every run, for every stratum, applied against the
+# CURRENT accessible frame - this IS the retroactive correction, not just a
+# prospective one.
+#
+# Jack's explicit scope decisions, don't relitigate without his sign-off:
+# - ICC stays fixed at 0.06 everywhere - no empirical estimation, no
+#   per-stratum calibration. Too risky to change a core design assumption
+#   mid-survey without full confidence in it.
+# - No disaggregation logic of any kind - fully out of scope, not deferred.
+# - MARGIN = 1.05, a flat 5% operational margin applied UNIFORMLY to every
+#   stratum (deliberately not per-stratum-empirical, to avoid the same
+#   small-sample-noise/results-driven-adjustment risk Jack rejected for both
+#   ICC and disaggregation above). Grounded in the real national confirmed-
+#   deletion rate verified directly against CONFIRMED_DELETIONS_OVERLAY.csv
+#   vs real_submissions.csv the night this was decided: 6.53% of all
+#   submissions, 94.7% of that specifically duration_under_20. This is NOT
+#   the same thing as the existing 10% non-response reserve buffer (which
+#   backstops a household never reached) - this margin protects against a
+#   real, ALREADY-COMPLETED interview later getting invalidated. The two
+#   apply independently; never conflate or compound them.
+MARGIN_OPERATIONAL = 1.05
+
+
+def target_sample_representativity(N_hh_accessible, m, target_moe_pct=TARGET_MOE_PCT, ICC=0.06, margin=MARGIN_OPERATIONAL):
+    """target_sample_representativity = min(N_hh_accessible,
+    sample_needed_for_moe(target_moe_pct, N_hh_accessible, m, ICC) * margin).
+    The outer min() re-caps AFTER the margin is applied - sample_needed_for_
+    moe() already caps at N_hh internally, but the *margin multiplied on top
+    can push back above it, and a stratum can never need to survey more
+    households than are actually accessible, margin or not. Returns None if
+    the accessible population is too small for the underlying formula to be
+    meaningful (mirrors sample_needed_for_moe()'s own None case)."""
+    raw = sample_needed_for_moe(target_moe_pct, N_hh_accessible, m, ICC)
+    if raw is None:
+        return None
+    return min(N_hh_accessible, raw * margin)
 
 
 def load_pool_lookup(path, pool_field):
@@ -257,14 +390,23 @@ def load_lga_area_pop_fractions():
     return out
 
 
-def classify_households(ward_status):
+def classify_households(ward_status, cluster_overlay_excluded=None):
     """Loads the household-level WORKING frame and tags every row with
     accessible_status, using its own (adm1_name, adm2_name, adm3_name) - the
     exact same per-household ward attribution used everywhere else in this
     project (Stage 2's own point-in-polygon join). Rows whose ward has no
     entry in the master status (no partner's clusters ever touched it,
     vanishingly rare given the master file is itself built from this same
-    frame) default Accessible."""
+    frame) default Accessible.
+
+    2026-09-13: cluster_overlay_excluded (from load_cluster_accessibility_
+    overlay() above) then additionally forces Inaccessible for any row whose
+    cluster_id was explicitly reported inaccessible at CLUSTER level - on
+    top of the ward-level result, never overriding it back to Accessible
+    (a cluster-level "No" only ever adds an exclusion, per Jack's 2026-09-13
+    precedence rule - this overlay never contains a "Yes" to override with)."""
+    if cluster_overlay_excluded is None:
+        cluster_overlay_excluded = load_cluster_accessibility_overlay()
     rows = load_csv(HOUSEHOLD_CSV)
     # FULL includes population-floor/certainty-excluded strata (correctly
     # dropped from the sampling universe altogether, e.g. Dandume/Faskari) -
@@ -273,11 +415,82 @@ def classify_households(ward_status):
     rows = [r for r in rows if r.get("coverage_status") == "covered" and r.get("exclusion_reason") in ("none", "", None)]
     for r in rows:
         key = (r["adm1_name"], r["adm2_name"], r["adm3_name"])
-        r["_accessible_status"] = ward_status.get(key, "Accessible")
+        status = ward_status.get(key, "Accessible")
+        if r["cluster_id"] in cluster_overlay_excluded:
+            status = "Inaccessible"
+        r["_accessible_status"] = status
     return rows
 
 
-def build_cluster_level(household_rows, provenance_lookup):
+def load_cluster_status():
+    """cluster_id -> {n_accessible_primary_post_threshold, status, n_achieved}
+    (all from CLUSTER_STATUS_CSV, frame_status.R's compute_cluster_status()).
+    Missing entirely (script never run) is a hard error, not a silent
+    0-default - this is now the sizing basis for the whole workbook's
+    MoE/target/feasibility columns, too consequential to quietly treat an
+    absent file as "everything is 0 accessible everywhere."
+
+    2026-09-14 (post-Task-5 audit finding, Jack confirmed the fix): status/
+    n_achieved added alongside the post-threshold count so build_cluster_
+    level() can correct for real over-collection at COMPLETED clusters -
+    see that function's own docstring for the full mechanism."""
+    if not os.path.exists(CLUSTER_STATUS_CSV):
+        raise FileNotFoundError(
+            f"{CLUSTER_STATUS_CSV} not found - run refresh_working_frame_daily.R "
+            f"(or merge_partner_resample_batch.R) first to generate it."
+        )
+    rows = load_csv(CLUSTER_STATUS_CSV)
+    return {
+        r["cluster_id"]: {
+            "n_accessible_primary_post_threshold": int(r["n_accessible_primary_post_threshold"]),
+            "status": r["status"],
+            "n_achieved": int(r["n_achieved"]),
+        }
+        for r in rows
+    }
+
+
+def load_last_run_targets():
+    """strata_id -> (target_sample_representativity, N_hh_accessible) as of
+    the LAST run (Task 4's STOP-gate baseline). Empty dict if the file
+    doesn't exist yet - that's the legitimate first-run case (no baseline to
+    compare against yet), not an error.
+
+    2026-09-14 (per Jack, after the gate correctly caught a real INTERSOS
+    accessibility gain in Maru and stopped to ask about it): N_hh_accessible
+    is now persisted alongside the target so the gate below can tell WHY a
+    target moved, not just THAT it moved - see that gate's own updated
+    comment for the corrected rule. Reading an old-format file (no
+    N_hh_accessible column, from before this change) defaults it to None,
+    which the gate treats as "can't confirm an accessibility gain" - i.e.
+    still flags an increase, same as the original behaviour, rather than
+    silently passing every stratum once on the format upgrade."""
+    if not os.path.exists(TARGET_REPR_LAST_RUN_CSV):
+        return {}
+    rows = load_csv(TARGET_REPR_LAST_RUN_CSV)
+    return {
+        r["strata_id"]: {
+            "target_sample_representativity": float(r["target_sample_representativity"]),
+            "N_hh_accessible": float(r["N_hh_accessible"]) if r.get("N_hh_accessible") not in (None, "") else None,
+        }
+        for r in rows
+    }
+
+
+def write_last_run_targets(new_targets):
+    """Persist this run's target_sample_representativity + N_hh_accessible
+    per stratum, for the NEXT run's Task 4 comparison. Only called after
+    that comparison has already passed for THIS run - a failed run must not
+    silently become the new baseline. new_targets: strata_id -> {"target_
+    sample_representativity": float, "N_hh_accessible": float}."""
+    with open(TARGET_REPR_LAST_RUN_CSV, "w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=["strata_id", "target_sample_representativity", "N_hh_accessible"])
+        w.writeheader()
+        for strata_id, vals in sorted(new_targets.items()):
+            w.writerow({"strata_id": strata_id, **vals})
+
+
+def build_cluster_level(household_rows, provenance_lookup, cluster_status_lookup):
     """One row per cluster_id: strata_id, pop_type, any_accessible (bool -
     at least one PRIMARY household accessible), all_accessible (bool - every
     primary household accessible), primary/reserve counts, state/lga/wards
@@ -287,7 +500,59 @@ def build_cluster_level(household_rows, provenance_lookup):
     accessibility_reports.py's known ward-splitting fix), not just one
     representative ward, via the same aggregate_provenance() used at
     strata/LGA grain below - so a multi-ward cluster correctly shows
-    'Mixed'-style provenance rather than silently picking one ward's."""
+    'Mixed'-style provenance rather than silently picking one ward's.
+
+    2026-09-13 (Task 1): n_primary_accessible now comes from
+    cluster_status_lookup (frame_status.R's compute_cluster_status(), the
+    same post-threshold/cluster-overlay-aware figure the real WORKING frame
+    uses) instead of a raw per-row count computed here - the two disagreed
+    for every straddling or below-threshold-dropped cluster before this.
+    any_accessible/all_accessible derive from the SAME corrected count now,
+    for the same reason. n_capacity_accessible (primary+reserve, reference-
+    only ceiling - see its own comment at the call site below) is
+    deliberately UNCHANGED/still raw per-row - out of this task's stated
+    scope, and it's explicitly not the resampling decision basis.
+
+    2026-09-14 (post-Task-5 audit finding, Jack confirmed the fix): a NEW,
+    separate field, n_primary_ceiling_contribution, for the Achievable-
+    Ceiling/Feasibility calculation specifically - deliberately NOT the same
+    as n_primary_accessible above, which stays a precise "real accessible
+    primary ROW count" (Task 1's own stated purpose, unchanged). For a
+    COMPLETED cluster, uses max(n_primary_accessible, n_achieved) instead of
+    just n_primary_accessible - real over-collection at a completed cluster
+    (achieved > nominal target_households, confirmed common: idp_NG002001
+    alone had one cluster with target=6/achieved=20) was silently
+    undercounted by the ceiling before this, masked as long as there was
+    leftover not-yet-achieved nominal capacity elsewhere in the stratum to
+    compensate - Task 5's drop-rule correctly removed that unneeded
+    capacity, which is what exposed the gap (3 strata read "exceeds
+    remaining pool" when they'd already genuinely met target - see project
+    memory project_resampling_target_inflation_fix_2026-09-13 for the full
+    trace).
+
+    2026-09-14b (same night, second real gap in this same fix - found by
+    Coordinator tracing a ZOA "target/achieved/still needed don't add up"
+    question, independently re-verified here before applying): the
+    docstring above originally claimed "for any non-completed cluster this
+    is always a no-op, since status != completed implies n_achieved <
+    n_primary_accessible" - true only while a cluster is still accessible.
+    For status == "partially_completed_access_lost" specifically,
+    n_primary_accessible (== n_accessible_primary_post_threshold) correctly
+    reads 0 the moment access is lost, while n_achieved can still be > 0
+    (real work done before access was lost) - so the same undercounting
+    this fix was built to close was still happening for every partially-
+    completed-then-access-lost cluster. Confirmed on ZOA's own live data:
+    non_idp_NG...{_11,_12,_17,_2} carry 5+4+3+4=16 real achieved households
+    that were contributing 0 to the ceiling. Quantified nationally before
+    applying: 197 clusters, 1,187 households of ceiling credit, across 36
+    strata - a real, non-trivial undercount, not an edge case. Fixed by
+    extending the status check to also cover partially_completed_access_
+    lost - same justification as the completed case (real achieved credit
+    must never vanish from the ceiling just because the cluster later lost
+    access, whether it finished first or not). not_started_access_lost and
+    not_started_other are correctly left alone - by definition n_achieved
+    is 0 for a genuinely not-started cluster, so max() has nothing to
+    correct there regardless."""
     by_cluster = defaultdict(list)
     for r in household_rows:
         by_cluster[r["cluster_id"]].append(r)
@@ -296,15 +561,22 @@ def build_cluster_level(household_rows, provenance_lookup):
     for cid, rows in by_cluster.items():
         primaries = [r for r in rows if r["status"] == "primary"]
         any_row = rows[0]
-        acc_primaries = [r for r in primaries if r["_accessible_status"] == "Accessible"]
+        cs = cluster_status_lookup.get(cid, {"n_accessible_primary_post_threshold": 0, "status": None, "n_achieved": 0})
+        n_primary_accessible = cs["n_accessible_primary_post_threshold"]
+        n_primary_ceiling_contribution = (
+            max(n_primary_accessible, cs["n_achieved"])
+            if cs["status"] in ("completed", "partially_completed_access_lost")
+            else n_primary_accessible
+        )
         # 2026-08-29: capacity ceiling for the resampling decision - EVERY
         # household row (primary + reserve) in an accessible ward, not just
         # primary. Same per-household accessible-ward filter n_primary_
-        # accessible already uses (a multi-ward cluster's inaccessible-ward
+        # accessible used to use (a multi-ward cluster's inaccessible-ward
         # rows still don't count), just extended to include reserve slots -
         # this is "if every currently-assigned, accessible slot in this
         # cluster were completed," the actual ceiling the resampling
-        # decision needs (see load_real_achieved()'s caller).
+        # decision needs (see load_real_achieved()'s caller). Left as a raw
+        # per-row count (not threshold-corrected) - see docstring above.
         acc_capacity = [r for r in rows if r["_accessible_status"] == "Accessible"]
         wards = sorted({r["adm3_name"] for r in rows})
         ward_keys = {(r["adm1_name"], r["adm2_name"], r["adm3_name"]) for r in rows}
@@ -318,10 +590,11 @@ def build_cluster_level(household_rows, provenance_lookup):
             "wards": "; ".join(wards),
             "ward_keys": ward_keys,
             "n_primary": len(primaries),
-            "n_primary_accessible": len(acc_primaries),
+            "n_primary_accessible": n_primary_accessible,
+            "n_primary_ceiling_contribution": n_primary_ceiling_contribution,
             "n_capacity_accessible": len(acc_capacity),
-            "any_accessible": len(acc_primaries) > 0,
-            "all_accessible": len(acc_primaries) == len(primaries) and len(primaries) > 0,
+            "any_accessible": n_primary_accessible > 0,
+            "all_accessible": n_primary_accessible == len(primaries) and len(primaries) > 0,
             "reported_by": reported_by,
             "last_reported_date": last_date,
         })
@@ -352,7 +625,13 @@ def load_real_achieved():
     formula (2_monitoring is the single source of truth for this, don't
     re-derive it differently):
         is_collected = interview_outcome == "completed"
-        is_achieved  = is_collected & !is_duplicate & !is.na(matched_survey_id)
+        is_achieved  = is_collected & !is.na(matched_survey_id)
+    2026-09-14 fix (Coordinator cross-check): dropped an independent
+    is_duplicate=="TRUE" exclusion that was never part of this formula -
+    a raw/pending signal, not a confirmed deletion decision, silently
+    reimposing the pre-2026-09-11 pessimistic policy. 1,323 real completed
+    interviews nationally were wrongly excluded this way - see frame_
+    status.R's compute_achieved_lookup() for the full trace.
     - the exact same is_achieved() the dashboard uses (2_monitoring/
     dashboard_app/global.R:584), MINUS every uuid marked status=="confirmed"
     in CONFIRMED_DELETIONS_OVERLAY.csv (2026-09-06, repointed from the
@@ -401,7 +680,6 @@ def load_real_achieved():
     def is_achieved(r):
         return (
             r["interview_outcome"] == "completed"
-            and r["is_duplicate"] != "TRUE"
             and r["matched_survey_id"] not in (None, "", "NA")
             and r["submission_uuid"] not in deletion_uuids
         )
@@ -426,7 +704,9 @@ def main():
 
     print("Classifying households by accessible status...")
     household_rows = classify_households(ward_status)
-    cluster_rows = build_cluster_level(household_rows, provenance_lookup)
+    print("Loading per-cluster status (post-threshold accessible-primary counts)...")
+    cluster_status_lookup = load_cluster_status()
+    cluster_rows = build_cluster_level(household_rows, provenance_lookup, cluster_status_lookup)
     cluster_by_id = {c["cluster_id"]: c for c in cluster_rows}
 
     print("Loading real submissions (collected samples)...")
@@ -434,7 +714,28 @@ def main():
     print("Loading real achieved samples for resampling decisions (canonical formula + deletion log)...")
     real_achieved_by_strata, real_achieved_by_cluster = load_real_achieved()
 
+    # 2026-09-14 gap found via a Jack question, not an audit: this pool CSV
+    # (analysis_remaining_eligible_pool.R's own output) had gone stale
+    # 2026-09-11 -> 2026-09-14 (three days, several accessibility batches)
+    # with nothing catching it - unlike the ward shapefile just above, which
+    # draw_supplementary_clusters_batch.R/draw_supplementary_idp_sites_
+    # batch.R already gate on via assert_fresh(mode="stop"). No draw was
+    # ever mis-sized by this (the real draw scripts compute their own
+    # candidate pool fresh, never read this CSV) - but this script's own
+    # "Remaining eligible pool"/Feasibility columns, which DECIDE which
+    # strata get a draw at all, were reading a stale figure. Same mode/
+    # source-of-truth pattern as the shapefile's own gate below: this pool
+    # is directly derived from the shapefile, so that's what it must not
+    # predate.
     print("Loading remaining eligible pool (non-IDP hexes, IDP DTM sites)...")
+    for pool_csv in (POOL_NON_IDP_CSV, POOL_IDP_CSV):
+        assert_fresh(
+            artifact_path=pool_csv,
+            source_paths=[GIS_WARD_CSV],
+            mode="stop",
+            fix_hint='Rscript "resampling/scripts/analysis_remaining_eligible_pool.R"',
+            label=os.path.basename(pool_csv),
+        )
     pool_non_idp = load_pool_lookup(POOL_NON_IDP_CSV, "accessible_unselected_hexes")
     pool_idp = load_pool_lookup(POOL_IDP_CSV, "accessible_unselected_sites")
 
@@ -446,7 +747,11 @@ def main():
     for c in cluster_rows:
         strata_clusters[c["strata_id"]].append(c)
 
+    last_run_targets = load_last_run_targets()
+    new_run_targets = {}
+
     summary_rows = []
+    partner_reference_rows = []  # Task 6
     for s in strata_rows:
         strata_id = s["strata_id"]
         adm2_pcode = s["adm2_pcode"]
@@ -508,7 +813,17 @@ def main():
         # one. Primary-only avoids this entirely: it's exactly the ceiling
         # the original design already assumed, just scoped to the
         # currently-accessible portion.
-        primary_ceiling_accessible = primaries_accessible
+        #
+        # 2026-09-14 (post-Task-5 audit finding, Jack confirmed the fix):
+        # summed from n_primary_ceiling_contribution, NOT primaries_
+        # accessible - a completed cluster's contribution here is max(its
+        # own row count, its real n_achieved), so genuine over-collection
+        # correctly counts toward the ceiling instead of being invisibly
+        # capped at the nominal target. primaries_accessible itself (used
+        # for "[UPDATED AREA] Target samples" below) is deliberately left
+        # as the precise row-count figure Task 1 built it to be - this
+        # correction is scoped to the ceiling/Feasibility calculation only.
+        primary_ceiling_accessible = sum(c["n_primary_ceiling_contribution"] for c in clusters)
         # Reference only, NOT used for the decision - what the ceiling WOULD
         # be if reserves were also fully exhausted. Kept visible so the
         # tradeoff (a specific stratum's gap could technically be closed by
@@ -519,7 +834,45 @@ def main():
             c["n_capacity_accessible"] for c in clusters if c["any_accessible"]
         )
 
-        moe_updated = realized_moe(primary_ceiling_accessible, N_hh_accessible, m_used) if N_hh_accessible > 0 else None
+        # 2026-09-14: realized_moe() -> realized_moe_unequal() (Task 4 port,
+        # see that function's own docstring) - this workbook's own Feasibility
+        # column had been left on the simple uniform-cluster-size formula
+        # while the R pipeline (refresh_working_frame_daily.R, merge_
+        # partner_resample_batch.R) already switched 2026-09-13. cluster_
+        # sizes = each cluster's n_primary_ceiling_contribution (mirrors
+        # compute_strata_achieved()'s cluster_sizes on the R side; zeros are
+        # dropped internally by realized_moe_unequal(), same as R's own
+        # defensive filter) - sums to exactly primary_ceiling_accessible.
+        ceiling_cluster_sizes = [c["n_primary_ceiling_contribution"] for c in clusters]
+        moe_updated = (
+            realized_moe_unequal(primary_ceiling_accessible, N_hh_accessible, ceiling_cluster_sizes, ICC=0.06)
+            if N_hh_accessible > 0 else None
+        )
+
+        # Task 2 (2026-09-13, AMENDED): the true, margined, capped
+        # requirement - see target_sample_representativity()'s own
+        # docstring for the formula and Jack's scope decisions (ICC fixed,
+        # no disaggregation, flat 5% margin). Computed for EVERY stratum,
+        # every run, regardless of current shortfall status - this is the
+        # persisted, retroactive-correction figure 2_monitoring reads in
+        # place of target_sample_current.
+        target_repr = target_sample_representativity(N_hh_accessible, m_used) if N_hh_accessible > 0 else None
+        if target_repr is not None:
+            new_run_targets[strata_id] = {
+                "target_sample_representativity": target_repr,
+                "N_hh_accessible": N_hh_accessible,
+            }
+        # 2026-09-14, per Jack: a household count is a whole unit - display
+        # it as one. target_repr itself stays a precise float internally
+        # (Feasibility/additional-clusters-needed math and the Task 4 gate
+        # above both want full precision to catch small real changes), but
+        # every place this figure is actually shown as "the target sample"
+        # rounds UP to a whole household, never down - this is a minimum
+        # requirement, so ceil() is the only direction that doesn't
+        # understate it. Previously round(target_repr, 1) - a stray decimal
+        # place on a household count that was never a deliberate display
+        # choice, just never caught until now.
+        target_repr_display = math.ceil(target_repr) if target_repr is not None else None
 
         # --- Feasibility: additional clusters needed to reach TARGET_MOE_PCT, and
         # whether the remaining accessible-unselected pool can actually supply them.
@@ -528,13 +881,42 @@ def main():
         if moe_updated is not None and moe_updated <= TARGET_MOE_PCT:
             feasibility = "Already at/under target"
             additional_clusters_needed = 0
+        elif target_repr is None:
+            feasibility = "Not computable (accessible population too small)"
+            additional_clusters_needed = None
         else:
-            sample_needed = sample_needed_for_moe(TARGET_MOE_PCT, N_hh_accessible, m_used)
-            if sample_needed is None:
-                feasibility = "Not computable (accessible population too small)"
-                additional_clusters_needed = None
+            # Task 3 (2026-09-13, pinned down directly with Jack - single
+            # MoE-based check, no household-count proxy): would half a
+            # cluster more (m_used/2 households) bring realized MoE to
+            # <=TARGET_MOE_PCT? If so - whether because we're effectively
+            # already there or just within reach - the gap is smaller than
+            # cluster granularity can usefully close; skip the draw rather
+            # than round up to a whole new cluster. This single check
+            # subsumes "already at target" (handled above) and "gap too
+            # small to bother with" - MoE only ever shrinks as achieved
+            # grows, so no separate condition is needed for the two cases.
+            half_cluster = m_used / 2
+            hypothetical_ceiling = primary_ceiling_accessible + half_cluster
+            if hypothetical_ceiling >= N_hh_accessible:
+                moe_if_half_cluster_more = 0.0  # would meet/exceed the whole accessible population
             else:
-                additional_samples = max(0, sample_needed - primary_ceiling_accessible)
+                # 2026-09-14: same realized_moe_unequal() port as above -
+                # the hypothetical half-cluster top-up is modelled as one
+                # extra synthetic cluster of size half_cluster added to the
+                # stratum's real achieved-cluster-size distribution (not
+                # just bumping the total), so its effect on cv/deff is
+                # accounted for consistently with the real calculation
+                # above rather than silently reverting to the uniform
+                # formula for this one branch.
+                moe_if_half_cluster_more = realized_moe_unequal(
+                    hypothetical_ceiling, N_hh_accessible, ceiling_cluster_sizes + [half_cluster], ICC=0.06
+                )
+
+            if moe_if_half_cluster_more is not None and moe_if_half_cluster_more <= TARGET_MOE_PCT:
+                feasibility = "Negligible gap - not worth a supplementary draw"
+                additional_clusters_needed = 0
+            else:
+                additional_samples = max(0, target_repr - primary_ceiling_accessible)
                 additional_clusters_needed = math.ceil(additional_samples / m_used) if additional_samples > 0 else 0
                 if additional_clusters_needed == 0:
                     feasibility = "Already at/under target"
@@ -572,11 +954,37 @@ def main():
             "[UPDATED AREA] Achievable ceiling (primary+reserve, reference only - NOT the decision basis, see README)": capacity_ceiling_accessible,
             "Realized MoE % (full frame, existing)": s["realized_moe_pct"],
             "Realized MoE % (updated area, at full completion of currently-assigned PRIMARY slots)": round(moe_updated, 2) if moe_updated is not None else "N/A (sample >= N_hh or 0 accessible)",
+            "Target sample (representativity, incl. 5% operational margin)": target_repr_display if target_repr_display is not None else "N/A",
             "Remaining eligible pool (accessible, unselected)": pool,
             f"Additional clusters needed for {TARGET_MOE_PCT:.0f}% MoE (at m={m_used})": additional_clusters_needed if additional_clusters_needed is not None else "N/A",
             "Feasibility": feasibility,
             "Reported by": strata_reported_by,
             "Last reported date": strata_last_date,
+        })
+
+        # Task 6 (2026-09-13, NEW): a single consolidated reference sheet for
+        # Jack's own use in partner conversations - not an automated partner
+        # distribution, one sheet he filters himself. "Achieved" here is the
+        # REAL, field-collected count (not the design-capacity ceiling used
+        # for the Feasibility logic above) - what matters for a live
+        # conversation with a partner is real progress against the true
+        # requirement, not an abstract capacity figure.
+        remaining_needed = max(0, target_repr_display - real_achieved_accessible) if target_repr_display is not None else "N/A"
+        if target_repr is None:
+            status_label = "Not computable (accessible population too small)"
+        elif remaining_needed == 0:
+            status_label = "Complete - no further collection needed here"
+        else:
+            status_label = f"{remaining_needed} more still needed"
+        partner_reference_rows.append({
+            "State": s["adm1_name"], "LGA": s["adm2_name"], "Pop type": "Non-IDP" if pop_type == "non_idp" else "IDP",
+            "Strata ID": strata_id,
+            "Partners covering": s["partners_covering"],
+            "Current accessible N_hh": round(N_hh_accessible) if N_hh_accessible else 0,
+            "Target sample (true requirement, incl. 5% margin)": target_repr_display if target_repr_display is not None else "N/A",
+            "Achieved (real, field-collected)": real_achieved_accessible,
+            "Remaining needed": remaining_needed,
+            "Status": status_label,
         })
 
     print(f"Built {len(summary_rows)} stratum-level rows.")
@@ -596,8 +1004,83 @@ def main():
     assert_plausible("strata with %% of clusters remaining outside [0,100]", n_cluster_pct_out_of_range, (0, 0),
                       context="a percentage can never legitimately fall outside this range - a formula bug, not a real data change")
 
+    # Task 4 (2026-09-13, target-inflation-fix batch): standing STOP-mode
+    # gate - a stratum's target_sample_representativity must never increase
+    # run-to-run UNLESS that stratum's own accessible population
+    # (N_hh_accessible) genuinely increased too.
+    #
+    # CORRECTED 2026-09-14, per Jack: the original version treated ANY
+    # increase as suspicious, full stop - that was the right instinct at the
+    # time this gate was built (this project had spent days chasing
+    # accessibility-only-ever-shrinks bugs), but it was never actually the
+    # right invariant. The true rule is directional: while a stratum's
+    # accessible population is flat or shrinking, its target can only stay
+    # flat or shrink too (the original gate's own logic, still enforced
+    # below) - but once a partner reports a real accessibility GAIN
+    # (exactly what happened the same night this was found: INTERSOS's
+    # _1409 return flipped Mayanchi ward, Maru, back to Accessible), the
+    # target is legitimately free to move either way, since it's now being
+    # computed against a larger accessible population. Gating on the target
+    # figure alone couldn't tell these two cases apart; gating on the
+    # DIRECTION of N_hh_accessible's own change can.
+    #
+    # Still no silent bypass for the case that actually matters: a target
+    # increase with NO accompanying accessible-population increase (or where
+    # last run's N_hh_accessible wasn't persisted at all - an old-format
+    # baseline, treated as "can't confirm a gain") is exactly the target-
+    # inflation-bug pattern this batch was built to close, and still hard-
+    # stops with no override. First-ever run has no baseline (last_run_
+    # targets empty) and passes trivially - every run after checks against
+    # the PRIOR run's own persisted value, not the original design-time
+    # target_sample.
+    TARGET_REPR_INCREASE_TOLERANCE = 1e-6  # float noise guard, not a real allowance
+    all_increased = [
+        sid for sid in new_run_targets
+        if sid in last_run_targets
+        and new_run_targets[sid]["target_sample_representativity"]
+            > last_run_targets[sid]["target_sample_representativity"] + TARGET_REPR_INCREASE_TOLERANCE
+    ]
+
+    def accessibility_genuinely_increased(sid):
+        prior_n_hh = last_run_targets[sid]["N_hh_accessible"]
+        if prior_n_hh is None:
+            return False  # old-format baseline, no accessible-population figure to compare against - don't trust it
+        return new_run_targets[sid]["N_hh_accessible"] > prior_n_hh + TARGET_REPR_INCREASE_TOLERANCE
+
+    explained_by_accessibility_gain = [sid for sid in all_increased if accessibility_genuinely_increased(sid)]
+    unexplained_increase = [sid for sid in all_increased if sid not in explained_by_accessibility_gain]
+
+    if explained_by_accessibility_gain:
+        detail = "; ".join(
+            f"{sid}: target {last_run_targets[sid]['target_sample_representativity']:.2f} -> "
+            f"{new_run_targets[sid]['target_sample_representativity']:.2f} (N_hh_accessible "
+            f"{last_run_targets[sid]['N_hh_accessible']:.1f} -> {new_run_targets[sid]['N_hh_accessible']:.1f})"
+            for sid in explained_by_accessibility_gain[:20]
+        )
+        print(f"  {len(explained_by_accessibility_gain)} stratum/strata with target_sample_representativity "
+              f"increased, explained by a real accessible-population gain (allowed): {detail}"
+              + (" ..." if len(explained_by_accessibility_gain) > 20 else ""))
+    if unexplained_increase:
+        detail = "; ".join(
+            f"{sid}: {last_run_targets[sid]['target_sample_representativity']:.2f} -> "
+            f"{new_run_targets[sid]['target_sample_representativity']:.2f}"
+            for sid in unexplained_increase[:20]
+        )
+        print(f"  {len(unexplained_increase)} stratum/strata with target_sample_representativity INCREASED "
+              f"since last run with NO matching accessible-population gain: {detail}"
+              + (" ..." if len(unexplained_increase) > 20 else ""))
+    assert_plausible("strata with target_sample_representativity increased since last run with no matching "
+                      "accessible-population gain", len(unexplained_increase), (0, 0),
+                      context="a target may legitimately increase when that stratum's own accessible population "
+                              "(N_hh_accessible) genuinely grew too (a border-buffer reopening, a partner reporting a "
+                              "ward newly accessible) - that case is checked and allowed above. An increase with NO "
+                              "matching accessible-population gain has no legitimate explanation and means a bug "
+                              "reintroducing the exact target-inflation pattern this batch was built to close - stop "
+                              "and look, don't reflexively comment this out")
+    write_last_run_targets(new_run_targets)
+
     reporting_stats = compute_reporting_stats()
-    write_workbook(summary_rows, cluster_rows, ward_status, provenance_lookup, min_submission_date, reporting_stats)
+    write_workbook(summary_rows, cluster_rows, ward_status, provenance_lookup, min_submission_date, reporting_stats, partner_reference_rows)
     write_updated_frame(household_rows)
 
 
@@ -741,6 +1224,49 @@ README_SECTIONS = [
                   "the two: closeable with a modest top-up vs. would require most/all of what's left (in "
                   "practice equivalent to trying to survey nearly everyone remaining, rather than sampling) "
                   "vs. not closeable within the remaining pool at all."),
+    ]),
+    ("Target-inflation fix, 2026-09-13 (Tasks 2/3/4/6)", "header", [
+        "'Target sample (representativity, incl. 5% operational margin)' replaces the ever-growing "
+        "target_sample_current (2_monitoring's own figure, which summed every cluster ever drawn and never "
+        "subtracted one once it went inaccessible) with a freshly-computed TRUE requirement: "
+        "min(N_hh_accessible, sample_needed_for_moe(10%, N_hh_accessible, m, ICC=0.06) x 1.05). ICC stays "
+        "fixed at 0.06 (no empirical/per-stratum estimation - Jack's call, too risky mid-survey); no "
+        "disaggregation logic exists anywhere in this figure (out of scope, not deferred). The x1.05 is a "
+        "flat 5% margin applied uniformly to every stratum, grounded in the real national confirmed-deletion "
+        "rate (6.53% of submissions, 94.7% of that duration_under_20) - NOT the same thing as the existing "
+        "10% non-response reserve buffer (that backstops a household never reached; this margin protects "
+        "against an already-completed interview later getting invalidated). Computed fresh every run for "
+        "EVERY stratum and applied against the CURRENT accessible frame - this is a retroactive correction "
+        "for every already-resampled stratum, not just a prospective one going forward. Displayed rounded UP "
+        "to a whole household (a household is not a divisible unit) - internally the figure is a precise "
+        "float, used unrounded for the Feasibility/additional-clusters-needed math and the STOP-mode check "
+        "below, which both want full precision to catch small real changes.",
+        "'Negligible gap - not worth a supplementary draw' (new Feasibility category): would half a cluster "
+        "more (m/2 households) bring this stratum's realized MoE to <=10%? If so, the shortfall is smaller "
+        "than cluster granularity can usefully close - skip the draw rather than round up to a whole new "
+        "6-household cluster for a 1-3 household gap.",
+        "A standing STOP-mode check runs every time this script runs: a stratum's target_sample_"
+        "representativity must never increase from the previous run UNLESS that stratum's own accessible "
+        "population (N_hh_accessible) increased too (see target_sample_representativity_last_run.csv, which "
+        "now persists both figures). A target increase with a matching accessible-population gain is a real, "
+        "understood expansion (a border-buffer reopening, a partner reporting a ward newly accessible) and "
+        "passes automatically - one first surfaced this exact case, 2026-09-14, when INTERSOS reported "
+        "Mayanchi ward (Maru) newly accessible. A target increase with NO matching accessible-population "
+        "gain has no legitimate explanation and still hard-stops with no override - that's a bug "
+        "reintroducing the exact target-inflation pattern this whole fix was built to close.",
+    ]),
+    ("Partner Reference sheet (new, 2026-09-13) - read this before using it in a partner conversation", "header", [
+        "One row per stratum: partner(s), current accessible household population, the true target "
+        "(representativity, with margin), REAL field-collected achieved count, remaining needed, and a "
+        "plain-language status. Built for Jack's own use filtering this sheet himself in partner "
+        "conversations - not an automated partner distribution.",
+        "IMPORTANT DISTINCTION: 'no new resampling triggered' (this workbook's own internal signal - the "
+        "Feasibility column above) is NOT the same thing as 'this partner can stop pursuing new households "
+        "in this stratum' (this sheet's own Status column). A stratum can show zero additional clusters "
+        "needed while its currently-assigned clusters still have real, incomplete work outstanding - 'no new "
+        "clusters' only means the CLUSTER ROSTER is correctly sized, not that fieldwork there is finished. "
+        "Always read the Remaining needed / Status columns for what to actually tell a partner, never infer "
+        "it from the Strata Level sheet's Feasibility column alone.",
     ]),
     ("'Reported by' and 'Last reported date' (2026-08-28 addition)", "table", [
         ("Partner", "This ward (or, at cluster/strata/LGA grain, at least one of the wards it covers) has been "
@@ -942,13 +1468,24 @@ def write_readme(wb, summary_rows, min_submission_date, reporting_stats):
     readme.sheet_view.showGridLines = False
 
 
-def write_workbook(summary_rows, cluster_rows, ward_status, provenance_lookup, min_submission_date, reporting_stats):
+def write_workbook(summary_rows, cluster_rows, ward_status, provenance_lookup, min_submission_date, reporting_stats, partner_reference_rows):
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
 
     write_readme(wb, summary_rows, min_submission_date, reporting_stats)
 
     write_sheet(wb, "Strata Level", summary_rows)
+
+    # Task 6 (2026-09-13, NEW) - see the README's own section above for the
+    # "no new resampling" vs "partner can stop" distinction this sheet
+    # exists to make explicit. Sorted by Remaining needed descending so the
+    # biggest live gaps surface first when Jack opens it.
+    partner_reference_sorted = sorted(
+        partner_reference_rows,
+        key=lambda r: r["Remaining needed"] if isinstance(r["Remaining needed"], (int, float)) else -1,
+        reverse=True,
+    )
+    write_sheet(wb, "Partner Reference", partner_reference_sorted)
 
     # Population and clusters are genuinely additive across pop_type (a
     # Non-IDP and an IDP person/cluster are different things - summing them

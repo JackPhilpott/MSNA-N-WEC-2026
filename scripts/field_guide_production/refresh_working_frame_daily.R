@@ -124,12 +124,18 @@ source("scripts/shared/assert_plausible.R")
 # keeps everywhere else. See that file's own header for why this one case
 # gets a real source() instead.
 source("scripts/shared/frame_status.R")
+# 2026-09-14 (Jack-approved, Coordinator co-designed - Part 1 of the
+# "2_monitoring sat stale on our fixes" two-part fix): a real, pure-logging
+# audit trail of when WORKING materially changes, so a stale downstream
+# mirror has something concrete to diff against instead of being found
+# stale by accident. See that file's own header for full context.
+source("scripts/shared/log_pipeline_change.R")
 
 SF_DIR <- "output/data/data_collection"
-FULL_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v7_FULL.csv")
-WORKING_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v7_WORKING.csv")
-STRATA_WORKING_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v7_WORKING.csv")
-CLUSTER_STATUS_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_cluster_status_v7.csv")
+FULL_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v10_FULL.csv")
+WORKING_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v10_WORKING.csv")
+STRATA_WORKING_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v10_WORKING.csv")
+CLUSTER_STATUS_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_cluster_status_v10.csv")
 # CORRECTED 2026-09-08: was hardcoded to the dashboard_app/data/ mirror,
 # which only refreshes on a full deploy_dashboard.R run - flagged repeatedly
 # during the 2026-09-07 incident review as a real, live staleness risk
@@ -327,6 +333,19 @@ assert_plausible("WORKING rows in a currently-Inaccessible ward", n_working_in_i
 write_csv(working_new, WORKING_CSV, na = "NA")
 log_msg("Wrote %s (in place, no version bump).", WORKING_CSV)
 
+# 2026-09-14: changelog entry - only when this run actually changed
+# something (row or cluster count differs from the previous run's WORKING).
+# A no-op daily refresh (common - most runs find nothing new) correctly
+# writes nothing here, keeping the changelog a record of real events, not
+# every routine check.
+if (nrow(working_new) != nrow(working_old) || n_distinct(working_new$cluster_id) != n_distinct(working_old$cluster_id)) {
+  log_pipeline_change(
+    script = "refresh_working_frame_daily.R", description = "routine daily refresh",
+    old_rows = nrow(working_old), new_rows = nrow(working_new),
+    old_clusters = n_distinct(working_old$cluster_id), new_clusters = n_distinct(working_new$cluster_id)
+  )
+}
+
 # ---- Strata-level WORKING: achieved_clusters/achieved_sample/
 # realized_moe_pct recomputed from covered_accessible (Stage 1 - NOT
 # working_new, which has already had field-achieved rows removed and would
@@ -397,16 +416,16 @@ if (nrow(still_over_target) > 0) {
   }
 }
 
-# ---- Output-plausibility gate (2026-09-08 audit, pass 4) ----
-# achieved_sample > target_sample should only ever be a small, explained
-# residual (ordinary cluster-rounding / stranded-achieved credit exceeding a
-# small target) - observed 0-14 strata on every post-fix run this week.
-# The pre-fix bug this same week (recompute_strata() missing the <4
-# threshold) produced 75 - ceiling set well above the real baseline but
-# well below that, so a reversion toward the old bug's scale still trips
-# this, not just a wildly-out-of-range value.
-assert_plausible("strata with achieved_sample > target_sample", nrow(still_over_target), c(0, 40),
-                  context = "should be a small ordinary-rounding residual, not systemic overcounting")
+# 2026-09-08 audit pass 4 used to gate this with assert_plausible(ceiling)
+# here - retired 2026-09-14 (Jack approved). That check measured the
+# ever-growing baseline of organic reserve-list substitution (not a
+# resampling bug) and needed its own ceiling bumped once already (40->45)
+# purely to keep up with normal field progress, not because anything was
+# wrong. Task 4's target_sample_representativity STOP-mode gate (05_build_
+# accessibility_impact_workbook.py) is the correct, precise replacement -
+# it catches an actual resampling-target regression directly, with no
+# organic-completion noise and no threshold to ever re-tune. The logging
+# above (still_over_target) stays as non-blocking visibility only.
 
 write_csv(strata_working_new, STRATA_WORKING_CSV, na = "NA")
 log_msg("Wrote %s (in place, no version bump).", STRATA_WORKING_CSV)

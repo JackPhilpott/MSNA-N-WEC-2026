@@ -91,6 +91,45 @@ log_msg("Stage B: computing ward-accessibility status per candidate hex...")
 library(dplyr); library(sf); library(readr)
 
 pilot_shortfalls_raw <- read_csv(SHORTFALLS_CSV, show_col_types = FALSE)
+
+# 2026-09-14 fix: re-validate every shortfall row's coverage_status against
+# the CURRENT strata-level WORKING frame, right before it's used - found
+# necessary via a direct audit the same night (audit_tonight_draws_vs_bug1_
+# fix_2026-09-14.py, per Jack's "checked across everything" follow-up): the
+# combined draw earlier that same night wasted real draw effort on 3 strata
+# (49 clusters, non_idp_NG036007/NG034009/NG034013) whose shortfalls.csv
+# was generated at 02:29, roughly an hour BEFORE a separate population-
+# threshold-exclusion decision (patch_population_threshold_new_exclusions_
+# 2026-09-14.R, written 03:22) dropped them from the sampling universe
+# entirely. Harmless in outcome that time - merge_partner_resample_batch.R's
+# own coverage_status check correctly kept the resulting clusters out of
+# WORKING - but the draw itself (candidate-hex building, PPS selection,
+# household generation) still ran and burned real time for nothing. This
+# isn't a staleness problem `assert_fresh()` fits (the shortfalls CSV's own
+# SOURCE, the accessibility workbook, hadn't gone stale relative to what
+# generated it - a LATER, independent decision moved the ground out from
+# under an already-correct snapshot). Simplest real fix: re-check the one
+# fact that actually matters (is this stratum still covered right now)
+# immediately before spending any draw effort on it, rather than trust a
+# shortfall list's age at all.
+strata_frame_current <- read_csv(
+  "output/data/data_collection/NGA_MSNA_2026_strata_level_sampling_frame_v10_WORKING.csv",
+  show_col_types = FALSE, col_types = cols(.default = "c")
+)
+still_covered_strata_ids <- strata_frame_current$strata_id  # WORKING only ever contains covered, non-excluded strata by construction
+
+shortfalls_id_col <- if ("strata_id" %in% names(pilot_shortfalls_raw)) {
+  pilot_shortfalls_raw$strata_id
+} else {
+  paste0(pilot_shortfalls_raw$pop_type, "_", pilot_shortfalls_raw$adm2_pcode)
+}
+now_excluded <- !(shortfalls_id_col %in% still_covered_strata_ids)
+if (any(now_excluded)) {
+  log_msg("  WARNING: %d shortfall row(s) reference a stratum no longer covered in the CURRENT strata-level WORKING frame (excluded/dropped since the shortfalls CSV was generated) - dropping from this draw, not wasting effort on them: %s",
+          sum(now_excluded), paste(shortfalls_id_col[now_excluded], collapse = ", "))
+}
+pilot_shortfalls_raw <- pilot_shortfalls_raw[!now_excluded, ]
+
 shortfalls <- pilot_shortfalls_raw %>%
   transmute(pop_type = pop_type, adm2_pcode = adm2_pcode, households_needed = additional_clusters_needed * 6)
 log_msg("  %d strata in shortfalls, %d total households needed", nrow(shortfalls), sum(shortfalls$households_needed))
@@ -152,13 +191,13 @@ non_idp_sampling_filtered$sampling_frame <- non_idp_sampling$sampling_frame %>%
 # batch.R write fresh every run (scripts/shared/frame_status.R) - not
 # recomputed here, so this doesn't need its own copy of the achieved-lookup
 # machinery.
-CLUSTER_STATUS_CSV <- "output/data/data_collection/NGA_MSNA_2026_cluster_status_v7.csv"
+CLUSTER_STATUS_CSV <- "output/data/data_collection/NGA_MSNA_2026_cluster_status_v10.csv"
 if (file.exists(CLUSTER_STATUS_CSV)) {
   cluster_status <- read_csv(CLUSTER_STATUS_CSV, show_col_types = FALSE)
   access_compromised_clusters <- cluster_status %>%
     filter(pop_type == "non_idp", status %in% c("partially_completed_access_lost", "not_started_access_lost")) %>%
     pull(cluster_id)
-  full_for_status <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v7_FULL.csv", show_col_types = FALSE)
+  full_for_status <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v10_FULL.csv", show_col_types = FALSE)
   access_compromised_hex <- full_for_status %>%
     filter(pop_type == "non_idp", cluster_id %in% access_compromised_clusters) %>%
     mutate(uuid_hex_pop = paste0(pop_type, "_", uuid_hex)) %>%
@@ -179,7 +218,7 @@ log_msg("Stage C: Tier 1 draw (fresh hexes only)...")
 # site is still a real, already-designed cluster, so a new draw must not be
 # allowed to land on the same hex and create a second cluster_id at the same
 # location. WORKING would silently permit exactly that collision.
-working <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v7_FULL.csv", show_col_types = FALSE)
+working <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v10_FULL.csv", show_col_types = FALSE)
 # WORKING's own export doesn't carry a plain uuid_hex_pop column (that's an
 # in-memory-only field in the main pipeline's own objects) - and its
 # original_uuid_hex_pop is a DIFFERENT, reallocation-audit field (99.3% blank
@@ -249,6 +288,60 @@ if (!is.null(tier1$unresolved) && nrow(tier1$unresolved) > 0) {
 
   n_tier2_clusters <- if (is.null(tier2$new_clusters)) 0 else nrow(tier2$new_clusters)
   log_msg("  Tier 2: %d new cluster(s) drawn (repeat draws allowed)", n_tier2_clusters)
+
+  # 2026-09-17 fix, added live after a real, confirmed problem: Tier 2
+  # deliberately allows redrawing an already-used hex (already_used_hexagons
+  # relaxed to empty, above) - but nothing previously excluded buildings that
+  # hex's EXISTING cluster(s) already claimed. The only safety net was a
+  # building_id-based check further down (and the Stage E.1 within-batch
+  # check) - found the hard way that building_id is a per-scan sequential
+  # label ("nga_buildings_part2_0000000002"), not a stable identifier across
+  # independent scans, so it can neither reliably catch a real cross-scan
+  # duplicate nor avoid a false-positive within-batch one. Verified
+  # nationally before this fix existed: 14 real hexes / 59 overlapping
+  # household-instance pairs where 2+ clusters already claim identical real
+  # addresses - not hypothetical, already in the live frame (Jack's explicit
+  # call: leave those as-is, this fix is only to stop it recurring). Jack's
+  # rule: once a household is used in ANY cluster draw, it's excluded from
+  # what's available for any later draw at that hex - checked by real
+  # coordinates (rounded to 6dp, ~11cm), not building_id. Applied here,
+  # right after Tier 2's own draw, before anything downstream (Stage E.1,
+  # the merge) can treat these rows as valid new households.
+  if (n_tier2_clusters > 0) {
+    existing_coords_by_hex <- working %>%
+      dplyr::filter(pop_type == "non_idp", !is.na(latitude), !is.na(longitude)) %>%
+      dplyr::mutate(
+        uuid_hex_pop = paste0(pop_type, "_", uuid_hex),
+        .coord_key = paste0(round(latitude, 6), "_", round(longitude, 6))
+      ) %>%
+      dplyr::group_by(uuid_hex_pop) %>%
+      dplyr::summarise(existing_keys = list(unique(.coord_key)), .groups = "drop")
+
+    tier2_hh_df <- sf::st_drop_geometry(tier2$new_households) %>%
+      dplyr::mutate(
+        uuid_hex_pop = paste0(pop_type, "_", uuid_hex),
+        .coord_key = paste0(round(latitude, 6), "_", round(longitude, 6))
+      ) %>%
+      dplyr::left_join(existing_coords_by_hex, by = "uuid_hex_pop")
+
+    is_dupe <- purrr::map2_lgl(tier2_hh_df$.coord_key, tier2_hh_df$existing_keys,
+                                function(k, existing) !is.null(existing) && k %in% existing)
+    n_dupe <- sum(is_dupe, na.rm = TRUE)
+    if (n_dupe > 0) {
+      log_msg("  Excluding %d household row(s) from Tier 2 output - already claimed by an EXISTING live-frame cluster at the same hex (real coordinate match, not building_id).", n_dupe)
+      tier2$new_households <- tier2$new_households[!is_dupe, ]
+      surviving_ids <- unique(tier2$new_households$cluster_id)
+      n_clusters_before <- nrow(tier2$new_clusters)
+      tier2$new_clusters <- tier2$new_clusters %>% dplyr::filter(cluster_id %in% surviving_ids)
+      if (nrow(tier2$new_clusters) < n_clusters_before) {
+        log_msg("  Dropped %d Tier 2 cluster(s) entirely - zero real (never-before-claimed) households remained after exclusion.", n_clusters_before - nrow(tier2$new_clusters))
+      }
+      n_tier2_clusters <- nrow(tier2$new_clusters)
+    } else {
+      log_msg("  Verified: 0 of Tier 2's new households collide with an existing live-frame household at the same hex (real coordinate check).")
+    }
+  }
+
   if (!is.null(tier2$unresolved) && nrow(tier2$unresolved) > 0) {
     log_msg("  STILL unresolved after Tier 2 (%d stratum/strata) - genuinely exhausted, even repeat draws can't close this:", nrow(tier2$unresolved))
     print(tier2$unresolved)
@@ -394,10 +487,23 @@ if (nrow(hex_dup_counts) > 0) {
   still_dup_hexes <- all_new_clusters %>% sf::st_drop_geometry() %>%
     dplyr::count(uuid_hex_pop, name = "n") %>% dplyr::filter(n > 1)
   if (nrow(still_dup_hexes) > 0) stop("Stage E.1 merge failed - hexes still duplicated: ", paste(still_dup_hexes$uuid_hex_pop, collapse = ", "))
-  dup_bids <- all_new_households %>% dplyr::filter(!is.na(building_id)) %>%
-    dplyr::count(cluster_id, building_id) %>% dplyr::filter(n > 1)
-  if (nrow(dup_bids) > 0) stop("Stage E.1 merge produced a cluster with the SAME building assigned twice: ", paste(dup_bids$cluster_id, collapse = ", "))
-  log_msg("  Verified: no hex appears more than once, no cluster has a duplicate building_id.")
+  # 2026-09-17 fix: was keyed on building_id, which is a per-scan sequential
+  # label ("nga_buildings_part2_0000000002"), not a stable identifier - two
+  # genuinely different real buildings, drawn in two separate scans (tier1's
+  # vs tier2's), can coincidentally land on the same ordinal position and get
+  # the same label, producing a FALSE-POSITIVE crash here even when the
+  # dedup one function earlier (which correctly keys on rounded coordinates)
+  # already removed every genuine duplicate. Confirmed live, 2026-09-17
+  # (PLAN/Kala-Balge draw): 48 raw rows for one hex, 24 genuinely unique
+  # coordinate pairs (correct), only 42 distinct building_id strings - the
+  # gap is coincidental label collision, not a real duplicate building. Keyed
+  # on the same rounded-coordinate approach the dedup step already trusts,
+  # instead of reinventing a new judgement call.
+  dup_bids <- all_new_households %>% dplyr::filter(!is.na(latitude), !is.na(longitude)) %>%
+    dplyr::mutate(.coord_key = paste0(round(latitude, 6), "_", round(longitude, 6))) %>%
+    dplyr::count(cluster_id, .coord_key) %>% dplyr::filter(n > 1)
+  if (nrow(dup_bids) > 0) stop("Stage E.1 merge produced a cluster with the SAME real household (coordinate) assigned twice: ", paste(dup_bids$cluster_id, collapse = ", "))
+  log_msg("  Verified: no hex appears more than once, no cluster has a duplicate real household (coordinate check, not building_id).")
 } else {
   log_msg("Stage E.1: no hex was drawn more than once within this batch - nothing to merge.")
 }
@@ -507,36 +613,53 @@ log_msg("  Verified: %d new cluster_id(s), all unique, zero collisions with the 
 
 # One more check, deliberately not relying on the earlier informal check
 # (which found 3 hexes shared with the LIVE frame's own existing clusters,
-# zero real building_id overlap - verified, not assumed). That verification
-# was ad hoc and outside this script; making it a permanent, fail-loud part
-# of every run so a future rerun can never silently ship a real duplicate
-# household against an already-fielded cluster, even one that's genuinely
-# rare. Does NOT redraw or touch the existing cluster - only fails loudly if
-# it ever finds a real collision, since fixing it would mean choosing whose
-# data to keep, a call for a human, not this script.
-existing_bids_by_hex <- working %>%
-  dplyr::filter(pop_type == "non_idp", !is.na(building_id)) %>%
-  dplyr::mutate(uuid_hex_pop = paste0(pop_type, "_", uuid_hex)) %>%
+# zero real overlap - verified, not assumed). That verification was ad hoc
+# and outside this script; making it a permanent, fail-loud part of every
+# run so a future rerun can never silently ship a real duplicate household
+# against an already-fielded cluster, even one that's genuinely rare. Does
+# NOT redraw or touch the existing cluster - only fails loudly if it ever
+# finds a real collision, since fixing it would mean choosing whose data to
+# keep, a call for a human, not this script.
+#
+# 2026-09-17 fix: was keyed on building_id (see the Stage E.1 fix above for
+# the full explanation of why that's unsound) - here the mismatch is even
+# more certain to hide a real problem, since this compares TONIGHT's fresh
+# scan against the ORIGINAL design's scan from months ago, two genuinely
+# independent building_id sequences with no relationship to each other. A
+# real duplicate would essentially never coincidentally share a building_id
+# string across two scans that far apart, so this check could very plausibly
+# have never been able to catch a genuine overlap. Now this specific failure
+# mode is caught upstream anyway (Tier 2's own proactive coordinate-based
+# exclusion, added the same night), so this check is now a fail-loud
+# backstop, not the only line of defense - but fixed for the same reason:
+# keyed on real coordinates, the same key the exclusion step above trusts.
+existing_coords_by_hex_final <- working %>%
+  dplyr::filter(pop_type == "non_idp", !is.na(latitude), !is.na(longitude)) %>%
+  dplyr::mutate(
+    uuid_hex_pop = paste0(pop_type, "_", uuid_hex),
+    .coord_key = paste0(round(latitude, 6), "_", round(longitude, 6))
+  ) %>%
   dplyr::group_by(uuid_hex_pop) %>%
-  dplyr::summarise(existing_bids = list(unique(building_id)), .groups = "drop")
+  dplyr::summarise(existing_coords = list(unique(.coord_key)), .groups = "drop")
 
-new_bids_by_cluster <- all_new_households %>%
-  dplyr::filter(!is.na(building_id)) %>%
+new_coords_by_cluster <- all_new_households %>%
+  dplyr::filter(!is.na(latitude), !is.na(longitude)) %>%
+  dplyr::mutate(.coord_key = paste0(round(latitude, 6), "_", round(longitude, 6))) %>%
   dplyr::left_join(st_drop_geometry(all_new_clusters) %>% dplyr::select(cluster_id, uuid_hex_pop), by = "cluster_id") %>%
   dplyr::group_by(cluster_id, uuid_hex_pop) %>%
-  dplyr::summarise(new_bids = list(unique(building_id)), .groups = "drop") %>%
-  dplyr::inner_join(existing_bids_by_hex, by = "uuid_hex_pop")
+  dplyr::summarise(new_coords = list(unique(.coord_key)), .groups = "drop") %>%
+  dplyr::inner_join(existing_coords_by_hex_final, by = "uuid_hex_pop")
 
-if (nrow(new_bids_by_cluster) > 0) {
-  overlap_check <- new_bids_by_cluster %>%
+if (nrow(new_coords_by_cluster) > 0) {
+  overlap_check <- new_coords_by_cluster %>%
     dplyr::rowwise() %>%
-    dplyr::mutate(n_overlap = length(intersect(new_bids, existing_bids))) %>%
+    dplyr::mutate(n_overlap = length(intersect(new_coords, existing_coords))) %>%
     dplyr::ungroup() %>%
     dplyr::filter(n_overlap > 0)
-  log_msg("  Checked %d new cluster(s) sharing a hex with an existing live-frame cluster - %d have a real building_id overlap.",
-          nrow(new_bids_by_cluster), nrow(overlap_check))
+  log_msg("  Checked %d new cluster(s) sharing a hex with an existing live-frame cluster - %d have a real coordinate overlap.",
+          nrow(new_coords_by_cluster), nrow(overlap_check))
   if (nrow(overlap_check) > 0) {
-    stop("Real building_id overlap found between new cluster(s) and the EXISTING live frame - do not merge until resolved: ",
+    stop("Real household (coordinate) overlap found between new cluster(s) and the EXISTING live frame - do not merge until resolved: ",
          paste(overlap_check$cluster_id, collapse = ", "))
   }
 }
