@@ -59,7 +59,7 @@
 #     this sheet just silently lost a row the moment it was achieved
 #     (inherited from KML's WORKING source, which is correct for KML but
 #     was never right for a status-tracking sheet).
-#   - New "Needs Collecting" sheet - the FULL-sourced rows filtered to
+#   - New "Available to Collect" sheet - the FULL-sourced rows filtered to
 #     Status != Complete. Functionally close to what the old WORKING-
 #     sourced Sampling Points sheet used to show, but now genuinely fresh
 #     each run rather than however-stale WORKING happened to be.
@@ -94,6 +94,7 @@ import openpyxl
 PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling"
 sys.path.insert(0, PROJECT_DIR + r"\scripts\shared")
 from assert_plausible import assert_plausible  # noqa: E402
+from dominant_ward import dominant_ward_key  # noqa: E402
 # LGA-level summary maps (build_lga_summary_maps.R), copied into each
 # covering partner's LGA folder below - 2026-08-07.
 LGA_MAPS_DIR = PROJECT_DIR + r"\output\maps\lga_summary"
@@ -147,7 +148,7 @@ BACKUP_POINTS_CSV = PROJECT_DIR + r"\output\data\data_collection\idp_camp_backup
 # 2026-09-19 fix - two overlay-exclusion files WORKING/KML already apply
 # (via scripts/shared/frame_status.R's compute_cluster_accessibility(), wired
 # into refresh_working_frame_daily.R) but this script's FULL-sourced workbook
-# sheets (Sampling Points / Needs Collecting / Cluster Summary) never read at
+# sheets (Sampling Points / Available to Collect / Cluster Summary) never read at
 # all - confirmed via grep, zero references to either file anywhere in this
 # script before this fix. KML output was NEVER affected (it's WORKING-sourced,
 # see frame_rows_all below - a cluster excluded by either overlay simply never
@@ -358,7 +359,7 @@ for r in frame_rows_msna_light:
 
 # ---------------------------------------------------------------------------
 # 3b. FULL household-level frame (2026-09-05) - drives the workbook's
-# "Sampling Points"/"Needs Collecting"/"Cluster Summary" sheets, so already-
+# "Sampling Points"/"Available to Collect"/"Cluster Summary" sheets, so already-
 # achieved rows stay visible with real status instead of just disappearing
 # the way they correctly do from WORKING/KML. Same in-scope universe as
 # WORKING: covered, not excluded, AND currently ward-accessible.
@@ -376,7 +377,7 @@ for r in frame_rows_msna_light:
 # collection"). Instead, ward_accessible_status feeds a 4th Collection
 # Status value ("Inaccessible") applied per-row (Non-IDP: that survey_id's
 # own building; IDP: the cluster's own site - see _ward_accessible() and
-# its call sites below) - Needs Collecting excludes it same as Complete,
+# its call sites below) - Available to Collect excludes it same as Complete,
 # and Cluster Summary's Still Needed floors to 0 for it, but Achieved/
 # Collected keep full credit for real work already done. A cluster's
 # ward_accessible_status can genuinely differ row-by-row for Non-IDP (a
@@ -430,7 +431,7 @@ def _in_scope_row(r):
     # real Achieved/Collected credit still shows (see the constant/helper
     # above) - every such row is then forced effectively-inaccessible
     # unconditionally by _row_effectively_inaccessible below, so it still
-    # correctly disappears from Needs Collecting / Still Needed.
+    # correctly disappears from Available to Collect / Still Needed.
     if _population_threshold_excluded_stratum_row(r):
         return True
     return False
@@ -531,7 +532,7 @@ def _row_effectively_inaccessible(r):
 # (unmatched geography) must ALWAYS come back effectively-inaccessible, by
 # construction - if this OR-bug ever regresses, a blank-ward row would be
 # silently treated as accessible again and could reappear as a to-do item
-# in "Needs Collecting". Checked once, nationally, before any per-partner
+# in "Available to Collect". Checked once, nationally, before any per-partner
 # workbook is built.
 _n_unmatched_wrongly_accessible = sum(
     1 for r in frame_rows_full
@@ -998,7 +999,17 @@ def non_idp_cluster_summary_rows(state_name, lga_name, primary_rows, reserve_row
         # (417 real interviews nationally), and an over-collected cluster now
         # shows every interview actually done there.
         achieved = n_achieved_exact
-        any_r = g["primary"][0] if g["primary"] else g["reserve"][0]
+        # 2026-09-21 fix (Jack's non_idp_NG036003_17 report): a straddling
+        # cluster's Ward here used to be whichever primary row happened to
+        # come first in the frame CSV's own row order - order-dependent,
+        # and NOT the same rule the accessibility report has used since
+        # 2026-08-21 (majority-primary-household-count, ties broken
+        # deterministically). Two scripts picking a straddling cluster's
+        # "the" ward by two different rules could show two different wards
+        # for the same cluster with no underlying data disagreement - see
+        # scripts/shared/dominant_ward.py for the shared rule now used by
+        # both.
+        _, _, dom_ward, dom_ward_cod = dominant_ward_key(all_rows)
         # 2026-09-14 fix (found by Coordinator tracing a ZOA "target/
         # achieved/still needed don't add up" question, independently
         # re-verified here before applying): this used to count individual
@@ -1042,7 +1053,7 @@ def non_idp_cluster_summary_rows(state_name, lga_name, primary_rows, reserve_row
             status = "Not started"
         out.append({
             "Cluster ID": cluster_id, "Population Type": "Non-IDP", "State": state_name, "LGA": lga_name,
-            "Ward (GRID3)": any_r["adm3_name"], "Ward (OCHA/COD)": cod_ward_value(any_r),
+            "Ward (GRID3)": dom_ward, "Ward (OCHA/COD)": dom_ward_cod,
             "Target HHs (primary)": target, "Reserve HHs": len(g["reserve"]),
             "Collected": collected, "Achieved": achieved, "Still Needed": still_needed,
             "% Achieved": (achieved / target) if target else None,
@@ -1125,14 +1136,14 @@ README_FIELD_NOTES = [
     ("IDP Category", "In-camp or In-host - which of the two IDP field methods applies (Section 3 of the methodology doc). In-host sites have no Site Radius or Tier 2 backup point."),
     ("Site Radius (m)", "In-camp only, and only for a subset of sites where a real camp extent was delineated or a fixed-radius fallback applied - NA where the concept doesn't apply (most in-camp sites use 'visible camp extent' with no fixed radius; host-community listing is never radius-bound)."),
     ("Target HHs (primary) / Reserve HHs", "IDP cluster rows only - the total number of primary interviews and reserve (backup) households planned for that specific cluster."),
-    ("Achieved / Date Collected / Collection Status", "Live, computed fresh from submitted data each time this workbook is refreshed (see 'When was this last refreshed' above). For Non-IDP rows: Achieved is Yes/No for that SPECIFIC point (a pre-assigned building either has or hasn't been visited) and Date Collected is when. For IDP rows: Achieved is a count (e.g. '8 of 12') since IDP interviews aren't tied to individual pre-assigned points (see 'IDP cluster (Tier 1 primary)' above) - Date Collected is the most recent interview date at that cluster. Collection Status is Not started / Partial / Complete / Inaccessible - the 'Needs Collecting' sheet excludes both Complete AND Inaccessible. 'Inaccessible' means this specific point/cluster is currently in a ward flagged as not safely reachable - do NOT go there even if it also shows 'Not started'/Achieved 'No'; this is not the same as being done, it means it's off your active list until conditions change. Achieved credit already earned there before it became inaccessible is never removed."),
+    ("Achieved / Date Collected / Collection Status", "Live, computed fresh from submitted data each time this workbook is refreshed (see 'When was this last refreshed' above). For Non-IDP rows: Achieved is Yes/No for that SPECIFIC point (a pre-assigned building either has or hasn't been visited) and Date Collected is when. For IDP rows: Achieved is a count (e.g. '8 of 12') since IDP interviews aren't tied to individual pre-assigned points (see 'IDP cluster (Tier 1 primary)' above) - Date Collected is the most recent interview date at that cluster. Collection Status is Not started / Partial / Complete / Inaccessible - the 'Available to Collect' sheet excludes both Complete AND Inaccessible. 'Inaccessible' means this specific point/cluster is currently in a ward flagged as not safely reachable - do NOT go there even if it also shows 'Not started'/Achieved 'No'; this is not the same as being done, it means it's off your active list until conditions change. Achieved credit already earned there before it became inaccessible is never removed."),
 ]
 
 CLUSTER_SUMMARY_FIELD_NOTES = [
     ("Collected", "Every real interview matched to this cluster so far, uncapped - includes any surplus beyond target (see 'Still Needed' - if this is 0 while Collected keeps growing, that cluster is oversampled; further visits there don't help your remaining total)."),
     ("Achieved", "Every real interview here that counts toward the assessment - completed, matched to this cluster, not a duplicate and not confirmed for deletion. Uncapped: where a cluster was over-collected, all of those interviews are counted, so this can exceed the cluster's own target. Matches the monitoring dashboard's own definition. Kept in full even for a cluster now marked Inaccessible - real completed work isn't erased by the area becoming unreachable afterward."),
     ("Still Needed", "Target minus Achieved, floored at 0 - EXCEPT for a cluster marked Inaccessible, where this is always 0 regardless of the gap: you are not being asked to go back there right now, however far from target it is."),
-    ("Collection Status = Inaccessible", "This cluster's ward is currently flagged as not safely reachable. It's excluded from the 'Needs Collecting' sheet, but its Achieved/Collected figures still count in full. Note: the README headline's 'Total target' is now the frozen, stratum-level target_sample figure (2026-09-16) - it does not vary with any individual cluster's accessibility, so an Inaccessible cluster here does not change the headline Target the way it used to; only Achieved/Still-needed at that headline level move."),
+    ("Collection Status = Inaccessible", "This cluster's ward is currently flagged as not safely reachable. It's excluded from the 'Available to Collect' sheet, but its Achieved/Collected figures still count in full. Note: the README headline's 'Total target' is now the frozen, stratum-level target_sample figure (2026-09-16) - it does not vary with any individual cluster's accessibility, so an Inaccessible cluster here does not change the headline Target the way it used to; only Achieved/Still-needed at that headline level move."),
 ]
 
 LGA_WARD_SOURCE_NOTE = (
@@ -1226,6 +1237,58 @@ def build_partner_summary_table(meta_rows, partner_name):
     return out
 
 
+STRATA_SUMMARY_COLUMNS = [
+    "State", "LGA", "Population Type", "Target (design)", "Achieved", "Still Needed",
+    "% Achieved", "Reference: target adjusted for accessibility",
+]
+
+
+def build_strata_summary_table(cluster_rows, partner_name):
+    # Task 1 (2026-09-21, Jack): partners were struggling to tell which
+    # LGA/stratum to prioritise from "Available to Collect" alone - that
+    # sheet is point-level with no per-stratum rollup, so it shows far more
+    # than a partner actually needs to plan a week. This is the per-(LGA,
+    # Population Type) rollup, mirroring the dashboard's own "Progress by
+    # LGA" tab.
+    #
+    # Uses target_sample (the SAME frozen headline basis as this workbook's
+    # own README "Total target" and Target Sample Summary table) as Target
+    # here too - deliberately NOT Cluster Summary's own "Target HHs
+    # (primary)" (the live, accessible-only, cluster-grain basis - see
+    # TWO_TARGET_FIGURES_NOTE). Still Needed is computed directly as
+    # max(target_sample - achieved, 0), the same way the README headline's
+    # own total_remaining is computed, so Target - Achieved = Still Needed
+    # holds exactly on every row of this sheet - mixing bases here would
+    # reproduce the exact bug the 2026-09-21 partner status emails were
+    # caught and fixed for (a displayed Still Needed computed against a
+    # different Target than the one shown next to it).
+    achieved_by_key = defaultdict(int)
+    for row in cluster_rows:
+        pt_norm = "non_idp" if row["Population Type"] == "Non-IDP" else "idp"
+        achieved_by_key[(row["State"], row["LGA"], pt_norm)] += row["Achieved"]
+
+    out = []
+    for sid in partner_covered_strata_ids(partner_name):
+        state, lga = strata_lga_key[sid]
+        pop_type = strata_pop_type[sid]
+        target = round(strata_target_sample.get(sid, 0))
+        achieved = achieved_by_key.get((state, lga, pop_type), 0)
+        still_needed = max(target - achieved, 0)
+        target_repr = strata_target_repr.get(sid)
+        out.append({
+            "State": state, "LGA": lga,
+            "Population Type": "Non-IDP" if pop_type == "non_idp" else "IDP",
+            "Target (design)": target, "Achieved": achieved, "Still Needed": still_needed,
+            "% Achieved": (achieved / target) if target else None,
+            "Reference: target adjusted for accessibility": round(target_repr) if target_repr is not None else "n/a",
+        })
+    # Sorted for prioritisation - biggest remaining gap first, so the
+    # strata most in need of attention are at the top rather than buried
+    # wherever their LGA name happens to fall alphabetically.
+    out.sort(key=lambda x: (-x["Still Needed"], x["State"], x["LGA"]))
+    return out
+
+
 def write_partner_workbook(partner_dir_path, partner_name, meta_rows, cluster_rows=None,
                             meta_rows_msna_light=None, cluster_rows_msna_light=None):
     meta_rows_msna_light = meta_rows_msna_light or []
@@ -1247,7 +1310,7 @@ def write_partner_workbook(partner_dir_path, partner_name, meta_rows, cluster_ro
     r += 1
     ws_readme.cell(row=r, column=1, value=f"Last refreshed: {datetime.datetime.now().strftime('%d %b %Y %H:%M')} - regenerated regularly against your team's actual submitted interviews. If this looks out of date, ask your IMPACT focal point for a fresh copy.").font = openpyxl.styles.Font(italic=True, color="808080")
     r += 2
-    ws_readme.cell(row=r, column=1, value="Every GPS sampling point assigned to this partner, across all covered LGAs, with live achieved status. 'Sampling Points' = every point, done or not. 'Needs Collecting' = just what's still outstanding - start there if you want a straight to-do list. 'Cluster Summary' = one row per cluster (target/achieved/still needed) - start there if you want the big picture before the point-by-point detail. This sheet gives definitions and a per-LGA target-sample summary.").font = openpyxl.styles.Font(italic=True)
+    ws_readme.cell(row=r, column=1, value="Every GPS sampling point assigned to this partner, across all covered LGAs, with live achieved status. 'Strata Summary' = one row per LGA/population type - start HERE if you're deciding which LGA to prioritise this week. 'Sampling Points' = every point, done or not. 'Available to Collect' = just what's still outstanding - a straight to-do list, but with far more rows than 'Strata Summary' since it's point-level. 'Cluster Summary' = one row per cluster (target/achieved/still needed) - the middle ground between the two. This sheet gives definitions and a per-LGA target-sample summary.").font = openpyxl.styles.Font(italic=True)
     r += 2
 
     # ---- headline block (2026-09-05, REVISED 2026-09-16 per Decision A):
@@ -1339,7 +1402,7 @@ def write_partner_workbook(partner_dir_path, partner_name, meta_rows, cluster_ro
     ws_readme.row_dimensions[r].height = 100
     r += 2
 
-    ws_readme.cell(row=r, column=1, value="Other column notes (Sampling Points / Needs Collecting sheets)").font = openpyxl.styles.Font(bold=True, size=12)
+    ws_readme.cell(row=r, column=1, value="Other column notes (Sampling Points / Available to Collect sheets)").font = openpyxl.styles.Font(bold=True, size=12)
     r += 1
     for term, definition in README_FIELD_NOTES:
         ws_readme.cell(row=r, column=1, value=term).font = openpyxl.styles.Font(bold=True)
@@ -1383,7 +1446,37 @@ def write_partner_workbook(partner_dir_path, partner_name, meta_rows, cluster_ro
     for i in range(3, 9):
         ws_readme.column_dimensions[openpyxl.utils.get_column_letter(i)].width = 15
 
-    # ---- Sheet 2: full Sampling Points table ----
+    # ---- Sheet 2 (2026-09-21): Strata Summary - one row per (LGA,
+    # Population Type) this partner covers, target/achieved/still needed at
+    # the same grain as the dashboard's "Progress by LGA" tab. Placed right
+    # after README/before the point-level sheets, on purpose - this is the
+    # "which LGA needs my attention this week" view, meant to be read
+    # BEFORE the point-by-point detail in Available to Collect, not after.
+    strata_summary_rows = build_strata_summary_table(cluster_rows, partner_name)
+    ws_strata = wb_out.create_sheet("Strata Summary")
+    ws_strata.append(STRATA_SUMMARY_COLUMNS)
+    for cell in ws_strata[1]:
+        cell.font = openpyxl.styles.Font(bold=True, color="FFFFFF")
+        cell.fill = openpyxl.styles.PatternFill("solid", fgColor="1B2A4A")
+    for row in strata_summary_rows:
+        ws_strata.append([row.get(c, "") for c in STRATA_SUMMARY_COLUMNS])
+    ws_strata.freeze_panes = "A2"
+    for i, col in enumerate(STRATA_SUMMARY_COLUMNS, start=1):
+        ws_strata.column_dimensions[openpyxl.utils.get_column_letter(i)].width = max(12, min(34, len(col) + 4))
+    pct_col_idx = STRATA_SUMMARY_COLUMNS.index("% Achieved") + 1
+    for row_i in range(2, len(strata_summary_rows) + 2):
+        ws_strata.cell(row=row_i, column=pct_col_idx).number_format = "0%"
+    if strata_summary_rows:
+        tbl_strata = Table(displayName="StrataSummary", ref=f"A1:{openpyxl.utils.get_column_letter(len(STRATA_SUMMARY_COLUMNS))}{len(strata_summary_rows)+1}")
+        tbl_strata.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showRowStripes=True)
+        ws_strata.add_table(tbl_strata)
+        sn_col_letter = openpyxl.utils.get_column_letter(STRATA_SUMMARY_COLUMNS.index("Still Needed") + 1)
+        sn_range = f"{sn_col_letter}2:{sn_col_letter}{len(strata_summary_rows)+1}"
+        from openpyxl.formatting.rule import CellIsRule
+        ws_strata.conditional_formatting.add(sn_range, CellIsRule(operator="equal", formula=["0"], fill=openpyxl.styles.PatternFill("solid", fgColor="C6E0B4")))
+        ws_strata.conditional_formatting.add(sn_range, CellIsRule(operator="greaterThan", formula=["0"], fill=openpyxl.styles.PatternFill("solid", fgColor="F8CBAD")))
+
+    # ---- Sheet 3: full Sampling Points table ----
     ws = wb_out.create_sheet("Sampling Points")
     ws.append(METADATA_COLUMNS)
     for cell in ws[1]:
@@ -1398,7 +1491,7 @@ def write_partner_workbook(partner_dir_path, partner_name, meta_rows, cluster_ro
     tbl.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showRowStripes=True)
     ws.add_table(tbl)
 
-    # ---- Sheet 3 (2026-09-05): Needs Collecting - Sampling Points filtered
+    # ---- Sheet 4 (2026-09-05): Available to Collect - Sampling Points filtered
     # to what isn't done yet. Same columns/order as Sheet 2, just a subset -
     # for a partner who only wants "what do I still need to go do," without
     # scrolling past everything already achieved. IDP primary rows appear
@@ -1426,7 +1519,7 @@ def write_partner_workbook(partner_dir_path, partner_name, meta_rows, cluster_ro
         if row.get("Collection Status", "") not in ("Complete", "Inaccessible")
         and row.get("Point Type") not in NEEDS_COLLECTING_EXCLUDED_TYPES
     ]
-    ws_needs = wb_out.create_sheet("Needs Collecting")
+    ws_needs = wb_out.create_sheet("Available to Collect")
     ws_needs.append(METADATA_COLUMNS)
     for cell in ws_needs[1]:
         cell.font = openpyxl.styles.Font(bold=True, color="FFFFFF")
@@ -1441,7 +1534,7 @@ def write_partner_workbook(partner_dir_path, partner_name, meta_rows, cluster_ro
         tbl_needs.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showRowStripes=True)
         ws_needs.add_table(tbl_needs)
 
-    # ---- Sheet 4 (2026-09-05): Cluster Summary - one row per cluster
+    # ---- Sheet 5 (2026-09-05): Cluster Summary - one row per cluster
     # (Non-IDP + IDP together), target/collected/achieved/still-needed - the
     # "am I basically done with this LGA" view. Conditional formatting on
     # Collection Status so it reads at a glance without opening every row. --
@@ -1470,7 +1563,7 @@ def write_partner_workbook(partner_dir_path, partner_name, meta_rows, cluster_ro
         ws_cs.conditional_formatting.add(status_range, CellIsRule(operator="equal", formula=['"Not started"'], fill=openpyxl.styles.PatternFill("solid", fgColor="F8CBAD")))
         ws_cs.conditional_formatting.add(status_range, CellIsRule(operator="equal", formula=['"Inaccessible"'], fill=openpyxl.styles.PatternFill("solid", fgColor="D9D9D9")))
 
-    # ---- Sheet 5 (2026-09-13): MSNA Light - a completely separate,
+    # ---- Sheet 6 (2026-09-13): MSNA Light - a completely separate,
     # distinctly-coloured sheet for the government-negotiated, unverified
     # LGAs (Abadam/Nganzai/Guzamala as of this writing). Deliberately NOT
     # blended into the README headline, Target Sample Summary table, or any
@@ -1600,7 +1693,7 @@ for pcode, partners in partners_by_pcode.items():
             idp_tier2_backup.append(idp_tier2_backup_placemark(cluster_id, r, backup_row))
 
     # ---- FULL-sourced equivalents (2026-09-05) - feed the workbook's
-    # Sampling Points/Needs Collecting/Cluster Summary sheets only, NOT the
+    # Sampling Points/Available to Collect/Cluster Summary sheets only, NOT the
     # KML files above (which stay WORKING-sourced, correctly outstanding-
     # only). Same LGA, so every row here shares the same state/LGA/ward as
     # the WORKING-sourced rows above - only which individual points/clusters

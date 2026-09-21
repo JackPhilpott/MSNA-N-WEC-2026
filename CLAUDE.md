@@ -5299,9 +5299,117 @@ delete the artefact row from FULL outright.
 identical. National rigorous verdicts unchanged: 207 representative / 12
 indicative-recoverable / 62 indicative-not-recoverable / 26 other.
 
-**Not done**: cluster guides + LGA summary maps (Jack: later push; blocked
-on the `selected_clusters` rds above); partner emails (Jack +
-Coordinator); the 62 not-recoverable strata classified by mechanism for
-the donor note; Task 2 weights, now carrying the Mobbar non-epsem finding;
-`NGA_MSNA_2026_coverage_summary_v2.csv` (Street Child for Dikwa). Nothing
-from tonight is committed to git.
+**Not done at that point**: cluster guides + LGA summary maps, partner
+emails, the 62-strata donor classification, Task 2 weights, coverage_
+summary_v2 - see Update 2026-09-21c for what then happened to the first.
+
+## Update 2026-09-21c — artefact row deleted, the guides push, and the night committed
+
+Jack's four follow-up calls: delete the artefact point; he confirms the
+dashboard bundle with Monitoring himself; go ahead on the guides push;
+commit the workspace.
+
+**1. The primary-less cluster deleted outright.** `non_idp_NG036011_supp4`
+existed only as one reserve row. Removed from v11 FULL and from FACT's
+staging `new_clusters.csv` / `new_households.csv` / `new_clusters.gpkg`,
+each backed up first (`output/data/data_collection/_archive/2026-09-21_
+delete_primaryless_cluster_artefact/` and `<batch>/_pre_artefact_removal_
+2026-09-21/`), with a `_pipeline_changelog.csv` entry. Line-level byte
+edits asserting exactly one line dropped per file, rather than a CSV
+round-trip, so no other row could be reformatted. Refresh after: FULL
+131,619 -> 131,618 rows; WORKING, strata FULL/WORKING and cluster_status
+all md5-IDENTICAL (the row was already excluded from WORKING, so nothing
+downstream should move - it didn't). Re-stamped, re-propagated; Monitoring
+independently verified their mirror had the corrected md5 before their
+deploy's sync step, so no race.
+
+**2. Guides push.** The blocker was real: `selected_clusters_v11_current.
+rds` did not exist, and neither did the v9/v10 files the maps script had
+been renamed to point at - only `_v8_` (2026-09-14). `build_lga_summary_
+maps.R` and both methodology-map scripts still pointed at `_v6_`, which
+has never existed in this repo at all, meaning every LGA summary map on
+disk dated from 2026-09-01 and predated the v7-v11 rounds entirely.
+Rebuilt via `one_off_analyses/build_consolidated_selected_clusters_
+2026-09-21.R` (the 09-14 script re-run for v11, plus one addition: skip
+any `_pre_*`/`_archive*` path so a batch's own pre-fix backup gpkg can
+never be read as live geometry). Result: 4,897 clusters (4,043 Non-IDP hex
+polygons + 854 IDP site points) from 100 non-empty batch files unioned
+with the Aug-6 design archive. 604 of 5,501 FULL clusters have no
+geometry; checked rather than assumed - within the actual map/factsheet
+scope (primary row in v11 WORKING, excluding MSNA Light) it is 486 of
+2,377 and **every one is site-level IDP**, which has no `uuid_hex` by
+design and degrades to `has_hex=FALSE` using the site point. Zero Non-IDP
+clusters render degraded. Only then were the map scripts repointed to
+v11 - rebuild first, rename second, which is the rule every past version
+bump broke.
+LGA summary maps: **166 rendered, 0 failed** (166 covered LGAs now, vs
+176 in the 09-01 batch - the difference is LGAs that have since left
+coverage; their old PNGs stay on disk but are not distributed, since
+`build_partner_dc_packages.py` copies per currently-covered LGA).
+Cluster map pairs: **781 rendered, 0 errors** (64 min; 1,633 skipped as
+already rendered). Sweep (`one_off_analyses/sweep_cluster_field_guides_
+2026-09-21.py`, the 09-14 sweep re-run against v11): 596 of 2,280 stale
+factsheets moved into `_archived_dropped_clusters_2026-09-21/` inside each
+Cluster_guide folder, never deleted, manifest at `resampling/output/
+cluster_field_guide_sweep_2026-09-21/` - matching a read-only dry count
+taken first. Then `build_cluster_factsheets.py`: **2,377 built, 2,409
+copies distributed, 0 failed, 0 with no partner folder.** Verified against
+the live package folders afterwards: 2,377 of 2,377 in-scope clusters have
+a guide, 0 missing, 0 out-of-scope guides left live. MSNA Light (37
+clusters / 448 rows) still deliberately has none - the standard enumerator
+text is wrong for government enumerators; needs Jack's design input.
+**Guides push complete.**
+Still broken, not part of the guides push: `scripts/methodology_maps/
+analysis_coverage_map2.R` and `_lga_zoom_inset.R` read `selected_clusters_
+v6_current.rds`, which has never existed - one-line repoint to the v11
+file, not yet done.
+
+**2b. The oversampling cap, removed from the workbook generators** (found
+by Coordinator while building Jack's partner emails; FACT's workbook read
+achieved 10,601 where two other sources gave ~12,400). Diagnosed wrong by
+me first - I checked whether it was staleness or a scope difference and
+concluded "deliberate capping, therefore correct", which described the
+behaviour instead of questioning it. It is a real inconsistency: Jack's
+2026-09-20 decision ("include ALL oversampled interviews in achieved
+counts, without inflating stratum target") landed in 2_monitoring's
+`compute_progress_by_stratum()` and in `frame_status.R` (uncapped since
+09-13) but in NEITHER workbook generator, which keep their own duplicated
+copy of that logic per this project's standalone-script convention.
+**Six** call sites, not the three first reported - `build_partner_dc_
+packages.py` (IDP Sampling Points row, Non-IDP and IDP Cluster Summary
+rows) AND `refresh_partner_workbooks_daily.py` (the same three). Fixing
+only the push-tier script would have been worse than leaving it: the daily
+tier rebuilds the same workbooks on its own cadence and would have
+silently re-capped every number with nobody watching. Both "Achieved"
+field notes, which claimed the capped figure "matches the dashboard's own
+definition" (true when written), rewritten. `Still Needed` needed no
+change - it already floors at 0, which is exactly what keeps it correct
+now that Achieved routinely exceeds a cluster's own target rather than
+only in the straddling-cluster edge case. Jack confirmed directly before
+any edit. Regenerated all 19 packages: reconciliation PASS 19/19, stale
+folders none, 169 LGA maps copied. FACT achieved 10,601 -> 12,012 (204 of
+its clusters over-collected; worst `idp_NG037011_6`, 69 against a target
+of 36), reconciling with an independent from-scratch recompute (12,055)
+to within the confirmed-deletions overlay. Committed `405a431`.
+**Consequence to know**: headline "Still needed" is Target minus Achieved
+at the frozen stratum level (Decision A), so for an over-collected partner
+it drops (FACT 2,910, not the ~4,300 the capped figure implied) and no
+longer equals the sum of the per-cluster "Still Needed" column. That is
+the 09-20 decision behaving as intended and matches the dashboard;
+reconciling the headline to the cluster sum instead is Jack's call, not
+made here.
+**Caught before partners saw it**: the emails were then rebuilt to read
+each workbook's README headline, but took the target from the line
+labelled "Reference: target adjusted for current accessibility (not the
+headline Target)" while taking Still needed from the `Total target`
+basis - FACT read target 13,129 / achieved 12,012 / still needed 2,910,
+where 13,129 - 12,012 = 1,117. Flagged to Coordinator before sending, with
+the rule: read the row labelled exactly "Total target".
+
+**3. Committed** as `454f4d7` on master (99 files: 29 R, 32 py, CLAUDE.md,
+37 partner accessibility workbooks), covering the whole night -
+Feasibility fix, draw round, v11, the overlay/ward-universe/orchestrator
+fixes, both draw-artefact fixes. Deliberately NOT staged: the ~4.7MB of
+`_archive/` xlsx safety copies and one `.bak`, which this repo has never
+tracked (verified against `git ls-files`, not assumed). Not pushed - Jack
+asked to commit only; master is ahead 2.

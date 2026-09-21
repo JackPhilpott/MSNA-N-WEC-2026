@@ -36,23 +36,35 @@
 # (`adm3_name` GRID3, `admin3_cod_name` OCHA/COD in the 3 NE states only) - no
 # need to re-derive any matching/join logic done elsewhere.
 #
-# Rerun safety: this OVERWRITES each partner's staged .xlsx in
-# accessibility_reports_generated/ every run - safe only because that's a
-# staging copy nothing has been filled into yet. Once a copy has been pushed
-# to a partner's SharePoint folder and may have partner input in it, do NOT
-# rerun this script to "refresh" that copy - it would silently wipe their
-# filled-in Accessible/Reason columns (same class of bug as
-# write_partner_workbook() in build_partner_dc_packages.py, which rebuilds
-# from scratch every run). If the cluster list changes (e.g. after a
-# resample), any refresh of an already-distributed report must merge-preserve
-# existing partner input, not regenerate blind - not implemented here since
-# it hasn't been needed yet.
+# Rerun safety (FIXED 2026-09-21, see below - previously this section
+# documented the gap as unfixed; kept the history since the reasoning still
+# explains WHY the fix works the way it does): this OVERWRITES each
+# partner's staged .xlsx in accessibility_reports_generated/ every run, but
+# it no longer regenerates blind. Every Ward Accessibility / Cluster
+# Accessibility row is now merge-preserved against
+# resampling/output/resampling_requests_log.csv (the durable, append-only
+# record 02_ingest_accessibility_reports.py builds from returned partner
+# files) before being written: a currently-live row whose (partner, ward)
+# or (partner, cluster_id) already has a logged answer gets that answer
+# pre-filled (Accessible/Reason/notes/%/Date reported/provenance) instead of
+# a blank template, and a cluster the log has an answer for but that's no
+# longer in the current WORKING frame at all (dropped by a resample) still
+# gets a row, sourced entirely from the log, marked Status = "No longer in
+# frame" - see load_requests_log()/dominant match keys below. This was
+# flagged 2026-09-20 as a known gap (Jack: "later, not now") and fixed
+# 2026-09-21 once it became blocking - a straddling cluster's own ward flip-
+# flopping between regenerations (see the dominant-ward fix the same day)
+# made the lost-reporting problem visible sooner than expected. Only
+# addresses drift since the LAST regeneration of this staged copy - it does
+# NOT reach into a partner's live SharePoint copy that has unsaved,
+# never-returned edits sitting in it; those still need to come back through
+# accessibility_reports_returned/ and 02_ingest first, same as always.
 # ==============================================================================
 import csv
 import os
 import re
 from collections import defaultdict
-from datetime import date
+from datetime import date, datetime
 
 import openpyxl
 from openpyxl.worksheet.datavalidation import DataValidation
@@ -72,8 +84,10 @@ DATE_REPORTED_FORMAT = "dd-mmm-yyyy"  # unambiguous regardless of the partner's 
 
 PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling"
 STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v11_WORKING.csv"
+STAGE2_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v11_FULL.csv"
 GIS_WARD_UNIVERSE_CSV = PROJECT_DIR + r"\resampling\output\gis\accessible_area_lga_ward_portions.csv"
 OUT_DIR = PROJECT_DIR + r"\resampling\input\accessibility_reports_generated"
+REQUESTS_LOG_CSV = PROJECT_DIR + r"\resampling\output\resampling_requests_log.csv"
 
 ACCESSIBLE_OPTIONS = ["Yes", "No"]
 REASON_OPTIONS = [
@@ -108,8 +122,14 @@ MULTI_LGA_WARD_NOTE = (
     "of it sits."
 )
 CLUSTER_COLUMNS = [
-    "State", "LGA", "Ward (GRID3)", "Pop Type", "Cluster ID", "IDP Category",
+    "State", "LGA", "Ward (GRID3)", "Pop Type", "Cluster ID", "Status", "IDP Category",
     "Target HHs (primary)", "Reserve HHs",
+    "Accessible (Y/N)", "Reason category", "Reason notes",
+    "% of target achieved so far", "Date reported",
+] + PROVENANCE_COLUMNS
+# Columns pre-filled from resampling_requests_log.csv when a prior answer
+# exists for this exact (partner, key) - see load_requests_log() below.
+PREFILL_FROM_LOG_COLUMNS = [
     "Accessible (Y/N)", "Reason category", "Reason notes",
     "% of target achieved so far", "Date reported",
 ] + PROVENANCE_COLUMNS
@@ -131,6 +151,12 @@ README_STEPS = [
     "in. It's pre-filled with every ward/LGA combination assigned to you; you don't need to add or remove rows. "
     "Rows are sorted within each LGA by Total target HHs, largest first, so your main wards come before any "
     "small border cases.",
+    "If you've reported on a row before, your last answer is already shown here (Accessible/Reason/Date "
+    "reported etc.) rather than a blank cell - please review it and only change it if something has actually "
+    "changed since you last told us, don't assume a filled-in row is a mistake. On the 'Cluster Accessibility' "
+    "sheet, a cluster you previously flagged that's since been removed from your assigned list entirely still "
+    "appears, marked 'No longer in frame' in the Status column - kept so your earlier report isn't lost, but "
+    "it's no longer something we need action on.",
     "A row with a very small Total target HHs figure (1-2) usually means a border case - GRID3 and OCHA/COD "
     "boundaries don't always agree exactly, so a small part of one of your clusters can fall just inside a "
     "ward you don't otherwise work in. This is expected, not an error - please still report on it like any "
@@ -205,6 +231,80 @@ def safe_folder_name(s):
     return re.sub(r'[<>:"/\\|?*]', "-", s).strip()
 
 
+def _parse_log_date(s):
+    # date_reported_by_partner is stored in the log as a plain DD/MM/YYYY
+    # string (day-first, matching this project's own Excel convention - see
+    # feedback_date_dayfirst_sanity_check memory). "Date reported" on the
+    # generated sheet is a real Excel date cell (DataValidation type="date"
+    # in add_input_sheet), so this must come back as a date object, not a
+    # string, or it renders oddly under the cell's date number format and
+    # can trip the sheet's own date validation if a partner re-edits it.
+    if not s:
+        return ""
+    try:
+        return datetime.strptime(s, "%d/%m/%Y").date()
+    except ValueError:
+        return ""  # unparseable/legacy format - leave blank rather than guess
+
+
+def load_requests_log():
+    """Latest logged answer per (partner, report_level, key), where key is
+    cluster_id for report_level=="cluster" and (state, lga, ward_name) for
+    report_level=="ward". Mirrors 02_ingest_accessibility_reports.py's own
+    latest_by_key() (request_id-max-wins, no status filtering - every row in
+    the log is currently status=="new" anyway, since the resolution-tracking
+    half of this log was never built - see that script's ingest() docstring)
+    - duplicated rather than imported, per this project's standalone-script
+    convention, since 01_ and 02_'s filenames can't be imported as Python
+    modules (leading digits) without importlib machinery that isn't worth it
+    for ~15 lines of logic.
+
+    Added 2026-09-21 (Task 4, Jack) - the merge-preserve fix for the "already
+    reported, don't want to lose that reporting" gap. See this script's
+    header comment for the full history.
+    """
+    if not os.path.exists(REQUESTS_LOG_CSV):
+        return {}, {}
+    with open(REQUESTS_LOG_CSV, encoding="utf-8") as f:
+        log_rows = list(csv.DictReader(f))
+    latest_cluster = {}
+    latest_ward = {}
+    for r in log_rows:
+        # .strip() every key field - found 2026-09-21 via a sanity check on
+        # the dropped-cluster count (see the merge-preserve block below):
+        # one real log row (Malteser, request_id 6480) had a stray leading
+        # newline baked into cluster_id ('\nnon_idp_NG021027_8', presumably
+        # copy-paste residue from a transcribed report), which silently
+        # created a phantom second key alongside the correct one (request_id
+        # 6484) - the phantom then matched no real frame row and would have
+        # shown as "dropped from frame" for a cluster that was never
+        # actually dropped. Stripping here fixes this instance and any
+        # future one with the same shape, rather than special-casing this
+        # one row.
+        partner = r["partner"].strip()
+        if r["report_level"] == "cluster" and r.get("cluster_id", "").strip():
+            key = (partner, r["cluster_id"].strip())
+            if key not in latest_cluster or int(r["request_id"]) > int(latest_cluster[key]["request_id"]):
+                latest_cluster[key] = r
+        elif r["report_level"] == "ward":
+            key = (partner, r["state"].strip(), r["lga"].strip(), r["ward_name"].strip())
+            if key not in latest_ward or int(r["request_id"]) > int(latest_ward[key]["request_id"]):
+                latest_ward[key] = r
+    return latest_cluster, latest_ward
+
+
+def _log_row_to_prefill(log_row):
+    return {
+        "Accessible (Y/N)": log_row["accessible"],
+        "Reason category": log_row["reason_category"],
+        "Reason notes": log_row["reason_notes"],
+        "% of target achieved so far": log_row["pct_target_achieved"],
+        "Date reported": _parse_log_date(log_row["date_reported_by_partner"]),
+        REPORTED_BY_COL: log_row["reported_by"],
+        SOURCE_CHANNEL_COL: log_row["source_channel"],
+    }
+
+
 def load_cluster_rows_by_partner():
     """Returns (ward_split_by_partner, cluster_repr_by_partner).
 
@@ -260,6 +360,8 @@ def load_cluster_rows_by_partner():
     with open(STAGE2_CSV, encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
 
+    latest_cluster_log, latest_ward_log = load_requests_log()
+
     ward_to_lgas = defaultdict(set)
     for r in rows:
         ward_to_lgas[(r["adm1_name"], r["adm3_name"])].add(r["adm2_name"])
@@ -270,6 +372,7 @@ def load_cluster_rows_by_partner():
 
     ward_split_by_partner = defaultdict(list)
     cluster_repr_by_partner = defaultdict(list)
+    live_cluster_ids_by_partner = defaultdict(set)
 
     for cid, crows in cluster_rows.items():
         any_row = crows[0]
@@ -288,24 +391,42 @@ def load_cluster_rows_by_partner():
                 w["ward_cod"] = ward_cod
 
         for (state, lga, ward), w in by_ward.items():
-            record = {
+            base_record = {
                 "State": state, "LGA": lga, "Ward (GRID3)": ward, "Ward (OCHA/COD)": w["ward_cod"],
                 "Pop Type": pop_type_norm, "Cluster ID": cid, "IDP Category": cat,
                 "Target HHs (primary)": w["primary"], "Reserve HHs": w["reserve"],
             }
             for p in partners:
+                # Per-partner copy, not a shared dict reference - a
+                # shared-LGA ward can have more than one covering partner
+                # (partners_covering can list >1), each with their OWN
+                # logged answer for the same (state, lga, ward); mutating
+                # one shared dict here would let the last partner's prefill
+                # silently overwrite what gets shown to every other partner
+                # covering the same ward.
+                record = dict(base_record)
+                log_row = latest_ward_log.get((p, state, lga, ward))
+                if log_row:
+                    record.update(_log_row_to_prefill(log_row))
                 ward_split_by_partner[p].append(record)
 
         dominant_key = max(by_ward, key=lambda k: (by_ward[k]["primary"], k))
         state, lga, ward = dominant_key
         ward_cod = by_ward[dominant_key]["ward_cod"]
-        cluster_record = {
+        cluster_base_record = {
             "State": state, "LGA": lga, "Ward (GRID3)": ward, "Ward (OCHA/COD)": ward_cod,
             "Pop Type": pop_type_norm, "Cluster ID": cid, "IDP Category": cat,
             "Target HHs (primary)": any_row["target_households"], "Reserve HHs": any_row["reserve_households"],
         }
         for p in partners:
-            cluster_repr_by_partner[p].append(cluster_record)
+            # Same per-partner-copy reasoning as the ward loop above.
+            record = dict(cluster_base_record)
+            log_row = latest_cluster_log.get((p, cid))
+            if log_row:
+                record.update(_log_row_to_prefill(log_row))
+            record["Status"] = "Active"
+            cluster_repr_by_partner[p].append(record)
+            live_cluster_ids_by_partner[p].add(cid)
 
     # Union in Stage-1-eligible wards that never had a cluster drawn there by
     # chance (see load_gis_ward_universe()'s docstring) - tracked separately
@@ -327,6 +448,67 @@ def load_cluster_rows_by_partner():
                 extra_ward_keys_by_partner[p].add(key)
 
     ward_to_lgas = {k: sorted(v) for k, v in ward_to_lgas.items()}
+
+    # Preserve previously-reported clusters that have since dropped out of
+    # the current frame entirely (Task 4, Jack, 2026-09-21: "we don't want
+    # to lose that reporting"). A cluster the log has a logged answer for,
+    # for this partner, that ISN'T among this partner's current live
+    # cluster_ids, gets a row built entirely from the log (no frame row
+    # exists any more to source Target/Reserve/IDP Category from - shown as
+    # "N/A (dropped)" rather than guessed). Sorted in with the live rows
+    # below by build_ward_rows()/write_partner_report()'s own existing
+    # sort, not appended separately, so a partner sees them in the same
+    # place they'd expect the cluster to be.
+    #
+    # IMPORTANT: "genuinely dropped" is checked against the FULL frame's
+    # partners_covering, NOT against live_cluster_ids_by_partner (which is
+    # built from THIS SCRIPT's own STAGE2_CSV = WORKING). Caught 2026-09-21
+    # before shipping via a sanity check on the raw count (1,364 dropped
+    # rows, 1,209 of them FACT alone, was implausibly high) - traced to
+    # exactly this: WORKING is a deliberately shrinking CANDIDATE pool that
+    # already excludes a cluster once it's Complete or ward-inaccessible
+    # (see household_frame's own header note in 2_monitoring/global.R for
+    # the same WORKING-vs-FULL distinction elsewhere in this project) - a
+    # cluster missing from WORKING for either of those completely normal
+    # reasons is NOT "removed by resampling", and re-checked directly
+    # against the live data confirmed zero of FACT's 2,147 logged clusters
+    # were actually absent from FULL or reassigned to a different partner.
+    # Using FULL + this partner still being in partners_covering is the
+    # correct test for "the cluster or this partner's claim to it is
+    # genuinely gone", matching what "dropped by a resample" actually means.
+    full_partners_by_cluster = {}
+    with open(STAGE2_FULL_CSV, encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            cid = r["cluster_id"]
+            if cid not in full_partners_by_cluster:
+                full_partners_by_cluster[cid] = {p.strip() for p in r["partners_covering"].split(",") if p.strip() and p.strip() != "NA"}
+
+    for (log_partner, log_cid), log_row in latest_cluster_log.items():
+        if log_cid in live_cluster_ids_by_partner[log_partner]:
+            continue
+        if log_partner in full_partners_by_cluster.get(log_cid, set()):
+            continue  # still genuinely this partner's cluster - just Complete/inaccessible/excluded from WORKING right now, not dropped
+        dropped_record = {
+            # log_row["pop_type"] is already display-form ("Non-IDP"/"IDP"
+            # - see read_sheet_rows() in 02_ingest_accessibility_reports.py,
+            # which stores the sheet's own "Pop Type" column verbatim, and
+            # that column is itself already norm_pop_type()'d output at
+            # generation time). Caught before shipping: passing it back
+            # through norm_pop_type() here would invert every row (that
+            # function expects the internal "non_idp"/"idp" code, not the
+            # display string - "Non-IDP" != "non_idp" so it would return
+            # "IDP" for an actual Non-IDP cluster). Currently a latent-only
+            # bug (0 dropped rows nationally as of this fix), but fixed now
+            # rather than left for whenever a cluster is first genuinely
+            # dropped.
+            "State": log_row.get("state", ""), "LGA": log_row.get("lga", ""),
+            "Ward (GRID3)": log_row.get("ward_name", ""), "Pop Type": log_row.get("pop_type", ""),
+            "Cluster ID": log_cid, "Status": "No longer in frame (kept for historical reporting - not an active target)",
+            "IDP Category": "", "Target HHs (primary)": "N/A (dropped)", "Reserve HHs": "N/A (dropped)",
+        }
+        dropped_record.update(_log_row_to_prefill(log_row))
+        cluster_repr_by_partner[log_partner].append(dropped_record)
+
     return ward_split_by_partner, cluster_repr_by_partner, ward_to_lgas, extra_ward_keys_by_partner
 
 
@@ -480,7 +662,12 @@ def write_partner_report(partner, ward_split_records, cluster_records, ward_to_l
     ward_rows = build_ward_rows(ward_split_records, ward_to_lgas, extra_ward_keys)
 
     wb = openpyxl.Workbook()
-    write_readme_sheet(wb, partner, len(ward_rows), len(cluster_records))
+    # 2026-09-21: count only Status=="Active" clusters here - cluster_records
+    # can now also hold "No longer in frame" historical rows (Task 4), which
+    # aren't really "assigned to you" any more and would inflate this
+    # headline count if included.
+    n_active_clusters = sum(1 for r in cluster_records if r.get("Status", "Active") == "Active")
+    write_readme_sheet(wb, partner, len(ward_rows), n_active_clusters)
 
     add_input_sheet(wb, "Ward Accessibility", "WardAccessibility", WARD_COLUMNS, ward_rows)
     add_input_sheet(wb, "Cluster Accessibility", "ClusterAccessibility", CLUSTER_COLUMNS, cluster_records)
