@@ -82,6 +82,20 @@ UNEVEN_LO, UNEVEN_HI = 40.0, 60.0
 BORDER_PTS = 5.0
 REPRO_TOL = 0.02
 CERTAINTY_MIN_COVERAGE, CERTAINTY_MIN_N_I = 0.90, 3
+
+# HAND-MARKED NOT RECOVERABLE (Jack, 2026-09-21: "just mark by hand for now",
+# instead of building-validating analysis_remaining_eligible_pool.R yet).
+# 05 labels these "RECOVERABLE via supplementary draw" because its pool is a
+# hex count with no building check; the building-validated draw (Stage B2,
+# commit 4f36532) shows no draw can close them. Evidence from its dry run
+# (resampling/output/draw_fix_dryrun_2026-09-21/new/pool_validation_by_hex.csv)
+# and that run's projection. Applied ONLY while the record still calls the
+# stratum draw-recoverable, and shown in its own column - never silent.
+MANUAL_NOT_RECOVERABLE = {
+    "non_idp_NG008015": "Kala/Balge: 0 of 3 candidate hexes have 6+ accessible, unclaimed buildings - nothing can be drawn",
+    "non_idp_NG008025": "Ngala: 1 of 4 candidate hexes drawable; drawing it reaches only 11.92%",
+    "non_idp_NG008026": "Nganzai: 1 of 5 candidate hexes drawable; drawing it reaches only 11.38%",
+}
 ICC, Z, P = 0.06, 1.6448536269514722, 0.5
 
 
@@ -300,7 +314,10 @@ for r in rep:
     # why it can't be fixed
     certsite = vc == "Recoverable: extra interviews at a certainty site"
     unfixable = vc in ("Not recoverable", "Not computable")
-    matches = []
+    manual = MANUAL_NOT_RECOVERABLE.get(sid, "") if vc == "Recoverable by a draw" else ""
+    if manual:
+        unfixable = True
+    matches = ["no_buildable_pool"] if manual else []
     if ceiling_total == 0:
         matches.append("no_full_design_sample")
     if ceiling_total and N is not None and ceiling_total >= N:
@@ -334,6 +351,10 @@ for r in rep:
             fix_route = "within half a cluster; no pool left to draw from"
     else:
         fix_route = "not fixable by a draw"
+    if manual:
+        draw_clusters = None
+        fix_route = "not fixable by a draw (hand-marked: building-validated pool can't close it)"
+        flags.append(f"HAND-MARKED not recoverable (Jack, 2026-09-21) - 05 still says recoverable: {manual}")
     if not certsite:
         group = ("Cannot be fixed" if unfixable else
                  "Recoverable by a draw" if vc == "Recoverable by a draw" else "Negligible gap")
@@ -359,6 +380,7 @@ for r in rep:
         "dominant_certainty_site": dominant,
         "why_short": why_short, "why_cannot_be_fixed": why_unfixable, "also_matches": "; ".join(also),
         "fix_route": fix_route,
+        "manual_override": manual,
         "accessible_population_share_pct": acc_share if acc_share is not None else "N/A",
         "design_population": round(pop) if pop else "N/A", "accessible_households": r[K_NACC],
         "clusters_with_sample": len(live), "achievable_ceiling_interviews": ceiling_total,

@@ -5699,3 +5699,30 @@ Building-validated pools for the Borno strata:
 first three. Making analysis_remaining_eligible_pool.R building-validated
 too is the follow-up that would make those Feasibility labels honest.
 Not built.
+
+## Update 2026-09-21g — Monguno drawn with the fixed script; three strata marked not recoverable by hand
+
+Jack's own word: "yes" to a real Monguno draw; "just mark by hand for now"
+for Kala/Balge, Ngala and Nganzai, instead of building-validating
+analysis_remaining_eligible_pool.R yet.
+
+**Monguno.** First live use of the Stage B2/F draw. Batch
+`resample_runs/Street Child of Nigeria/2026-09-21_monguno_r3`, seed
+2026092104, 2 of 5 candidate hexes drawable. The draw gave 2 full clusters,
+and all 24 rows stamped Accessible. Merged (FULL 131,978 -> 132,002;
+WORKING 42,280 -> 42,304, all 24 rows live), refreshed, stamped, and both
+mirrors synced. 05 rebuilt: Monguno 10.55 -> 9.88, Representative, the only
+stratum that changed; national count 255. Packages PASS 19/19, and 2 rows
+appended to Street Child's returned report. Guides still deferred.
+
+**Hand-marked.** `classify_non_representative_strata_2026-09-21.py` now has
+a MANUAL_NOT_RECOVERABLE table, with evidence from the draw-fix dry run:
+- Kala/Balge: 0 of 3 hexes drawable.
+- Ngala: 1 of 4 drawable, reaching only 11.92%.
+- Nganzai: 1 of 5 drawable, reaching only 11.38%.
+It applies only while the record still says "RECOVERABLE via
+supplementary draw", reason no_buildable_pool, in its own manual_override
+column. 05 still labels them recoverable; building-validating the pool
+script is the lasting fix.
+Classification now: 52 short strata, 35 cannot be fixed, 17 negligible,
+none recoverable by a draw.
