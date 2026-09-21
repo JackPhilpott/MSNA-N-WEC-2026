@@ -210,6 +210,114 @@ if (file.exists(CLUSTER_STATUS_CSV)) {
   log_msg("  WARNING: %s not found - Task 3B's access-compromised-cluster exclusion skipped this run (run refresh_working_frame_daily.R first to generate it).", CLUSTER_STATUS_CSV)
 }
 
+# ---- Stage B2 (2026-09-21, Jack's direct go: "build now, dry-run only";
+# floor "6 buildings"): judge every candidate hex on its BUILDINGS, not its
+# centroid. -------------------------------------------------------------------
+# Why: Stage B classifies a hex by its centroid's ward only, and
+# add_supplementary_clusters() counts (and later draws from) EVERY building in
+# the hex. A hex straddling an inaccessible ward is therefore fully eligible,
+# and its households get stamped Inaccessible after the draw - measured on
+# FULL after 2026-09-21's two rounds: of 262 Non-IDP clusters drawn, 57 came
+# in under 6 accessible primaries and 31 under the 4-primary floor (38 ward
+# straddle, 19 thin hex). The morning round drew 64 clusters for the 13
+# strata that then needed a second round; 16 were duds on arrival.
+# Fix, no change to the core pipeline functions (this project's convention -
+# adapt in the wrapper, as Stage B's MOS zeroing and Stage E.1's redraw do):
+#   B2 (here): count each candidate hex's buildings that are (i) in an
+#      ACCESSIBLE ward by the exact rule stamp_ward_accessible_status.py
+#      applies after the draw - the GRID3 ward the point falls st_within,
+#      looked up as (adm1_name, adm2_name, ward) in master_accessibility_
+#      status_ward_level.csv, no match = not accessible - and (ii) not already
+#      claimed by an existing live-frame household at that hex (real
+#      coordinates, 6 dp, same key as Stage D). Hexes with fewer than
+#      MIN_ACCESSIBLE_BUILDINGS get MOS zeroed, so PPS never selects them.
+#   F (after Stage E.1): every new cluster's households are redrawn from that
+#      validated pool only, so no primary can land in an inaccessible ward.
+# With every candidate able to deliver a full 6, the function's own
+# "contributed = min(m, n_buildings)" accounting becomes exact, so its
+# household-need loop IS a usable-household loop.
+MIN_ACCESSIBLE_BUILDINGS <- 6L
+log_msg("Stage B2: building-validating the candidate pool (>= %d accessible, unclaimed buildings per hex)...", MIN_ACCESSIBLE_BUILDINGS)
+master_ward_b2 <- read_csv("resampling/output/master_accessibility_status_ward_level.csv", show_col_types = FALSE)
+ward_status_b2 <- setNames(master_ward_b2$`Accessible status`,
+                           paste(master_ward_b2$State, master_ward_b2$LGA, master_ward_b2$`Ward (GRID3)`, sep = "|"))
+wards_proj_b2 <- sf::st_transform(nga_wards, mycrs) %>% dplyr::select(.ward_b2 = wardname)
+full_b2 <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v11_FULL.csv", show_col_types = FALSE)
+claimed_keys_b2 <- full_b2 %>%
+  dplyr::filter(pop_type == "non_idp", !is.na(latitude), !is.na(longitude)) %>%
+  dplyr::transmute(uuid_hex_pop = paste0(pop_type, "_", uuid_hex),
+                   .coord_key = paste0(round(latitude, 6), "_", round(longitude, 6))) %>%
+  dplyr::distinct()
+rm(full_b2)
+
+# Classifies building points (sf, mycrs, carrying uuid_hex_pop) exactly as the
+# post-draw stamp will classify a household drawn at that point.
+classify_buildings_b2 <- function(bpts, hex_attrs) {
+  bpts <- bpts %>% dplyr::left_join(hex_attrs, by = "uuid_hex_pop")
+  j <- sf::st_join(bpts, wards_proj_b2, join = sf::st_within, left = TRUE)
+  j <- j[!duplicated(paste(j$uuid_hex_pop, j$.centroid_key)), ]   # a point inside two overlapping ward polygons
+  ll <- sf::st_coordinates(sf::st_transform(j, 4326))
+  j$.coord_key <- paste0(round(ll[, "Y"], 6), "_", round(ll[, "X"], 6))
+  st <- unname(ward_status_b2[paste(j$.adm1_b2, j$.adm2_b2, j$.ward_b2, sep = "|")])
+  j$.accessible <- !is.na(st) & st == "Accessible"
+  j
+}
+B2_HELPER_COLS <- c(".adm1_b2", ".adm2_b2", ".ward_b2", ".coord_key", ".accessible")
+
+cand_b2 <- non_idp_sampling_filtered$sampling_frame %>%
+  dplyr::filter(pop_type == "non_idp", adm2_pcode %in% shortfalls$adm2_pcode, MOS > 0)
+hex_attrs_b2 <- cand_b2 %>% sf::st_drop_geometry() %>%
+  dplyr::distinct(uuid_hex_pop, .adm1_b2 = adm1_name, .adm2_b2 = adm2_name)
+pool_files_b2 <- load_building_footprints(
+  gdb_directory = building_data_dir,
+  accessible_area = cand_b2,
+  mycrs = mycrs,
+  cache_directory = file.path(STAGING_DIR, "cache_pool_validation"),
+  rebuild = FALSE
+)
+validated_pool <- purrr::map(pool_files_b2, function(bf) {
+  part <- tryCatch(readRDS(bf), error = function(e) NULL)
+  if (is.null(part) || nrow(part) == 0) return(NULL)
+  part <- sf::st_transform(part, mycrs)
+  xy <- sf::st_coordinates(part)
+  part %>% dplyr::mutate(.centroid_key = paste0(round(xy[, "X"], 1), "_", round(xy[, "Y"], 1)))
+}) %>% purrr::compact() %>% dplyr::bind_rows()
+if (nrow(validated_pool) > 0) {
+  validated_pool <- validated_pool %>%
+    dplyr::filter(uuid_hex_pop %in% cand_b2$uuid_hex_pop) %>%
+    dplyr::distinct(uuid_hex_pop, .centroid_key, .keep_all = TRUE)
+  validated_pool <- classify_buildings_b2(validated_pool, hex_attrs_b2)
+  n_raw_b2 <- nrow(validated_pool)
+  validated_pool <- validated_pool %>%
+    dplyr::anti_join(claimed_keys_b2, by = c("uuid_hex_pop", ".coord_key"))
+  n_claimed_b2 <- n_raw_b2 - nrow(validated_pool)
+  n_inacc_b2 <- sum(!validated_pool$.accessible)
+  validated_pool <- validated_pool[validated_pool$.accessible, ]
+} else {
+  n_claimed_b2 <- 0L; n_inacc_b2 <- 0L
+}
+acc_count_b2 <- validated_pool %>% sf::st_drop_geometry() %>% dplyr::count(uuid_hex_pop, name = "n_acc")
+hex_check_b2 <- hex_attrs_b2 %>% dplyr::select(uuid_hex_pop) %>%
+  dplyr::left_join(acc_count_b2, by = "uuid_hex_pop") %>%
+  dplyr::mutate(n_acc = dplyr::coalesce(n_acc, 0L), eligible = n_acc >= MIN_ACCESSIBLE_BUILDINGS)
+thin_hex_b2 <- hex_check_b2$uuid_hex_pop[!hex_check_b2$eligible]
+non_idp_sampling_filtered$sampling_frame <- non_idp_sampling_filtered$sampling_frame %>%
+  dplyr::mutate(MOS = ifelse(uuid_hex_pop %in% thin_hex_b2, 0, MOS))
+validated_pool <- validated_pool %>% dplyr::filter(!(uuid_hex_pop %in% thin_hex_b2))
+log_msg("  %d candidate hex(es) checked; %d building(s) excluded as already claimed, %d as in an inaccessible/unmatched ward.",
+        nrow(hex_check_b2), n_claimed_b2, n_inacc_b2)
+log_msg("  %d hex(es) have fewer than %d accessible, unclaimed buildings - MOS zeroed; %d remain drawable.",
+        length(thin_hex_b2), MIN_ACCESSIBLE_BUILDINGS, sum(hex_check_b2$eligible))
+b2_by_stratum <- hex_check_b2 %>%
+  dplyr::left_join(cand_b2 %>% sf::st_drop_geometry() %>% dplyr::distinct(uuid_hex_pop, adm2_pcode), by = "uuid_hex_pop") %>%
+  dplyr::group_by(adm2_pcode) %>%
+  dplyr::summarise(candidates = dplyr::n(), drawable = sum(eligible), .groups = "drop")
+for (i in seq_len(nrow(b2_by_stratum))) {
+  log_msg("    %s: %d of %d candidate hexes drawable after building validation",
+          b2_by_stratum$adm2_pcode[i], b2_by_stratum$drawable[i], b2_by_stratum$candidates[i])
+}
+write_csv(hex_check_b2, file.path(STAGING_DIR, "pool_validation_by_hex.csv"))
+
 # ---- Stage C: Tier 1 draw (already-used hexes hard-excluded, function's own default behaviour) ----
 log_msg("Stage C: Tier 1 draw (fresh hexes only)...")
 # FULL, not WORKING (2026-09-01 fix, applied when bumping this script from
@@ -511,6 +619,58 @@ if (nrow(hex_dup_counts) > 0) {
   log_msg("  Verified: no hex appears more than once, no cluster has a duplicate real household (coordinate check, not building_id).")
 } else {
   log_msg("Stage E.1: no hex was drawn more than once within this batch - nothing to merge.")
+}
+
+# ---- Stage F (2026-09-21, see Stage B2): every new cluster's households are
+# redrawn from its validated pool - accessible, unclaimed buildings only - so
+# no primary can land in an inaccessible ward. Same unmodified draw_cluster()
+# + finalize_households() Stage E.1 already uses for its own redraw; this
+# supersedes both the function's household draw and E.1's (E.1's merging of
+# same-hex cluster ROWS is kept). households_in_cluster therefore counts the
+# hex's accessible, unclaimed buildings - the true within-hex selection
+# universe for these clusters. -------------------------------------------------
+log_msg("Stage F: redrawing every new cluster's households from accessible, unclaimed buildings only...")
+set.seed(SEED_BASE + 3L)
+pool_by_hex_f <- split(validated_pool, validated_pool$uuid_hex_pop)
+f_rows <- list()
+f_no_pool <- character(0)
+for (i in seq_len(nrow(all_new_clusters))) {
+  crow <- all_new_clusters[i, ]
+  pool_hx <- pool_by_hex_f[[crow$uuid_hex_pop]]
+  if (is.null(pool_hx) || nrow(pool_hx) == 0) {
+    f_no_pool <- c(f_no_pool, paste(crow$.source, crow$cluster_id, sep = "|"))
+    next
+  }
+  pool_hx <- pool_hx[, setdiff(names(pool_hx), B2_HELPER_COLS)]
+  drawn <- draw_cluster(pool_hx, crow$target_households, crow$reserve_households)
+  if (is.null(drawn) || nrow(drawn) == 0) {
+    f_no_pool <- c(f_no_pool, paste(crow$.source, crow$cluster_id, sep = "|"))
+    next
+  }
+  drawn$cluster_id <- crow$cluster_id
+  hh <- finalize_households(drawn, crow, nga_wards, NGA_shapes_all_cleaned$nga_admin3, mycrs)
+  hh$.source <- crow$.source
+  f_rows[[length(f_rows) + 1]] <- hh
+}
+if (length(f_no_pool) > 0) {
+  log_msg("  WARNING: %d new cluster(s) had no validated pool at redraw (should not happen after Stage B2) - their households are dropped with them below: %s",
+          length(f_no_pool), paste(f_no_pool, collapse = ", "))
+}
+n_hh_before_f <- nrow(all_new_households)
+all_new_households <- dplyr::bind_rows(f_rows)
+if (anyDuplicated(paste(all_new_households$.source, all_new_households$survey_id)) > 0) {
+  stop("Stage F produced duplicate survey IDs - a household point matched more than one ward polygon.")
+}
+acc_f <- unname(ward_status_b2[paste(all_new_households$adm1_name, all_new_households$adm2_name, all_new_households$adm3_name, sep = "|")])
+acc_f <- !is.na(acc_f) & acc_f == "Accessible"
+n_bad_primary_f <- sum(all_new_households$status == "primary" & !acc_f)
+prim_f <- all_new_households %>% sf::st_drop_geometry() %>%
+  dplyr::filter(status == "primary") %>% dplyr::count(.source, cluster_id, name = "n_primary")
+n_under_f <- sum(prim_f$n_primary < MIN_ACCESSIBLE_BUILDINGS)
+log_msg("  Stage F: %d household row(s) (was %d from the function's own draw); %d primary row(s) in an inaccessible/unmatched ward; %d cluster(s) under %d primaries.",
+        nrow(all_new_households), n_hh_before_f, n_bad_primary_f, n_under_f, MIN_ACCESSIBLE_BUILDINGS)
+if (n_bad_primary_f > 0 || n_under_f > 0) {
+  stop("Stage F check failed: every primary must be in an Accessible ward and every cluster must have >= MIN_ACCESSIBLE_BUILDINGS primaries - the B2 classification and the stamp's rule have diverged. Nothing written.")
 }
 
 # 2026-09-07: a Tier 2 (repeat-draw) candidate can get a cluster-level

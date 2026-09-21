@@ -5653,3 +5653,49 @@ Still owed when Jack asks:
 - build_cluster_factsheets.py
 - a final build_partner_dc_packages.py run to distribute the LGA maps
 The geometry rds is already rebuilt for it.
+
+## Update 2026-09-21f — the draw fix: building-validated pool + accessible-only households (built, dry-run only)
+
+Jack's own word (AskUserQuestion): "Build now, dry-run only", floor "6
+buildings". Proposed by Coordinator from the post-round evidence: of 262
+Non-IDP clusters drawn on 09-21, 57 came in under 6 accessible primaries and
+31 under the 4-primary floor (38 ward straddle, 19 thin hex).
+
+`draw_supplementary_clusters_batch.R`, with no change to the core pipeline
+functions:
+- **Stage B2** counts each candidate hex's buildings that are (i) in an
+  Accessible ward by the stamp's exact rule (the GRID3 ward containing the
+  point, looked up as (adm1_name, adm2_name, ward) in the master ward
+  status; no match = not accessible) and (ii) not already claimed by a
+  live-frame household at that hex (6 dp coordinates). Hexes with fewer
+  than 6 get MOS zeroed.
+- **Stage F**, after E.1, redraws every new cluster's households from that
+  validated pool with the unmodified draw_cluster() + finalize_households().
+  It stops, writing nothing, if any primary is inaccessible or any cluster
+  has fewer than 6 primaries.
+- Side effect: households_in_cluster for these clusters = accessible,
+  unclaimed buildings, which is the true within-hex selection universe.
+
+**Dry run** (`resampling/output/draw_fix_dryrun_2026-09-21/`, outside
+resample_runs so the coverage map can't read it; the comparison is
+`one_off_analyses/compare_draw_fix_dryrun_2026-09-21.py`). Same shortfalls
+and seed 2026092103 for the new script and the HEAD version. Inputs: the 4
+still-recoverable strata, plus Koko/Besse, Gusau and Gwer West at a
+test-only need of 5 clusters each.
+
+| | Clusters | Full (6+) | 4-5 | Duds (<4) | Primaries in inaccessible wards | Usable households |
+|---|---|---|---|---|---|---|
+| OLD | 21 | 11 | 7 | 3 | 10 | 97 |
+| NEW | 19 | 19 | 0 | 0 | 0 | 114 |
+
+The three test strata got exactly 5 full clusters each.
+Building-validated pools for the Borno strata:
+- Kala/Balge: 0 of 3 hexes drawable.
+- Ngala: 1 of 4.
+- Nganzai: 1 of 5.
+- Monguno: 2 of 5. Projects to 9.88% from 2 clusters, so it would close
+  with a real draw.
+05's hex-count pool (10/10/11) overstates what a draw can deliver for the
+first three. Making analysis_remaining_eligible_pool.R building-validated
+too is the follow-up that would make those Feasibility labels honest.
+Not built.
