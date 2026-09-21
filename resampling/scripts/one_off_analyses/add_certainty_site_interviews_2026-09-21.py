@@ -25,6 +25,12 @@
 # Guard: a no-change round trip of FULL must be byte-identical to the file
 # on disk, or nothing is written (never silently reformat the frame).
 #
+# MISSED (same night, caught by Coordinator's validity suite): this script
+# did not recompute strata-level FULL (achieved_clusters/achieved_sample/
+# realized_moe_pct), which every merge does via recompute_strata(). Fixed by
+# recompute_strata_full_certainty_sites_2026-09-21.R. Any reuse of this
+# approach must run that recompute too.
+#
 # PRECONDITION: back up output/data/data_collection/ first.
 # Usage: python add_certainty_site_interviews_2026-09-21.py
 # ==============================================================================
