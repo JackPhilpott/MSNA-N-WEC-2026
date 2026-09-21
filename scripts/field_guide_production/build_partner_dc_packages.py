@@ -166,25 +166,19 @@ BACKUP_POINTS_CSV = PROJECT_DIR + r"\output\data\data_collection\idp_camp_backup
 # Same "missing file = no exclusions, not an error" convention as the R-side
 # loaders (frame_status.R's load_cluster_accessibility_overlay()/
 # load_target_correction_drops()) - both files are optional/additive.
-CLUSTER_ACCESSIBILITY_OVERLAY_CSV = PROJECT_DIR + r"\resampling\output\cluster_accessibility_overlay.csv"
-TARGET_CORRECTION_DROPPED_CLUSTERS_CSV = PROJECT_DIR + r"\resampling\output\target_correction_dropped_clusters.csv"
-
-
-def _load_cluster_id_set(path):
-    if not os.path.exists(path):
-        return set()
-    with open(path, encoding="utf-8") as f:
-        return {r["cluster_id"] for r in csv.DictReader(f)}
-
-
-CLUSTER_ACCESSIBILITY_OVERLAY_EXCLUDED = _load_cluster_id_set(CLUSTER_ACCESSIBILITY_OVERLAY_CSV)
-TARGET_CORRECTION_DROPPED_CLUSTERS = _load_cluster_id_set(TARGET_CORRECTION_DROPPED_CLUSTERS_CSV)
-print(f"Loaded {len(CLUSTER_ACCESSIBILITY_OVERLAY_EXCLUDED)} cluster-accessibility-overlay exclusion(s), "
-      f"{len(TARGET_CORRECTION_DROPPED_CLUSTERS)} target-correction drop(s).")
-
-
-def _cluster_overlay_excluded(cluster_id):
-    return cluster_id in CLUSTER_ACCESSIBILITY_OVERLAY_EXCLUDED or cluster_id in TARGET_CORRECTION_DROPPED_CLUSTERS
+#
+# 2026-09-21: the loaders now live in scripts/shared/cluster_exclusions.py,
+# shared with refresh_partner_workbooks_daily.py - which never got this
+# section's fix and re-leaked 265 excluded clusters onto partners' to-do
+# lists that evening. Imported under the old local names so nothing below
+# changes. Never re-copy them back into this file.
+from cluster_exclusions import (  # noqa: E402
+    CLUSTER_ACCESSIBILITY_OVERLAY_EXCLUDED,
+    TARGET_CORRECTION_DROPPED_CLUSTERS,
+    cluster_overlay_excluded as _cluster_overlay_excluded,
+    exclusions_summary,
+)
+print(exclusions_summary())
 # Moved 2026-08-06 by the user from "6. Outputs\partner_dc_files" - same
 # per-partner folder structure, new parent location.
 OUT_ROOT = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\3. External coordination\NGA MSNA 2026 Package"
@@ -1899,78 +1893,24 @@ print(f"Per-partner summary workbooks written: {len(partner_meta_rows)}")
 # independent achieved/still-needed lifecycle of its own, not part of the
 # core "is this still outstanding" identity this check reconciles.
 # ---------------------------------------------------------------------------
-_PLACEMARK_NAME_RE = re.compile(r"<Placemark\b[^>]*>\s*<name>(.*?)</name>", re.DOTALL)
-
-
-def _extract_kml_names(path):
-    if not os.path.exists(path):
-        return set()
-    with open(path, encoding="utf-8") as f:
-        content = f.read()
-    from xml.sax.saxutils import unescape
-    return {unescape(n) for n in _PLACEMARK_NAME_RE.findall(content)}
-
-
-def _extract_workbook_active_ids(xlsx_path):
-    """(non_idp_survey_ids, idp_cluster_ids) that the just-written 'Sampling
-    Points' sheet currently marks Not started/Partial - i.e. still
-    outstanding, the population that should exactly match the corresponding
-    KML files."""
-    if not os.path.exists(xlsx_path):
-        return set(), set()
-    wb = openpyxl.load_workbook(xlsx_path, read_only=True, data_only=True)
-    try:
-        if "Sampling Points" not in wb.sheetnames:
-            return set(), set()
-        ws = wb["Sampling Points"]
-        rows_iter = ws.iter_rows(values_only=True)
-        header = next(rows_iter, None)
-        if header is None:
-            return set(), set()
-        idx = {h: i for i, h in enumerate(header) if h is not None}
-        needed = ("Point Type", "Cluster ID", "Survey ID", "Collection Status")
-        if not all(h in idx for h in needed):
-            return set(), set()
-        non_idp_ids, idp_ids = set(), set()
-        for row in rows_iter:
-            if row[idx["Collection Status"]] not in ("Not started", "Partial"):
-                continue
-            point_type = row[idx["Point Type"]] or ""
-            if point_type.startswith("Non-IDP household"):
-                sid = row[idx["Survey ID"]]
-                if sid:
-                    non_idp_ids.add(sid)
-            elif point_type.startswith("IDP cluster"):
-                cid = row[idx["Cluster ID"]]
-                if cid:
-                    idp_ids.add(cid)
-        return non_idp_ids, idp_ids
-    finally:
-        wb.close()
-
+# 2026-09-21: the read-back helpers (KML placemark names; a written
+# workbook's still-outstanding ids; the per-partner KML walk that skips
+# MSNA_Light and in-place _archive/ backups - the latter found 2026-09-19
+# when FACT's own _archive/2026-09-13_pre_msna_light_sampling_method_fix/
+# produced false positives) moved verbatim into
+# scripts/shared/cluster_exclusions.py, so the daily tier's map check reads
+# files exactly the way this check does.
+from cluster_exclusions import (  # noqa: E402
+    extract_workbook_active_ids as _extract_workbook_active_ids,
+    kml_active_ids_for_partner,
+)
 
 reconciliation_findings = []
 _checked_partner_dirs = sorted(partner_folders - failed_workbook_dirs)
 for _p_dir in _checked_partner_dirs:
     partner_root = os.path.join(OUT_ROOT, _p_dir)
     xlsx_path = os.path.join(partner_root, f"{_p_dir}_sampling_points_summary.xlsx")
-    kml_non_idp_ids, kml_idp_ids = set(), set()
-    for dirpath, _dirnames, files in os.walk(partner_root):
-        norm_dirpath = dirpath.replace("\\", "/")
-        if "/MSNA_Light" in norm_dirpath:
-            continue
-        # 2026-09-19: skip any in-place _archive/ subfolder (e.g. FACT's own
-        # `_archive/2026-09-13_pre_msna_light_sampling_method_fix/`, found
-        # while first running this check - a historical backup taken inside
-        # the live delivered folder, not something a field team would ever
-        # load; a false-positive source, not a real mismatch, if walked).
-        if "/_archive" in norm_dirpath:
-            continue
-        for fn in files:
-            if fn in ("non_idp_households_primary.kml", "non_idp_households_reserve.kml"):
-                kml_non_idp_ids |= _extract_kml_names(os.path.join(dirpath, fn))
-            elif fn == "idp_clusters_primary.kml":
-                kml_idp_ids |= _extract_kml_names(os.path.join(dirpath, fn))
+    kml_non_idp_ids, kml_idp_ids = kml_active_ids_for_partner(partner_root)
 
     wb_non_idp_ids, wb_idp_ids = _extract_workbook_active_ids(xlsx_path)
 

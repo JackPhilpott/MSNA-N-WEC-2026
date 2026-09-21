@@ -63,6 +63,19 @@ PROJECT_DIR_FOR_SHARED = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. 
 sys.path.insert(0, PROJECT_DIR_FOR_SHARED + r"\scripts\shared")
 from assert_plausible import assert_plausible  # noqa: E402
 from dominant_ward import dominant_ward_key  # noqa: E402
+# 2026-09-21: the to-do-list exclusion rule, shared with
+# build_partner_dc_packages.py. This script never received that script's
+# 2026-09-19 exclusion fix, and its rebuild of all 19 workbooks on
+# 2026-09-21 17:27-17:38 put 201 clusters partners had reported
+# inaccessible, plus 64 dropped as excess, back on their "Available to
+# Collect" sheets. See scripts/shared/cluster_exclusions.py's header.
+from cluster_exclusions import (  # noqa: E402
+    cluster_overlay_excluded,
+    exclusions_summary,
+    extract_workbook_active_ids,
+    kml_active_ids_for_partner,
+)
+print(exclusions_summary())
 
 PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling"
 STRATA_CSV = PROJECT_DIR + r"\_archive\2026-08-06_design_frame_post_nw_targeted_resample\strata_level_sampling_frame.csv"
@@ -296,6 +309,11 @@ def _row_effectively_inaccessible(r):
         return True
     if not _ward_accessible(r):
         return True
+    # 2026-09-21: partner-reported-inaccessible or dropped-as-excess cluster
+    # (scripts/shared/cluster_exclusions.py) - same position in the order as
+    # build_partner_dc_packages.py's identical function.
+    if cluster_overlay_excluded(r["cluster_id"]):
+        return True
     if r["pop_type"] == "non_idp":
         return _cluster_below_accessible_threshold(r["cluster_id"])
     return False
@@ -309,6 +327,18 @@ _n_unmatched_wrongly_accessible = sum(
 )
 assert_plausible("unmatched-ward rows NOT flagged effectively-inaccessible", _n_unmatched_wrongly_accessible, (0, 0),
                   context="a blank/NA ward_accessible_status must always be treated as inaccessible - regression of the 2026-09-08 _ward_accessible() fix")
+
+# 2026-09-21 pre-flight (Jack: block a leak before ANY workbook is written):
+# every in-scope row of an overlay-excluded cluster must come back
+# effectively inaccessible. Runs before anything is computed per partner, so
+# a regression of the exclusion rule stops the whole run with nothing written.
+_n_excluded_wrongly_active = sum(
+    1 for r in frame_rows_full
+    if cluster_overlay_excluded(r["cluster_id"]) and not _row_effectively_inaccessible(r)
+)
+assert_plausible("rows of partner-reported-inaccessible / dropped clusters NOT treated as inaccessible",
+                  _n_excluded_wrongly_active, (0, 0),
+                  context="the cluster_exclusions.py overlay rule must apply to every row - see the 2026-09-21 daily-tier leak")
 
 # ---------------------------------------------------------------------------
 # 3e. target_sample / target_sample_representativity per stratum (2026-09-16,
@@ -530,7 +560,11 @@ def non_idp_cluster_summary_rows(state_name, lga_name, primary_rows, reserve_row
         # 2026-09-08: also exclude population-threshold-excluded-stratum rows
         # here directly - see build_partner_dc_packages.py's identical note.
         accessible_primary = [pr for pr in g["primary"] if _ward_accessible(pr) and not _population_threshold_excluded_stratum_row(pr)]
-        cluster_inaccessible = len(accessible_primary) < NON_IDP_MIN_ACCESSIBLE_PRIMARY_HH
+        # 2026-09-21: overlay exclusion added (was missing - see the import
+        # note at the top of this file). This Cluster Summary check is a
+        # separate code path from _row_effectively_inaccessible(), so it
+        # needs the rule too, exactly as build_partner_dc_packages.py has it.
+        cluster_inaccessible = len(accessible_primary) < NON_IDP_MIN_ACCESSIBLE_PRIMARY_HH or cluster_overlay_excluded(cluster_id)
         target = 0 if cluster_inaccessible else len(accessible_primary)
         nominal_target = len(g["primary"])
         # 2026-09-21: uncapped, same change as build_partner_dc_packages.py.
@@ -731,6 +765,24 @@ def build_strata_summary_table(cluster_rows, partner_name):
     return out
 
 
+# The "Available to Collect" sheet's row selection: still outstanding
+# (Collection Status not Complete/Inaccessible), primaries only - Non-IDP
+# reserve households and IDP Tier 2 backup points are conditional,
+# only-if-a-primary-fails backups, not independent targets (2026-09-08; see
+# build_partner_dc_packages.py's equivalent block). One function, called by
+# both write_partner_workbook() and the section-8 pre-write guard, so the
+# guard always checks exactly what the partner's to-do sheet will contain.
+NEEDS_COLLECTING_EXCLUDED_TYPES = {"Non-IDP household (reserve)", "IDP Tier 2 backup point"}
+
+
+def available_to_collect_rows(meta_rows):
+    return [
+        row for row in meta_rows
+        if row.get("Collection Status", "") not in ("Complete", "Inaccessible")
+        and row.get("Point Type") not in NEEDS_COLLECTING_EXCLUDED_TYPES
+    ]
+
+
 def write_partner_workbook(partner_dir_path, partner_name, meta_rows, cluster_rows=None):
     if not meta_rows:
         return
@@ -924,12 +976,10 @@ def write_partner_workbook(partner_dir_path, partner_name, meta_rows, cluster_ro
     # reasoning (this sheet is framed as a straight to-do list; reserves/
     # Tier 2 are conditional-only-if-primary-fails backups, not independent
     # targets, and including them risked reading as "collect these too").
-    NEEDS_COLLECTING_EXCLUDED_TYPES = {"Non-IDP household (reserve)", "IDP Tier 2 backup point"}
-    needs_rows = [
-        row for row in meta_rows
-        if row.get("Collection Status", "") not in ("Complete", "Inaccessible")
-        and row.get("Point Type") not in NEEDS_COLLECTING_EXCLUDED_TYPES
-    ]
+    # 2026-09-21: selection lifted into available_to_collect_rows() (module
+    # level, above this function) so the pre-write guard in section 8 tests
+    # exactly the rows this sheet gets - no second copy of the filter.
+    needs_rows = available_to_collect_rows(meta_rows)
     ws_needs = wb_out.create_sheet("Available to Collect")
     ws_needs.append(METADATA_COLUMNS)
     for cell in ws_needs[1]:
@@ -1062,6 +1112,28 @@ for pcode, partners in partners_by_pcode.items():
 # ---------------------------------------------------------------------------
 # 8. One summary Excel workbook per partner, at the partner's root folder
 # ---------------------------------------------------------------------------
+# ---- 2026-09-21 pre-write guard (Jack: block a leak, write NOTHING) ----
+# Every partner's rows are already built in memory above, so check all 19
+# "Available to Collect" selections BEFORE writing any file. If any
+# partner-reported-inaccessible or dropped cluster would land on a to-do
+# list, stop here: a bad list never ships, and no partner is left
+# half-updated. The row-level pre-flight after section 3d should already
+# make this impossible; this checks the actual output rows, so it also
+# catches any future code path that bypasses _row_effectively_inaccessible().
+_leaks = []
+for (partner_dir, partner_name), meta_rows in partner_meta_rows.items():
+    for row in available_to_collect_rows(meta_rows):
+        if cluster_overlay_excluded(row.get("Cluster ID", "")):
+            _leaks.append((partner_name, row.get("Cluster ID"), row.get("Survey ID") or ""))
+if _leaks:
+    _by_partner = Counter(p for p, _, _ in _leaks)
+    print("\nSTOPPED BEFORE WRITING ANY WORKBOOK: "
+          f"{len(_leaks)} to-do row(s) belong to clusters that are partner-reported inaccessible or "
+          f"dropped as excess capacity. By partner: {dict(_by_partner)}. First few: {_leaks[:10]}")
+    raise SystemExit("refresh_partner_workbooks_daily.py: exclusion leak - nothing written. "
+                     "See scripts/shared/cluster_exclusions.py.")
+print("Pre-write guard: no partner-reported-inaccessible or dropped cluster on any 'Available to Collect' list.")
+
 failed_workbooks = []
 for (partner_dir, partner_name), meta_rows in partner_meta_rows.items():
     meta_rows.sort(key=lambda r: (r["State"], r["LGA"], r["Point Type"], r.get("Cluster ID", ""), r.get("Survey ID", "")))
@@ -1075,6 +1147,55 @@ for (partner_dir, partner_name), meta_rows in partner_meta_rows.items():
 
 if failed_workbooks:
     print(f"\n{len(failed_workbooks)} workbook(s) skipped due to file locks - close the file(s) and rerun to update: {failed_workbooks}")
+
+# ---- 2026-09-21 map check (Jack: WARN, don't block) ----
+# The daily tier never rewrites KML - the maps change only on a full
+# build_partner_dc_packages.py run - so maps legitimately lag the workbooks
+# between full rebuilds. Compares each just-written workbook's
+# still-outstanding points with the partner's live KML files, read the same
+# way the push tier's reconciliation reads them (shared helpers):
+#   workbook asks for a point the map doesn't have -> WARN: the field team
+#       is being asked to collect somewhere they have no GPS point for
+#       (e.g. a deletion confirmed since the last full rebuild re-opened a
+#       point). Fix: run build_partner_dc_packages.py.
+#   map shows a point the workbook calls done -> INFO: collected since the
+#       last full rebuild. Normal; clears at the next full rebuild.
+# MAP_CHECK_PACKAGE_ROOT is where the KML files live - the same tree
+# OUT_ROOT writes to in normal use.
+MAP_CHECK_PACKAGE_ROOT = OUT_ROOT
+_map_rows = []
+for (partner_dir, partner_name) in partner_meta_rows:
+    if partner_name in failed_workbooks:
+        continue
+    wb_non_idp, wb_idp = extract_workbook_active_ids(
+        os.path.join(OUT_ROOT, partner_dir, f"{safe_folder_name(partner_name)}_sampling_points_summary.xlsx"))
+    kml_non_idp, kml_idp = kml_active_ids_for_partner(os.path.join(MAP_CHECK_PACKAGE_ROOT, partner_dir))
+    _map_rows.append({
+        "partner": partner_name,
+        "workbook_only_non_idp": len(wb_non_idp - kml_non_idp), "workbook_only_idp": len(wb_idp - kml_idp),
+        "map_only_non_idp": len(kml_non_idp - wb_non_idp), "map_only_idp": len(kml_idp - wb_idp),
+        "workbook_only_examples": "; ".join(sorted((wb_non_idp - kml_non_idp) | (wb_idp - kml_idp))[:10]),
+    })
+MAP_CHECK_CSV = PROJECT_DIR + r"\resampling\output\daily_refresh_map_check.csv"
+with open(MAP_CHECK_CSV, "w", encoding="utf-8-sig", newline="") as f:
+    _w = csv.DictWriter(f, fieldnames=["partner", "workbook_only_non_idp", "workbook_only_idp",
+                                       "map_only_non_idp", "map_only_idp", "workbook_only_examples"])
+    _w.writeheader()
+    _w.writerows(_map_rows)
+_wb_only = [r for r in _map_rows if r["workbook_only_non_idp"] or r["workbook_only_idp"]]
+_map_only_total = sum(r["map_only_non_idp"] + r["map_only_idp"] for r in _map_rows)
+print("\n" + "=" * 70)
+if _wb_only:
+    print(f"MAP CHECK: WARN - {len(_wb_only)} partner(s) have to-do points their KML map doesn't show. "
+          "Run build_partner_dc_packages.py so the maps catch up:")
+    for r in _wb_only:
+        print(f"  {r['partner']}: {r['workbook_only_non_idp']} Non-IDP point(s), {r['workbook_only_idp']} IDP cluster(s) "
+              f"- e.g. {r['workbook_only_examples']}")
+else:
+    print("MAP CHECK: OK - every to-do point in every workbook is on that partner's map.")
+print(f"  ({_map_only_total} point(s) still on the maps are already collected - normal between full rebuilds.)")
+print(f"  Detail: {MAP_CHECK_CSV}")
+print("=" * 70)
 
 print(f"\nPartners: {len(partner_folders)}")
 print(f"Per-partner summary workbooks refreshed: {len(partner_meta_rows)}")

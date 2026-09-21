@@ -5360,6 +5360,39 @@ clusters / 448 rows) has none, and that is now FINAL: Jack closed it
 2026-09-21 ("that team isn't using it"), so there is no pending MSNA Light
 guide design - don't reopen it. **Guides push complete.**
 
+**The daily refresher leaked excluded clusters onto partners' to-do lists -
+found, remediated and fixed the same evening (Jack's go at each step).**
+`refresh_partner_workbooks_daily.py` never received the 2026-09-19 fix that
+keeps two kinds of cluster off partner to-do lists - clusters a partner
+reported inaccessible at cluster level (`cluster_accessibility_overlay.csv`)
+and Task 5 excess-capacity drops (`target_correction_dropped_clusters.csv`).
+That fix went into `build_partner_dc_packages.py` only - the Resampling
+role's miss, the same "fixed one copy, not its sibling" failure as the
+oversampling cap. Coordinator's 17:27-17:38 daily-tier rebuild of all 19
+workbooks therefore put 201 partner-reported-inaccessible clusters
+(including ACF's relocated Tambuwal IDP sites) and 64 dropped ones on the
+"Available to Collect" sheets. Jack spotted it via
+`non_idp_NG008016_supp6` sitting on NRC's list while absent from WORKING.
+Remediated at ~19:00 (WORKING refresh, then the overlay-aware push tier: 265
+-> 0, reconciliation PASS 19/19). Then fixed (Task 1): the exclusion rule
+now lives in ONE shared module, `scripts/shared/cluster_exclusions.py`,
+imported by both generators - Jack's choice over a second copy - along with
+the KML/workbook read-back helpers both self-checks use. The daily tier got
+the rule at both of its decision points, plus Jack's chosen guard: a
+row-level pre-flight and a check of all 19 to-do selections in memory, each
+of which STOPS the run with nothing written; and a map check against the
+live KML that only WARNS (maps lag between full rebuilds by design). The
+to-do filter itself moved into one function, `available_to_collect_rows()`,
+so the guard tests exactly what the sheet gets. Verified four ways,
+entirely in scratch: the push-tier refactor is behaviour-identical to the
+last commit on live data; the fixed daily tier's to-do lists match the live
+push-built workbooks for all 19 partners (8,751 rows); breaking the rule is
+stopped by the pre-flight (5,218 rows) with 0 files written; breaking the
+rule AND the pre-flight is stopped by the pre-write guard (58 rows) with 0
+written. **The daily tier is safe to run again.** Task 5 drops themselves
+are a separate, still-open question (18 still-accessible dropped clusters
+in 10 non-Representative strata; reinstating them makes 7 Representative).
+
 **Jack's calls, afternoon of 2026-09-21** (relayed by Coordinator, and
 consistent with his direct instructions in-session): he pushes to GitHub
 himself; headline "Still needed" stays stratum-based (no reconciliation to
