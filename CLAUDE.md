@@ -5726,3 +5726,42 @@ column. 05 still labels them recoverable; building-validating the pool
 script is the lasting fix.
 Classification now: 52 short strata, 35 cannot be fixed, 17 negligible,
 none recoverable by a draw.
+
+## Update 2026-09-21h — Street Child / NRC ward-flips round (frame only; packages later)
+
+Jack: redraw for Street Child (two Madagali wards flipped in the returned
+file: Gulak -> N, Madagali -> Y) and NRC (21 Sep report,
+`partner_raw_comms/NRC/NRC_accessibility_report2109.xlsx`), "fly through to
+update the sampling frame, worry about building out the partner packages
+later". Save the Children deliberately left for later.
+
+**Steps:**
+1. NRC merged into its master (`one_off_analyses/merge_accessibility_report_updates_2026-09-21.py`,
+   imports the 09-20 merge_partner()). 0 ward answers changed; 14 Non-IDP
+   clusters blank -> N (NG008011/13/16), matching a diff taken first.
+2. `run_accessibility_refresh.py`, all 7 steps. The FULL resweep flipped 290
+   rows to Inaccessible and 112 off it, all Street Child.
+3. WORKING refresh (42,304 -> 41,995), then 05.
+4. Staged `2026-09-21_ward_flips` (`stage_ward_flips_2026-09-21.py`, seed
+   2026092105, fixed draw). Scope was widened to the morning round's own
+   rule: closeable + exceeds-pool, never no-pool. That was needed because
+   Street Child's only affected stratum is exceeds-pool.
+5. Merged (`merge_ward_flips_2026-09-21.py`): FULL 132,002 -> 132,088,
+   WORKING 41,995 -> 42,081, every new row live. Refreshed, stamped, both
+   mirrors synced, 05 rebuilt.
+
+**Result** (verdict MoE before flips -> after flips -> after draw):
+
+| Stratum | Before flips | After flips | After draw |
+|---|---|---|---|
+| Gwoza Non-IDP (NRC) | 9.48 | 11.01 | 9.93, Representative (3 clusters) |
+| Konduga Non-IDP (NRC) | 9.70 | 11.22 | 9.70, Representative (4 clusters) |
+| Jere Non-IDP (NRC) | 9.82 | 10.14 | 10.14, negligible, not drawn |
+| Madagali Non-IDP (SC) | 10.12 | 18.76 | 16.82, not recoverable (1 of 11 buildable) |
+| Madagali IDP (SC) | 11.04 | 13.43 | 13.43, no pool |
+
+National: 254 Representative (255 before the flips).
+
+**Not done (Jack: later):** partner packages for Street Child and NRC, the
+returned-report append of the 8 new clusters, guides, and a classification
+page refresh. Madagali Non-IDP and Jere are new entries for it.
