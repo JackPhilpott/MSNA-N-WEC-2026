@@ -8,7 +8,7 @@
 # (not silently decided): dropping for CAPACITY reasons (stratum needs
 # fewer clusters than it has) is a genuinely different kind of exclusion
 # from the existing 4-value completion-status taxonomy
-# (NGA_MSNA_2026_cluster_status_v11.csv, all 4 values are accessibility/
+# (NGA_MSNA_2026_cluster_status_v12.csv, all 4 values are accessibility/
 # completion-driven) - none of them mean "still accessible, still
 # incomplete, but no longer needed." Rather than force this into that
 # taxonomy or invent a 5th status value there (which would muddy a function
@@ -19,7 +19,7 @@
 # exclusion list that refresh_working_frame_daily.R additionally excludes
 # from WORKING, without touching the cluster-status function's own
 # accessibility-only semantics. Candidate pool for dropping is exactly
-# NGA_MSNA_2026_cluster_status_v11.csv's "not_started_other" status - the
+# NGA_MSNA_2026_cluster_status_v12.csv's "not_started_other" status - the
 # ONLY one of the 4 that means "currently accessible, actively assigned,
 # not yet fully done" (the other 3 are either already-excluded-for-
 # accessibility or already-permanently-completed, neither of which this
@@ -110,10 +110,10 @@ DROP_CEILING_MOE_PCT <- 9.5   # Jack, 2026-09-21 - see header; the representativ
 MOE_MATCH_TOLERANCE <- 0.02   # the representativity record rounds to 2 dp
 REPRESENTATIVITY_CSV <- "resampling/output/strata_representativity_status.csv"
 
-CLUSTER_STATUS_CSV <- "output/data/data_collection/NGA_MSNA_2026_cluster_status_v11.csv"
+CLUSTER_STATUS_CSV <- "output/data/data_collection/NGA_MSNA_2026_cluster_status_v12.csv"
 TARGET_REPR_CSV <- "resampling/output/target_sample_representativity_last_run.csv"
-STRATA_CSV <- "output/data/data_collection/NGA_MSNA_2026_strata_level_sampling_frame_v11_FULL.csv"
-HOUSEHOLD_CSV <- "output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v11_FULL.csv"
+STRATA_CSV <- "output/data/data_collection/NGA_MSNA_2026_strata_level_sampling_frame_v12_FULL.csv"
+HOUSEHOLD_CSV <- "output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v12_FULL.csv"
 OUT_CSV <- "resampling/output/target_correction_dropped_clusters.csv"
 REPORT_CSV <- "resampling/output/target_correction_drop_rule_report.csv"
 

@@ -24,10 +24,23 @@
 # ==============================================================================
 import csv
 import os
+import re
 import shutil
 
+
+def latest_frame_file(directory, template):
+    """Newest-version frame file in `directory` (top level only). Added at the
+    v11 -> v12 bump (2026-09-21): reading a frozen older WORKING here would
+    treat every cluster drawn since as out of scope and archive its guide."""
+    rx = re.compile("^" + re.escape(template).replace(r"\{\}", r"(\d+)") + "$")
+    hits = [(int(m.group(1)), f) for f in os.listdir(directory) for m in [rx.match(f)] if m]
+    if not hits:
+        raise SystemExit(f"No file matching {template} in {directory}")
+    return os.path.join(directory, max(hits)[1])
+
+
 PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling"
-STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v11_WORKING.csv"
+STAGE2_CSV = latest_frame_file(PROJECT_DIR + r"\output\data\data_collection", "NGA_MSNA_2026_stage2_sampling_frame_v{}_WORKING.csv")
 PACKAGE_ROOT = r"C:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\3. External coordination\NGA MSNA 2026 Package"
 ARCHIVE_SUBDIR_NAME = "_archived_dropped_clusters_2026-09-21"
 MANIFEST_CSV = PROJECT_DIR + r"\resampling\output\cluster_field_guide_sweep_2026-09-21\archived_stale_factsheets_manifest.csv"
@@ -38,7 +51,7 @@ working_clusters = {
     r["cluster_id"] for r in rows
     if r["status"] == "primary" and r.get("sampling_method") != "MSNA Light"
 }
-print(f"{len(working_clusters)} distinct clusters with a primary row in current v11 WORKING (excl. MSNA Light) - "
+print(f"{len(working_clusters)} distinct clusters with a primary row in current WORKING (excl. MSNA Light) - "
       f"the actual factsheet-generation scope.")
 
 cluster_guide_dirs = []

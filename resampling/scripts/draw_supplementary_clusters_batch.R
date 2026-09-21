@@ -113,7 +113,7 @@ pilot_shortfalls_raw <- read_csv(SHORTFALLS_CSV, show_col_types = FALSE)
 # immediately before spending any draw effort on it, rather than trust a
 # shortfall list's age at all.
 strata_frame_current <- read_csv(
-  "output/data/data_collection/NGA_MSNA_2026_strata_level_sampling_frame_v11_WORKING.csv",
+  "output/data/data_collection/NGA_MSNA_2026_strata_level_sampling_frame_v12_WORKING.csv",
   show_col_types = FALSE, col_types = cols(.default = "c")
 )
 still_covered_strata_ids <- strata_frame_current$strata_id  # WORKING only ever contains covered, non-excluded strata by construction
@@ -191,13 +191,13 @@ non_idp_sampling_filtered$sampling_frame <- non_idp_sampling$sampling_frame %>%
 # batch.R write fresh every run (scripts/shared/frame_status.R) - not
 # recomputed here, so this doesn't need its own copy of the achieved-lookup
 # machinery.
-CLUSTER_STATUS_CSV <- "output/data/data_collection/NGA_MSNA_2026_cluster_status_v11.csv"
+CLUSTER_STATUS_CSV <- "output/data/data_collection/NGA_MSNA_2026_cluster_status_v12.csv"
 if (file.exists(CLUSTER_STATUS_CSV)) {
   cluster_status <- read_csv(CLUSTER_STATUS_CSV, show_col_types = FALSE)
   access_compromised_clusters <- cluster_status %>%
     filter(pop_type == "non_idp", status %in% c("partially_completed_access_lost", "not_started_access_lost")) %>%
     pull(cluster_id)
-  full_for_status <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v11_FULL.csv", show_col_types = FALSE)
+  full_for_status <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v12_FULL.csv", show_col_types = FALSE)
   access_compromised_hex <- full_for_status %>%
     filter(pop_type == "non_idp", cluster_id %in% access_compromised_clusters) %>%
     mutate(uuid_hex_pop = paste0(pop_type, "_", uuid_hex)) %>%
@@ -242,7 +242,7 @@ master_ward_b2 <- read_csv("resampling/output/master_accessibility_status_ward_l
 ward_status_b2 <- setNames(master_ward_b2$`Accessible status`,
                            paste(master_ward_b2$State, master_ward_b2$LGA, master_ward_b2$`Ward (GRID3)`, sep = "|"))
 wards_proj_b2 <- sf::st_transform(nga_wards, mycrs) %>% dplyr::select(.ward_b2 = wardname)
-full_b2 <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v11_FULL.csv", show_col_types = FALSE)
+full_b2 <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v12_FULL.csv", show_col_types = FALSE)
 claimed_keys_b2 <- full_b2 %>%
   dplyr::filter(pop_type == "non_idp", !is.na(latitude), !is.na(longitude)) %>%
   dplyr::transmute(uuid_hex_pop = paste0(pop_type, "_", uuid_hex),
@@ -326,7 +326,7 @@ log_msg("Stage C: Tier 1 draw (fresh hexes only)...")
 # site is still a real, already-designed cluster, so a new draw must not be
 # allowed to land on the same hex and create a second cluster_id at the same
 # location. WORKING would silently permit exactly that collision.
-working <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v11_FULL.csv", show_col_types = FALSE)
+working <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v12_FULL.csv", show_col_types = FALSE)
 # WORKING's own export doesn't carry a plain uuid_hex_pop column (that's an
 # in-memory-only field in the main pipeline's own objects) - and its
 # original_uuid_hex_pop is a DIFFERENT, reallocation-audit field (99.3% blank

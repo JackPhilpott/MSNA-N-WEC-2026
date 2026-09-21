@@ -16,6 +16,7 @@
 # household-level primary-row count for each.
 # Usage: Rscript recompute_strata_full_certainty_sites_2026-09-21.R
 # ==============================================================================
+stop("SPENT ONE-OFF: applied once on 2026-09-21 (f8a05ab). Re-running after the v12 bump would recompute against the frozen v11. Refusing to run.")
 PROJECT_DIR <- "c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/1_sampling"
 setwd(PROJECT_DIR)
 suppressMessages({ library(dplyr); library(readr); library(tibble) })

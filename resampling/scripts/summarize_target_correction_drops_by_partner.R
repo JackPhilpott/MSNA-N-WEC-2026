@@ -11,7 +11,7 @@ setwd(PROJECT_DIR)
 suppressMessages({ library(dplyr); library(readr); library(tidyr) })
 
 drops <- read_csv("resampling/output/target_correction_dropped_clusters.csv", show_col_types = FALSE)
-strata <- read_csv("output/data/data_collection/NGA_MSNA_2026_strata_level_sampling_frame_v11_FULL.csv",
+strata <- read_csv("output/data/data_collection/NGA_MSNA_2026_strata_level_sampling_frame_v12_FULL.csv",
                     show_col_types = FALSE, col_types = cols(.default = "c")) %>%
   distinct(strata_id, adm1_name, adm2_name, partners_covering)
 

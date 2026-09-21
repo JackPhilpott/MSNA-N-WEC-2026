@@ -70,8 +70,8 @@ PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N
 # FULL keeps every designed cluster regardless of current accessibility;
 # filtered below to coverage_status=="covered" & exclusion_reason=="none"
 # so population-floor/certainty-excluded strata still don't reappear.
-STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v11_FULL.csv"
-STRATA_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v11_FULL.csv"
+STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v12_FULL.csv"
+STRATA_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v12_FULL.csv"
 LOG_CSV = PROJECT_DIR + r"\resampling\output\resampling_requests_log.csv"
 GIS_WARD_UNIVERSE_CSV = PROJECT_DIR + r"\resampling\output\gis\accessible_area_lga_ward_portions.csv"
 RETURNED_DIR = PROJECT_DIR + r"\resampling\input\accessibility_reports_returned"

@@ -78,8 +78,8 @@ SAMPLING_DIR = PROJECT_DIR + r"\1_sampling"
 # round. Filtered below to coverage_status=="covered" & exclusion_reason
 # =="none" to still exclude population-floor/certainty-excluded strata,
 # which genuinely shouldn't reappear here.
-STRATA_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v11_FULL.csv"
-HOUSEHOLD_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v11_FULL.csv"
+STRATA_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v12_FULL.csv"
+HOUSEHOLD_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v12_FULL.csv"
 # 2026-09-13 (Task 1, target-inflation-fix batch): the single source of truth
 # for "how many of this cluster's primary rows are actually accessible" -
 # written by frame_status.R's compute_cluster_status(), which applies the
@@ -88,13 +88,13 @@ HOUSEHOLD_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stag
 # which disagreed with this file for every straddling/below-threshold
 # cluster - see project memory project_resampling_target_inflation_fix_
 # 2026-09-13 for the before/after.
-CLUSTER_STATUS_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_cluster_status_v11.csv"
+CLUSTER_STATUS_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_cluster_status_v12.csv"
 # Task 4 (2026-09-13): the STOP-mode gate's own baseline - each run's
 # target_sample_representativity per stratum, compared against THIS run's.
 # Not part of the workbook itself (an .xlsx is for humans to read/annotate,
 # not a reliable round-trip source for a plausibility gate) - a small,
 # dedicated, single-purpose tracking file, same pattern as _frame_
-# version.txt/NGA_MSNA_2026_cluster_status_v11.csv elsewhere in this project.
+# version.txt/NGA_MSNA_2026_cluster_status_v12.csv elsewhere in this project.
 TARGET_REPR_LAST_RUN_CSV = SAMPLING_DIR + r"\resampling\output\target_sample_representativity_last_run.csv"
 MASTER_WARD_CSV = SAMPLING_DIR + r"\resampling\output\master_accessibility_status_ward_level.csv"
 GIS_WARD_CSV = SAMPLING_DIR + r"\resampling\output\gis\accessible_area_lga_ward_portions.csv"
@@ -156,7 +156,7 @@ TARGET_MOE_PCT = 10.0
 
 OUT_DIR = SAMPLING_DIR + r"\resampling\output"
 WORKBOOK_PATH = OUT_DIR + r"\NGA_MSNA_2026_accessibility_impact_workbook.xlsx"
-UPDATED_FRAME_CSV = OUT_DIR + r"\NGA_MSNA_2026_stage2_sampling_frame_v11_WORKING_with_accessibility.csv"
+UPDATED_FRAME_CSV = OUT_DIR + r"\NGA_MSNA_2026_stage2_sampling_frame_v12_WORKING_with_accessibility.csv"
 
 
 def _to_int(v):

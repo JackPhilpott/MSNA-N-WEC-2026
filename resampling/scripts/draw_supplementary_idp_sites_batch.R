@@ -83,7 +83,7 @@ shortfalls_idp_raw <- read_csv(SHORTFALLS_IDP_CSV, show_col_types = FALSE)
 # assert_fresh() would catch) can otherwise waste a real draw on a stratum
 # that's since left the sampling universe entirely.
 strata_frame_current_idp <- read_csv(
-  "output/data/data_collection/NGA_MSNA_2026_strata_level_sampling_frame_v11_WORKING.csv",
+  "output/data/data_collection/NGA_MSNA_2026_strata_level_sampling_frame_v12_WORKING.csv",
   show_col_types = FALSE, col_types = cols(.default = "c")
 )
 still_covered_strata_ids_idp <- strata_frame_current_idp$strata_id
@@ -110,7 +110,7 @@ log_msg("%d stratum/strata in shortfalls, %d total households needed.", nrow(sho
 # uses the same site-identity logic as select_stage2_idp_sites()'s own
 # 30m dedup radius - a live cluster's GPS point within 30m of a candidate
 # site is the same physical site already fielded.
-full <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v11_FULL.csv", show_col_types = FALSE, col_types = cols(.default = "c")) %>%
+full <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v12_FULL.csv", show_col_types = FALSE, col_types = cols(.default = "c")) %>%
   filter(pop_type == "idp") %>%
   mutate(latitude = as.numeric(latitude), longitude = as.numeric(longitude)) %>%
   distinct(cluster_id, latitude, longitude)

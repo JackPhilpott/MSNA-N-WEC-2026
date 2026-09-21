@@ -100,7 +100,7 @@ mycrs <- 31028
 # keep excluded strata visible) - a stratum we've already permanently
 # dropped shouldn't show a "remaining pool" at all, since RESAMPLING_
 # DECISION_RULES.md says never draw there again regardless.
-WORKING_CSV <- "output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v11_FULL.csv"
+WORKING_CSV <- "output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v12_FULL.csv"
 ACCESSIBLE_HEX_RDS <- "input_data/boundaries/nga_hexagons/accessible_hex.rds"
 WARD_LAYER_SHP <- "resampling/output/gis/accessible_area_lga_ward_portions.shp"
 # 2026-09-21: the IDP pool is now counted from the SAME curated site-level

@@ -53,7 +53,7 @@ from collections import defaultdict
 import openpyxl
 
 PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling"
-STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v11_WORKING.csv"
+STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v12_WORKING.csv"
 RETURNED_DIR = PROJECT_DIR + r"\resampling\input\accessibility_reports_returned"
 GENERATED_DIR = PROJECT_DIR + r"\resampling\input\accessibility_reports_generated"
 

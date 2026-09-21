@@ -40,6 +40,9 @@ import os
 import re
 import sys
 
+sys.exit("SPENT ONE-OFF: applied once on 2026-09-21 (ab9f799). Re-running would add the interviews a second time "
+         "- or, after the v12 bump, edit the frozen v11. Refusing to run.")
+
 PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling"
 DC = os.path.join(PROJECT_DIR, "output", "data", "data_collection")
 FULL_CSV = os.path.join(DC, "NGA_MSNA_2026_stage2_sampling_frame_v11_FULL.csv")

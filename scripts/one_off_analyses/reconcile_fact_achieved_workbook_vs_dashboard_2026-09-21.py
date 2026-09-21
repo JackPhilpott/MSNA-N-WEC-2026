@@ -44,8 +44,19 @@ M2 = ROOT + r"\2_monitoring"
 SUBS_CSV = M2 + r"\data\real_submissions.csv"
 OVERLAY_CSV = M2 + r"\data\CONFIRMED_DELETIONS_OVERLAY.csv"
 PLA_CSV = M2 + r"\input_data\partner_coverage\partner_lga_assignment.csv"
-STRATA_CSV = M2 + r"\input_data\sampling_frame\NGA_MSNA_2026_strata_level_sampling_frame_v11_FULL.csv"
-FULL_CSV = S1 + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v11_FULL.csv"
+def latest_frame_file(directory, template):
+    """Newest-version frame file in `directory` (top level only). Added at the
+    v11 -> v12 bump (2026-09-21) so a rerun can't read a frozen old version."""
+    import re
+    rx = re.compile("^" + re.escape(template).replace(r"\{\}", r"(\d+)") + "$")
+    hits = [(int(m.group(1)), f) for f in os.listdir(directory) for m in [rx.match(f)] if m]
+    if not hits:
+        raise SystemExit(f"No file matching {template} in {directory}")
+    return os.path.join(directory, max(hits)[1])
+
+
+STRATA_CSV = latest_frame_file(M2 + r"\input_data\sampling_frame", "NGA_MSNA_2026_strata_level_sampling_frame_v{}_FULL.csv")
+FULL_CSV = latest_frame_file(S1 + r"\output\data\data_collection", "NGA_MSNA_2026_stage2_sampling_frame_v{}_FULL.csv")
 TREPR_CSV = S1 + r"\resampling\output\target_sample_representativity_last_run.csv"
 WB = r"C:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\3. External coordination\NGA MSNA 2026 Package\FACT\FACT_sampling_points_summary.xlsx"
 OUT_DIR = S1 + r"\resampling\output\fact_achieved_reconciliation_2026-09-21"

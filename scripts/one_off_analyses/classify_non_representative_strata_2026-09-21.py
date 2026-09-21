@@ -72,8 +72,20 @@ PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N
 DC = PROJECT_DIR + r"\output\data\data_collection"
 REPR_CSV = PROJECT_DIR + r"\resampling\output\strata_representativity_status.csv"
 IMPACT_XLSX = PROJECT_DIR + r"\resampling\output\NGA_MSNA_2026_accessibility_impact_workbook.xlsx"
-CLUSTER_STATUS_CSV = DC + r"\NGA_MSNA_2026_cluster_status_v11.csv"
-FULL_CSV = DC + r"\NGA_MSNA_2026_stage2_sampling_frame_v11_FULL.csv"
+def latest_frame_file(directory, template):
+    """Newest-version frame file in `directory` (top level only). Added at the
+    v11 -> v12 bump (2026-09-21): a frozen older version stays on disk after
+    a bump, so a hardcoded name would read stale data silently."""
+    import os
+    rx = re.compile("^" + re.escape(template).replace(r"\{\}", r"(\d+)") + "$")
+    hits = [(int(m.group(1)), f) for f in os.listdir(directory) for m in [rx.match(f)] if m]
+    if not hits:
+        raise SystemExit(f"No file matching {template} in {directory}")
+    return os.path.join(directory, max(hits)[1])
+
+
+CLUSTER_STATUS_CSV = latest_frame_file(DC, "NGA_MSNA_2026_cluster_status_v{}.csv")
+FULL_CSV = latest_frame_file(DC, "NGA_MSNA_2026_stage2_sampling_frame_v{}_FULL.csv")
 OUT_CSV = PROJECT_DIR + r"\resampling\output\non_representative_strata_2026-09-21.csv"
 
 TARGET_MOE_PCT = 10.0

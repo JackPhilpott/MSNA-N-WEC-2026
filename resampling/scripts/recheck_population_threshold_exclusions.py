@@ -54,7 +54,7 @@ PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N
 sys.path.insert(0, PROJECT_DIR + r"\scripts\shared")
 from assert_fresh import assert_fresh  # noqa: E402
 
-STRATA_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v11_FULL.csv"
+STRATA_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v12_FULL.csv"
 GIS_WARD_CSV = PROJECT_DIR + r"\resampling\output\gis\accessible_area_lga_ward_portions.csv"
 MASTER_WARD_CSV = PROJECT_DIR + r"\resampling\output\master_accessibility_status_ward_level.csv"
 OUT_CSV = PROJECT_DIR + rf"\resampling\output\population_threshold_recheck_{date.today().isoformat()}.csv"

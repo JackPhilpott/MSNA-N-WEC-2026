@@ -29,10 +29,26 @@ import openpyxl
 
 PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling"
 WORKBOOK = os.path.join(PROJECT_DIR, r"resampling\output\NGA_MSNA_2026_accessibility_impact_workbook.xlsx")
-STRATA_FULL = os.path.join(PROJECT_DIR, r"output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v11_FULL.csv")
-CLUSTER_STATUS = os.path.join(PROJECT_DIR, r"output\data\data_collection\NGA_MSNA_2026_cluster_status_v11.csv")
-FULL_FRAME = os.path.join(PROJECT_DIR, r"output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v11_FULL.csv")
+DC_DIR = os.path.join(PROJECT_DIR, r"output\data\data_collection")
 TARGET_MOE_PCT = 10.0
+
+
+def latest_frame_file(directory, template):
+    """Newest-version frame file in `directory` (top level only), e.g.
+    template "NGA_MSNA_2026_cluster_status_v{}.csv". Added at the v11 -> v12
+    bump (2026-09-21): after a bump the old version still exists on disk
+    (frozen), so a hardcoded name reads stale data silently instead of
+    failing - this helper is what every round's pre-merge check relies on."""
+    rx = re.compile("^" + re.escape(template).replace(r"\{\}", r"(\d+)") + "$")
+    hits = [(int(m.group(1)), f) for f in os.listdir(directory) for m in [rx.match(f)] if m]
+    if not hits:
+        raise SystemExit(f"No file matching {template} in {directory}")
+    return os.path.join(directory, max(hits)[1])
+
+
+STRATA_FULL = latest_frame_file(DC_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v{}_FULL.csv")
+CLUSTER_STATUS = latest_frame_file(DC_DIR, "NGA_MSNA_2026_cluster_status_v{}.csv")
+FULL_FRAME = latest_frame_file(DC_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v{}_FULL.csv")
 
 
 def realized_moe_unequal(achieved, N_hh, sizes, ICC=0.06, Z=1.6448536269514722, p=0.5):
