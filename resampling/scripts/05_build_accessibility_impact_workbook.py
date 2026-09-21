@@ -346,6 +346,42 @@ def realized_moe_certainty_aware(clusters, N_hh, m_used, pop_type, ICC=0.06, Z=1
     return Z * math.sqrt(var) * 100
 
 
+def certainty_site_topup_needed(clusters, N_hh, m_used, pop_type, target_moe_pct):
+    """2026-09-21 (Jack, Task 3 review - route accepted): the smallest number
+    of extra interviews at ONE existing certainty site that brings the
+    certainty-PSU-aware MoE to <= target_moe_pct, everything else held.
+    Returns (k, cluster) or None.
+
+    A certainty site is its own stratum under realized_moe_certainty_aware(),
+    so extra interviews there cut its SRS term directly, with no cluster
+    penalty. The Feasibility search below only projects NEW pool clusters
+    under the rigorous formula, which can't move a certainty verdict - it
+    labelled Mobbar/Dan Musa/Safana/Kafur IDP "NOT recoverable" when +29/+2/
+    +5/+1 interviews at their biggest site would each reach 10%. Only sites
+    already treated as certainty units qualify (n_i >= the same floor of 3),
+    and only ones still ACCESSIBLE (n_primary_accessible > 0): the first
+    version of this search picked Kafur's Arewaci site, which is
+    partially_completed_access_lost - its completed interviews still count
+    in the ceiling, but nobody can go back. k is bounded by the site's own
+    headroom (N_i - n_i)."""
+    best = None
+    for c in clusters:
+        if not (c.get("is_certainty") and c.get("households_in_cluster") and c["n_primary_ceiling_contribution"] >= 3
+                and c["n_primary_accessible"] > 0):
+            continue
+        headroom = int(c["households_in_cluster"] - c["n_primary_ceiling_contribution"])
+        for k in range(1, headroom + 1):
+            if best is not None and k >= best[0]:
+                break
+            trial = [dict(x, n_primary_ceiling_contribution=x["n_primary_ceiling_contribution"] + k) if x is c else x
+                     for x in clusters]
+            moe = realized_moe_certainty_aware(trial, N_hh, m_used, pop_type)
+            if moe is not None and moe <= target_moe_pct:
+                best = (k, c)
+                break
+    return best
+
+
 def sample_needed_for_moe(target_moe_pct, N_hh, m, ICC=0.06, Z=1.6448536269514722, p=0.5):
     """Inverts realized_moe() - the achieved_sample needed to hit
     target_moe_pct against a population of N_hh, keeping m fixed (per the
@@ -732,6 +768,7 @@ def build_cluster_level(household_rows, provenance_lookup, cluster_status_lookup
             # cluster's own household universe (DTM site households for IDP,
             # building count for a Non-IDP hex).
             "households_in_cluster": _to_int(any_row.get("households_in_cluster")),
+            "site_name": any_row.get("iom_site_name") or "",
             "selection_count": _to_int(any_row.get("selection_count")) or 1,
             "is_certainty": (_to_int(any_row.get("selection_count")) or 1) > 1,
             "any_accessible": n_primary_accessible > 0,
@@ -1154,6 +1191,21 @@ def main():
                 else:
                     feasibility = "Closeable with a modest top-up"
 
+                # 2026-09-21 (Jack, Task 3 review): a certainty stratum the
+                # new-cluster search can't close may still close with extra
+                # interviews at one of its certainty sites - see
+                # certainty_site_topup_needed(). additional_clusters_needed
+                # goes to 0 because this route adds no clusters (and keeps
+                # these strata out of extract_partner_shortfalls.R's
+                # cluster-draw requests); the interview count is in the label.
+                if certainty_applied and feasibility.startswith("Not closeable"):
+                    topup = certainty_site_topup_needed(clusters, N_hh_accessible, m_used, pop_type, TARGET_MOE_PCT)
+                    if topup is not None:
+                        k, site = topup
+                        where = f"{site['site_name']}, {site['cluster_id']}" if site["site_name"] else site["cluster_id"]
+                        feasibility = f"Closeable via extra interviews at a certainty site (+{k} at {where})"
+                        additional_clusters_needed = 0
+
         summary_rows.append({
             "State": s["adm1_name"], "LGA": s["adm2_name"], "Pop type": "Non-IDP" if pop_type == "non_idp" else "IDP",
             "Strata ID": strata_id,
@@ -1219,10 +1271,24 @@ def main():
         # main(). "Rigorous-only verdict (reference)" below shows what this
         # would have read before the 2026-09-21 switch, for audit/comparison
         # - never itself the authoritative figure.
+        # 2026-09-21 (Jack, Task 3 review): a stratum with NO Full Design
+        # sample in the accessible area (primary ceiling 0 - e.g. Abadam
+        # Non-IDP, whose only interviews are MSNA Light, which never counts
+        # toward Full Design figures) is not computable for that reason, not
+        # because its population is small - label it as such so the record
+        # and the donor note give the same reason. Still starts with "Not
+        # computable" so every existing startswith() read keeps working.
+        not_computable_label = (
+            "Not computable (no Full Design sample in the accessible area)"
+            if primary_ceiling_accessible == 0
+            else "Not computable (accessible population too small)"
+        )
         if moe_certainty is None:
-            representativity = "Not computable (accessible population too small)"
+            representativity = not_computable_label
         elif moe_certainty <= TARGET_MOE_PCT:
             representativity = "Representative (<= 10% MoE at full completion)"
+        elif feasibility.startswith("Closeable via extra interviews at a certainty site"):
+            representativity = "Indicative now - RECOVERABLE via extra interviews at a certainty site"
         elif feasibility.startswith("Closeable"):
             representativity = "Indicative now - RECOVERABLE via supplementary draw"
         elif feasibility.startswith("Not closeable"):
@@ -1230,7 +1296,7 @@ def main():
         else:
             representativity = "Indicative now - gap negligible"
         if moe_updated is None:
-            representativity_rigorous_only = "Not computable (accessible population too small)"
+            representativity_rigorous_only = not_computable_label
         elif moe_updated <= TARGET_MOE_PCT:
             representativity_rigorous_only = "Representative (<= 10% MoE at full completion)"
         else:
@@ -1546,6 +1612,15 @@ README_SECTIONS = [
         "more (m/2 households) bring this stratum's realized MoE to <=10%? If so, the shortfall is smaller "
         "than cluster granularity can usefully close - skip the draw rather than round up to a whole new "
         "6-household cluster for a 1-3 household gap.",
+        "'Closeable via extra interviews at a certainty site (+k at <site>)' (2026-09-21, Jack's decision): "
+        "only for certainty-treated IDP strata that the new-cluster search can't close. A certainty site is "
+        "its own stratum under the verdict formula, so k more interviews at that one existing site, "
+        "everything else held, bring the MoE to <=10%. Additional clusters needed reads 0 for these, "
+        "because the route adds interviews, not clusters. Verdict: 'RECOVERABLE via extra interviews at a "
+        "certainty site'.",
+        "'Not computable (no Full Design sample in the accessible area)' (2026-09-21): the stratum's "
+        "Full Design achievable ceiling is 0 - e.g. its only interviews are MSNA Light, which never count "
+        "toward Full Design figures. Distinct from 'accessible population too small'.",
         "A standing STOP-mode check runs every time this script runs: a stratum's target_sample_"
         "representativity must never increase from the previous run UNLESS that stratum's own accessible "
         "population (N_hh_accessible) increased too (see target_sample_representativity_last_run.csv, which "

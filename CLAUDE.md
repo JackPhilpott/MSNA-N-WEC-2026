@@ -5500,3 +5500,68 @@ fixes, both draw-artefact fixes. Deliberately NOT staged: the ~4.7MB of
 `_archive/` xlsx safety copies and one `.bak`, which this repo has never
 tracked (verified against `git ls-files`, not assumed). Not pushed - Jack
 asked to commit only; master is ahead 2.
+
+## Update 2026-09-21d — Task 3: the 65 non-representative strata classified; certainty-site route and a "no Full Design sample" label added to 05
+
+**The classification** (Jack's scope: all non-representative strata, draws
+decided separately, review table first). The script is
+`scripts/one_off_analyses/classify_non_representative_strata_2026-09-21.py`
+and it writes `resampling/output/non_representative_strata_2026-09-21.csv`.
+The review page (private artifact) has its HTML source next to the CSV.
+
+Each stratum gets two answers from fixed rules:
+- **Why it's short.** The rigorous-MoE excess over 10% is split into an
+  unevenness part and a sample-size part. "Uneven" means 60% or more of
+  the excess, "too few interviews" 40% or less, "both" in between.
+- **Why it can't be fixed.** The first match, in this order: no Full
+  Design sample, population estimate below sample, under 50% of the
+  population accessible, no pool, pool too small.
+
+Before splitting, both MoEs are re-derived from cluster sizes and must
+reproduce the record; they did for all 65. On review Jack kept both cut
+points, and chose to report the 16 negligible strata as indicative, each
+with its exact figure.
+
+Result: 32 cannot be fixed; 33 can. Of the 33: 4 via certainty-site
+interviews, 13 via a draw (44 clusters), and 16 are negligible. Uneven
+cluster sizes are the main reason in 38 of the 65.
+
+**05 changes (Jack's direct approval; rebuilt 21:14 on the same inputs as
+the 20:17 build; exactly 5 of 307 strata changed, Representative unchanged
+at 242):**
+- `certainty_site_topup_needed()` is new. A certainty stratum that the
+  new-cluster search can't close now reads "Closeable via extra interviews
+  at a certainty site (+k at <site>)", with Additional clusters needed = 0,
+  so `extract_partner_shortfalls.R` never requests a cluster draw for it.
+  Its verdict reads "RECOVERABLE via extra interviews at a certainty site".
+  This covers Mobbar +29 (Gsss Camp Damasak), Dan Musa +2, Safana +5 and
+  Kafur +1. The reason: the draw search projects new clusters on the
+  rigorous formula, which can't move a certainty verdict.
+  **My own bug, caught before use:** the first version could pick a
+  certainty site that had lost access (Kafur's Arewaci,
+  partially_completed_access_lost). Only accessible sites qualify now.
+- A primary ceiling of 0 now reads "Not computable (no Full Design sample
+  in the accessible area)" (Abadam Non-IDP, whose only interviews are MSNA
+  Light). It still starts with "Not computable". No reader anywhere
+  matches the label text; checked 2_monitoring, validity_checks and the
+  package generators.
+
+**Binji IDP** was traced by Monitoring (Jack's instruction). 84 of the 121
+interviews at Makarantar Boko (97 DTM households) are GPS outliers, 39 are
+already flagged duplicates, and nothing leaked in from a sibling cluster.
+The verdict swings on duplicate cleanup: 106 or more interviews left =
+not computable, 90 = 9.1%, 82 = 11.2%. Its accessible N_hh (112) is also
+below the DTM count of its own accessible sites (97 + 52). Held out of the
+donor wording. Jack declined the deeper dig into the GPS-outlier matching
+("not right now").
+
+**Why the 13 draw-recoverable strata are still short after the morning's
+round** (from the round's staging files):
+- 12 of them were drawn for. Nganzai was not, because it only became
+  non-representative with tonight's MSNA Light fix.
+- 16 of their newly drawn clusters have since become
+  not_started_access_lost.
+- The draw under-delivered where the Non-IDP pool is a hex count, not
+  building-validated: Kala/Balge asked 7, got 0; Ngala asked 8, got 1;
+  Monguno asked 6, got 2. Treat those three as doubtful in any second
+  round.
