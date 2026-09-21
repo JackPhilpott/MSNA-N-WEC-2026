@@ -5356,9 +5356,18 @@ taken first. Then `build_cluster_factsheets.py`: **2,377 built, 2,409
 copies distributed, 0 failed, 0 with no partner folder.** Verified against
 the live package folders afterwards: 2,377 of 2,377 in-scope clusters have
 a guide, 0 missing, 0 out-of-scope guides left live. MSNA Light (37
-clusters / 448 rows) still deliberately has none - the standard enumerator
-text is wrong for government enumerators; needs Jack's design input.
-**Guides push complete.**
+clusters / 448 rows) has none, and that is now FINAL: Jack closed it
+2026-09-21 ("that team isn't using it"), so there is no pending MSNA Light
+guide design - don't reopen it. **Guides push complete.**
+
+**Jack's calls, afternoon of 2026-09-21** (relayed by Coordinator, and
+consistent with his direct instructions in-session): he pushes to GitHub
+himself; headline "Still needed" stays stratum-based (no reconciliation to
+the per-cluster sum); MSNA Light guides closed; Coordinator's uncommitted
+partner-workbook work confirmed final and committed as `fa080fb`. The
+certainty-PSU-aware MoE rule was REOPENED to be resolved the same day,
+worked through by Jack directly with Coordinator, who owns the edits to
+`05_build_accessibility_impact_workbook.py` for it.
 Still broken, not part of the guides push: `scripts/methodology_maps/
 analysis_coverage_map2.R` and `_lga_zoom_inset.R` read `selected_clusters_
 v6_current.rds`, which has never existed - one-line repoint to the v11
