@@ -5639,3 +5639,17 @@ New targets and resulting to-do lists:
 these strata had < 4 accessible primaries when staged. Their households fell
 in inaccessible wards although the hex centroid was accessible. They didn't
 "lose access within a day"; they were duds from the draw.
+
+**Guides deferred (Jack, same evening: "don't work on the rendering of maps
+and factsheets yet, this is not a priority right now").** The cluster-map
+run was stopped at 900/2418. It had written 16 complete map pairs, all
+PNG-verified: tonight's clusters plus some Task 2 reinstated ones
+(idp_NG002001_supp6-8 etc.). The LGA summary maps never started, and no
+factsheets were built or distributed.
+Still owed when Jack asks:
+- the rest of build_cluster_maps_production.R (it resumes, skipping pairs
+  already rendered)
+- build_lga_summary_maps.R
+- build_cluster_factsheets.py
+- a final build_partner_dc_packages.py run to distribute the LGA maps
+The geometry rds is already rebuilt for it.
