@@ -10,6 +10,13 @@
 # closed" from the draw log.
 #
 # Usage: python project_post_draw_moe_2026-09-21.py <Partner> <staging_dir>
+# 2026-09-21 evening: repointed v10 -> v11 for the second round (the morning
+# round ran on v10; the v11 bump that followed did not sweep this file).
+# Same evening, two more fixes, both of which flattered a draw: (1) MSNA
+# Light clusters are now excluded from the "before" sizes, as 05 does since
+# 0d6e4e3 - this helper still counted them (Nganzai read 7.4, really 12.45);
+# (2) "clears" compares the UNROUNDED MoE - it rounded to 1 dp first, so
+# 10.04 printed as 10.0 and counted as cleared. MoE now prints to 2 dp.
 # ==============================================================================
 import csv
 import math
@@ -22,8 +29,9 @@ import openpyxl
 
 PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling"
 WORKBOOK = os.path.join(PROJECT_DIR, r"resampling\output\NGA_MSNA_2026_accessibility_impact_workbook.xlsx")
-STRATA_FULL = os.path.join(PROJECT_DIR, r"output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v10_FULL.csv")
-CLUSTER_STATUS = os.path.join(PROJECT_DIR, r"output\data\data_collection\NGA_MSNA_2026_cluster_status_v10.csv")
+STRATA_FULL = os.path.join(PROJECT_DIR, r"output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v11_FULL.csv")
+CLUSTER_STATUS = os.path.join(PROJECT_DIR, r"output\data\data_collection\NGA_MSNA_2026_cluster_status_v11.csv")
+FULL_FRAME = os.path.join(PROJECT_DIR, r"output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v11_FULL.csv")
 TARGET_MOE_PCT = 10.0
 
 
@@ -59,8 +67,11 @@ def main(partner, staging_dir):
             strata[r[ix["Strata ID"]]] = {"pct": r[ix["% of population remaining"]], "state": r[ix["State"]], "lga": r[ix["LGA"]],
                                           "pop": r[ix["Pop type"]], "feas": r[ix["Feasibility"]]}
 
+    msna_light = {r["cluster_id"] for r in csv.DictReader(open(FULL_FRAME, encoding="utf-8")) if r.get("sampling_method") == "MSNA Light"}
     sizes_by = defaultdict(list)
     for c in csv.DictReader(open(CLUSTER_STATUS, encoding="utf-8")):
+        if c["cluster_id"] in msna_light:
+            continue
         sid = re.sub(r"_[^_]+$", "", c["cluster_id"])
         acc, ach = int(c["n_accessible_primary_post_threshold"]), int(c["n_achieved"])
         sizes_by[sid].append(max(acc, ach) if c["status"] in ("completed", "partially_completed_access_lost") else acc)
@@ -103,14 +114,14 @@ def main(partner, staging_dir):
         base, new = sizes_by[sid], new_by.get(sid, [])
         before = realized_moe_unequal(sum(base), N, base)
         after = realized_moe_unequal(sum(base) + sum(new), N, base + new)
-        out.append((s["state"], s["lga"], s["pop"], None if before is None else round(before, 1), len(new), sum(new),
-                    None if after is None else round(after, 1), s["feas"].split(" - ")[0]))
+        out.append((s["state"], s["lga"], s["pop"], None if before is None else round(before, 2), len(new), sum(new),
+                    None if after is None else round(after, 2), s["feas"].split(" - ")[0], after))
 
-    clears = sum(1 for o in out if o[6] is not None and o[6] <= TARGET_MOE_PCT)
+    clears = sum(1 for o in out if o[8] is not None and o[8] <= TARGET_MOE_PCT)
     print(f"{partner}: {len(out)} strata drawn against; projected to clear {TARGET_MOE_PCT:.0f}% after merge: {clears}; still above: {len(out) - clears}")
     print("State | LGA | Pop | MoE before | new clusters | new HH | MoE after | category")
-    for o in sorted(out, key=lambda x: (x[6] is not None and x[6] <= TARGET_MOE_PCT, x[0], x[1])):
-        print(" | ".join(str(v) for v in o))
+    for o in sorted(out, key=lambda x: (x[8] is not None and x[8] <= TARGET_MOE_PCT, x[0], x[1])):
+        print(" | ".join(str(v) for v in o[:8]))
 
 
 if __name__ == "__main__":

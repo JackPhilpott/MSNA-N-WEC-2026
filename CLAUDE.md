@@ -5565,3 +5565,77 @@ round** (from the round's staging files):
   building-validated: Kala/Balge asked 7, got 0; Ngala asked 8, got 1;
   Monguno asked 6, got 2. Treat those three as doubtful in any second
   round.
+
+## Update 2026-09-21e — second draw round (evening) + certainty-site interviews written into the frame
+
+Jack's own word: "yes, run the draw for all" (all 13 draw-recoverable strata,
+including the 3 the morning round under-delivered on) and "don't need to
+ask, already go ahead and draw" (for the certainty-site interviews: put
+them in the frame, no separate partner request).
+
+**Staging** (`one_off_analyses/stage_second_round_2026-09-21.py`, batch
+`2026-09-21_second_round`, seed 2026092102). Scope is self-derived from
+the record ("RECOVERABLE via supplementary draw") and asserted against the
+13 strata / 44 clusters Jack approved. All 13 are Non-IDP, across 6
+partners. No hidden buffer for expected duds.
+26 clusters were drawn. The shortfalls:
+- Kala/Balge (PLAN): 0 of 7. No buildings in the accessible fringe; PLAN
+  wasn't merged.
+- Ngala: 1 of 7.
+- Nganzai: 1 of 6.
+- Monguno: 2 of 4.
+
+**The projection helper had 3 bugs, all fixed.**
+`project_post_draw_moe_2026-09-21.py`:
+1. Still pinned to the v10 files. The morning round ran on v10 and the v11
+   bump didn't sweep this file; Coordinator flagged it independently.
+2. Counted MSNA Light clusters, the same leak 05 lost in 0d6e4e3. Nganzai
+   read 7.4 when it was really 12.45.
+3. Compared the MoE after rounding to 1 dp, so 10.04 counted as cleared.
+After the fixes its "before" figures match the record exactly, and every
+"after" figure matched the rebuilt 05 to 2 dp.
+
+**Merge chain** (`one_off_analyses/merge_second_round_2026-09-21.py`):
+- Backup: `output/data/data_collection/_archive/2026-09-21_pre_second_round/`.
+- Merged CARE, CRS, FACT, INTERSOS and Street Child. Every gate passed;
+  FULL 131,618 -> 131,900.
+- Then `add_certainty_site_interviews_2026-09-21.py`: FULL -> 131,978.
+- Then the WORKING refresh: 42,280 rows / 3,394 clusters.
+
+**The certainty-site edit** makes each cluster's target = 05's ceiling + k.
+New HH/R rows are copied from HH01/R01, and reserves stay 1:1. A new
+cluster at the same site would NOT reproduce 05's model, because 05 would
+treat it as an ordinary sampled PSU. The script refuses to write unless a
+no-change round trip of FULL is byte-identical, and unless the record's
+routes equal the 4 approved.
+New targets and resulting to-do lists:
+- Mobbar supp2: 12 -> 43, 29 on the to-do list.
+- Dan Musa _12: 18 -> 20.
+- Safana supp9: 12 -> 17, 6 to do: the 5 extra plus 1 of the original 12.
+- Kafur _3: 18 -> 19, 1 to do.
+
+**05 rebuilt:** 242 -> 254 Representative, and exactly 16 strata changed.
+- Representative now: Agatu, Gwer West, Koko/Besse, Shagari, Wamako,
+  Funtua, Zurmi and Gusau, plus all 4 certainty strata (Mobbar 17.07 -> 9.93).
+- Logo: 10.04, now negligible.
+- Still recoverable on paper: Monguno 10.55, Nganzai 11.92, Ngala 12.56 and
+  Kala/Balge 13.28. The last three sit on a Non-IDP hex pool that isn't
+  building-validated.
+
+**Propagated:**
+- Frame stamped, and both 2_monitoring mirrors synced.
+- Packages rebuilt: reconciliation PASS 19/19. All 26 new clusters and the
+  4 raised targets are verified in the workbooks.
+- `selected_clusters_v11_current.rds` rebuilt: 4,923 clusters; 604 have no
+  geometry, all site-level IDP by design.
+- `append_new_clusters_to_returned_2026-09-21.py` rerun, with its own
+  pre-run backup (`*_pre_second_round_append_2026-09-21.xlsx`), since the
+  script skips its same-day backup if one exists. It added 36 rows: 25 of
+  tonight's clusters, plus 11 Task 2 reinstated clusters that had been
+  missing from partners' returned masters since the reinstatement
+  (including non_idp_NG008016_supp6).
+
+**Correction to what I told Jack:** 16 of the morning's 64 new clusters in
+these strata had < 4 accessible primaries when staged. Their households fell
+in inaccessible wards although the hex centroid was accessible. They didn't
+"lose access within a day"; they were duds from the draw.
