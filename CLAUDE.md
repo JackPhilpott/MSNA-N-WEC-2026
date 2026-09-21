@@ -4687,3 +4687,621 @@ session doubted the methodology. Confirmed directly by Jack in the
 Resampling session ("yes proceed") before implementation started.
 
 **Not done**: propagation to `2_monitoring` (unchanged from above).
+
+## Update 2026-09-19 — `build_partner_dc_packages.py` overlay-exclusion gap fixed; standing UUID-reconciliation check built and wired in; two more real bugs found and fixed along the way; a 4th, separate bug found in `frame_status.R` and flagged (not fixed)
+
+**Context.** Partners complained (IRC/NRC/FACT/Save the Children) that
+Kobo/Map.me points didn't match what was expected. Coordinator's sweep
+found `build_partner_dc_packages.py` never applied `cluster_accessibility_
+overlay.csv`/`target_correction_dropped_clusters.csv` - both already
+correctly applied to WORKING via `scripts/shared/frame_status.R`'s
+`compute_cluster_accessibility()` (see Updates 2026-09-13c/2026-09-14
+above) - plus 4 partners (FACT/INTERSOS/PLAN/Street Child of Nigeria) had
+a 2026-09-17 resample batch never re-pushed to their packages. Jack
+confirmed via AskUserQuestion: fix the overlay gap, build a permanent
+standing UUID-reconciliation check across WORKING/workbook/KML ("there
+really has to be concrete sanity/verification checks... these kind of
+mistakes really can't be happening"), then regenerate all 19 partner
+packages, in that order.
+
+**Fix 1 - the overlay gap itself.** `_row_effectively_inaccessible()` (the
+shared choke-point used for the Sampling Points sheet, Needs Collecting,
+and the IDP Cluster Summary row) now also excludes a row whose
+`cluster_id` is in either overlay file - two small loaders added
+(`CLUSTER_ACCESSIBILITY_OVERLAY_EXCLUDED`/`TARGET_CORRECTION_DROPPED_
+CLUSTERS`, missing file = no exclusions, matching the R-side loaders'
+convention). **Non-IDP's Cluster Summary sheet has its OWN separate,
+duplicate inline computation** (`cluster_inaccessible = len(accessible_
+primary) < NON_IDP_MIN_ACCESSIBLE_PRIMARY_HH`, doesn't call the shared
+function - would be circular, since the shared function's own below-
+threshold check depends on this same computation) - fixed independently
+at that second site too, not just the shared function. KML itself was
+never directly affected by this specific gap (it's WORKING-sourced, and
+WORKING already correctly excludes both overlays) - the gap was
+specifically stale/wrong rows in the FULL-sourced workbook sheets.
+
+**Fix 2 - `write_kml()` leaving a stale file untouched, found while
+verifying the overlay fix against real data.** A scoped FACT test build
+kept reporting rows the check found in a live KML file but nowhere in
+current WORKING - traced to a **15-day-stale**
+`non_idp_households_primary.kml` for Abadam (`non_idp_NG008001`, one of
+the largely-inaccessible strata) still listing survey_ids from a
+supplementary cluster long since dropped. Root cause: `write_kml()`
+returned `False` and did nothing at all when the new placemark list is
+empty - correct for the return-value semantics callers already depend on
+(`wrote_a`/etc.), but it silently left whatever file was already on disk
+from a PREVIOUS run untouched, rather than clearing it. This is almost
+certainly the actual mechanism behind Coordinator's own "regeneration
+since then hasn't fixed it" observation for FACT/NRC's KML specifically -
+a correctly-refreshed WORKING produces an empty placemark list for an
+overlay-excluded LGA, but the old code then left the OLD, pre-exclusion
+KML file sitting there for a field team to load. Fixed: now deletes the
+stale file if one exists.
+
+**Fix 3 - a fully-achieved IDP cluster's KML point never disappearing,
+found the same way.** After fixing #2, the reconciliation check still
+showed 267 IDP `kml_only` mismatches. Traced one directly:
+`idp_NG002001_1` has 6/6 primary interviews genuinely achieved (and
+correctly dropped from WORKING per `refresh_working_frame_daily.R`'s
+usual mechanism) - but its 6 RESERVE rows are untouched in WORKING, since
+IDP achieved-tracking is **count-based** (`cluster_achieved_n`), never
+tied to one specific survey_id the way Non-IDP's is. `idp_rows_by_cluster`
+(feeds both `idp_clusters_primary.kml` and the Tier 2 backup KML) only
+ever checked "does ANY row - primary or reserve - for this cluster_id
+still exist in WORKING," so a fully-achieved cluster whose reserve rows
+happen to still be present kept generating a live KML placemark sending
+field teams somewhere already 100% done. Fixed: `idp_rows_by_cluster` now
+drops any cluster whose real `cluster_achieved_n` already meets its
+nominal `target_households`, before either KML file is built - matches
+`idp_primary_metadata_row`'s own existing "Complete" status logic exactly,
+just applied at the KML/Tier2 stage too so they agree with it. National
+effect: IDP Tier 1 primary points 321 (FACT alone, first fixed build) down
+to a corrected 297 (all 19 partners, final build) - confirms this wasn't
+FACT-specific.
+
+**The standing UUID-reconciliation check itself** - new Section 9 of
+`build_partner_dc_packages.py`, runs unconditionally at the end of every
+build (not a separately-remembered script, per Jack's explicit
+requirement that this "can't be skipped or forgotten"). Re-parses the
+ACTUAL KML files and the ACTUAL just-written `.xlsx` from disk - not the
+in-memory objects that built them - so it also catches a future file-write
+failure (a locked-file skip, a partial write), not just a repeat of
+today's specific bugs. Compares, per partner: Non-IDP `survey_id` / IDP
+`cluster_id` sets in the 3 core KML files (`non_idp_households_{primary,
+reserve}.kml`, `idp_clusters_primary.kml`) against the Sampling Points
+sheet's own rows currently marked `Not started`/`Partial` (the "still
+outstanding" set both artifacts should agree on exactly, since KML is
+WORKING-sourced and WORKING only ever holds not-yet-achieved, currently-
+accessible rows). Writes `resampling/output/dc_package_uuid_
+reconciliation_report.csv`, prints a PASS/FAIL banner. Deliberately scoped
+to exclude MSNA Light (its own separate, isolated KML/sheet pair - must
+never be touched by ordinary target/achieved logic, see Update 2026-09-11)
+and IDP Tier 2 backup points (a secondary reference layer with no
+independent achieved/still-needed lifecycle of its own). **Two false-
+positive sources found and excluded while first running it**: any in-place
+`_archive/` subfolder (FACT's live root has one, 2.4GB, an
+in-place-taken backup from the 2026-09-13 MSNA Light fix - would have been
+walked and produced bogus matches against long-superseded files
+otherwise), and the ordinary WORKING-staleness case (`real_submissions.csv`
+was 13+ hours newer than WORKING at first test - refreshed WORKING first,
+per this project's own established "run `refresh_working_frame_daily.R`
+before `build_partner_dc_packages.py`" sequence, rather than treating that
+gap as a bug in the new check).
+
+**A 4th, separate, real bug found via the check - NOT fixed, flagged for
+Jack's own decision, out of today's authorized scope.** After all three
+fixes above, the check still reported 18 residual mismatches nationally
+(ACF 1, FACT 11, INTERSOS 1, IRC 2, NRC 1, Save the Children 2 - all
+`kml_only`, zero `workbook_only`). Traced to `scripts/shared/frame_
+status.R`'s `compute_cluster_accessibility()`: `below_threshold_clusters`
+is computed via `dplyr::count()` on rows that have ALREADY been filtered
+through `ward_gate()` - so a cluster with **zero** accessible primary rows
+never survives that filter at all, meaning it never appears in the count
+table, meaning it's invisible to the `< 4` threshold check (which only
+ever sees clusters that DO have 1-3 surviving accessible primaries). Any
+of that cluster's OTHER rows (typically a reserve household) whose own
+ward happens to currently be accessible then wrongly survives into
+`covered_accessible` (and therefore WORKING and KML), even though the
+whole cluster should be excluded under the exact same rule that already,
+correctly, handles the 1-3-accessible case (see Revision 2026-09-05b: "0-
+accessible clusters already worked this way; this only extends the SAME
+treatment to the 1-3-accessible case" - true for the ORIGINAL, simpler
+`_ward_accessible()`-only check, but this `count()`-based threshold
+computation reintroduced exactly the gap that quote describes as already
+closed, for the specific case where the surviving row isn't a primary).
+Quantified nationally, read-only, no code changed: **17 clusters / 24
+leaked reserve rows out of ~37k WORKING rows** (`non_idp_NG002004_14`,
+`non_idp_NG008026_7`, `non_idp_NG021003_2`, `non_idp_NG021009_7`,
+`non_idp_NG021012_supp5`, `non_idp_NG021029_supp4`, `non_idp_NG022009_1`,
+`non_idp_NG022009_8`, `non_idp_NG034011_9`, `non_idp_NG034011_15`,
+`non_idp_NG034018_11`, `non_idp_NG037005_10`, `non_idp_NG037010_supp30`,
+`non_idp_NG037013_8`, `non_idp_NG037013_supp2`, `non_idp_NG037014_7`, and
+one more). Confirmed the Python side does NOT share this bug
+(`cluster_accessible_primary_n.get(cid, 0)` on a `Counter` correctly
+defaults to 0 for a cluster with zero accessible primaries) - which is
+exactly why the workbook correctly shows all 18 residual rows as
+`Inaccessible` while WORKING/KML wrongly still include them. Not fixed
+today: `frame_status.R` is shared by `refresh_working_frame_daily.R`,
+`merge_partner_resample_batch.R`, and Task 3B's Tier-2 repeat-draw
+exclusion - a fix here would shift WORKING/strata `achieved_sample`/
+`cluster_status.csv` nationally (however slightly), well beyond what
+today's partner-package task was authorized to touch. Flagged to Jack and
+to Coordinator (`msna-n-wec-2026-54`, via `SendMessage`) for a deliberate
+decision, not silently patched mid-task.
+
+**Sequence actually run**: backed up all 19 partners' live package
+folders first (FACT alone 2.4GB/~4,000 files; the other 18 combined
+1.6GB/2,566 files) to `resampling/output/_archive_partner_package_
+backups/`. Refreshed WORKING (`refresh_working_frame_daily.R`, since
+`real_submissions.csv` had moved on 13+ hours) - 37,456 -> 36,930
+household rows, both `assert_plausible()` gates clean, the combined
+`_v8.xlsx` sampling frame workbook auto-rebuilt as its own already-wired-in
+final step. Verified each fix incrementally against a `BUILD_DC_ONLY_
+PARTNER=FACT` scoped build (FACT was the worst-affected partner) before
+running the full 19-partner regeneration. Final full run: 19/19 workbooks
+written, 0 locked-file skips, 169 LGA folders, 8,316 Non-IDP primary /
+14,075 reserve / 297 IDP Tier 1 primary / 17 IDP Tier 2 backup points.
+
+**Not done**: the `frame_status.R` fix (above, pending Jack). Whether/how
+to notify partners about corrected KML files - explicitly Jack's own call,
+not actioned. Propagation to `2_monitoring` (this update didn't touch
+anything 2_monitoring mirrors beyond what was already stale from earlier
+updates).
+
+**Addendum, same session - a related LGA-reassignment case (Dikwa),
+surfaced a second real architectural gap, fix BLOCKED pending Jack.**
+Coordinator relayed Jack's direct instruction to reassign Dikwa (Borno)
+from Street Child of Nigeria to FACT. Independently verified before acting:
+FULL's own `partners_covering` column is already 100% FACT for every Dikwa
+row (the frame-level patch is real, already live) - but `FACT/Borno/Dikwa`
+doesn't exist and `Street Child of Nigeria/Borno/Dikwa` is still live.
+Root cause: `build_partner_dc_packages.py`'s partner-to-LGA routing never
+reads the frame's `partners_covering` column at all - it independently
+re-derives assignment from `input_data/boundaries/partner_coverage/
+Partnerscoverage.xlsx` (`COVERAGE_XLSX`, same convention `analysis_
+partner_coverage.py` uses). That Excel file's Dikwa row still has the
+`Street Child of Nigeria` marker and a blank `FACT` cell - whoever patched
+`partners_covering` directly in the frame CSVs never touched this separate
+source file, so the two representations of "who covers this LGA" drifted
+apart. **Also confirmed a second real gap while investigating**: nothing
+in this script deletes a partner's LGA folder once they lose it - the
+per-LGA loop is keyed off `partners_by_pcode` (Excel-sourced); a partner
+dropped from that set for a pcode is simply never revisited, and their
+existing folder is left in place indefinitely. Same "only ever adds, never
+subtracts" shape as the `write_kml()` stale-file bug above, one level up.
+Built a permanent, READ-ONLY stale-partner/LGA-folder detector (Section
+9b, same file) that reports (never auto-deletes, given the higher stakes
+of removing a partner's whole live folder vs. one stale KML file) any
+folder on disk for a partner no longer in `partners_by_pcode` for that
+LGA - runs automatically every build, skipped when `BUILD_DC_ONLY_
+PARTNER` is set (would otherwise flag every other partner as 100% stale).
+Verified clean ("none found") against the CURRENT, unfixed state - this
+detector catches folder-vs-Excel drift, not frame-vs-Excel drift, so it
+won't retroactively flag today's Dikwa case, only prevent a NEW instance
+of this shape once the Excel source is corrected. **Blocked**: prepared
+the actual fix (backed up `Partnerscoverage.xlsx`, wrote the two-cell
+edit - clear Street Child's marker, set FACT's) but the session's own
+auto-mode classifier denied it as "Modify Shared Resources," since this
+file is a shared input read by multiple scripts project-wide. Did not
+attempt a workaround, and did not delete Street Child's stale Dikwa folder
+either (should happen only once the source fix actually lands). Flagged
+directly to Jack and to Coordinator (`msna-n-wec-2026-54`) via
+`SendMessage` - awaiting either Jack approving the specific edit or making
+it himself.
+
+**RESOLVED, same session - Jack: "go ahead and fix both of these
+issues."** Both the `frame_status.R` threshold fix and the
+`Partnerscoverage.xlsx` Dikwa edit applied, in that order, each verified
+before moving to the next:
+1. `frame_status.R`'s `below_threshold_clusters` fixed - now built from the
+   full set of primary `cluster_id`s (pre-ward-gate) left-joined against
+   the ward-gated count, with `coalesce(..., 0L)` filling in the missing-
+   group case, instead of filtering the already-incomplete count table
+   directly. Verified in isolation first (a standalone test script against
+   live FULL: 16/16 known-affected clusters now correctly captured, 0
+   leaked rows survive `covered_accessible`) before touching anything live.
+2. `refresh_working_frame_daily.R` rerun (`output/data/data_collection/`
+   backed up first) - `below_threshold_clusters` now correctly 1,100
+   clusters nationally (silently 17 short before), WORKING dropped exactly
+   18 rows / 13 clusters, `assert_plausible()` clean, combined workbook
+   auto-rebuilt.
+3. `Partnerscoverage.xlsx`'s Dikwa row edited (backed up first) - Street
+   Child of Nigeria's marker cleared, FACT's set.
+4. Full 19-partner regen rerun against both fixes together: reconciliation
+   residual dropped from 18 rows/6 partners to exactly 1 (Street Child,
+   192 non-IDP + 3 IDP `kml_only` - precisely their now-orphaned Dikwa
+   folder, confirming both fixes converged as expected, not a new problem).
+5. Street Child's stale `Borno/Dikwa` folder backed up (22 files) then
+   removed - confirmed their only remaining Borno LGA is `Monguno`.
+6. **Final regen + verification, fully clean**: `UUID RECONCILIATION:
+   PASS` (all 19 partners - KML and workbook agree exactly on every
+   outstanding point), `STALE PARTNER/LGA FOLDERS: none found`. FACT's new
+   `Borno/Dikwa` folder confirmed live (fresh KML + a 198-row Sampling
+   Points workbook entry). Nothing left open on this thread.
+
+## Update 2026-09-20/21 — CRITICAL: the Feasibility formula was silently overriding its own rigorous MoE check on 155 of 307 strata; plus four smaller bugs found and fixed the same night
+
+Jack's own framing, verbatim, so nobody reading this later softens it:
+"maybe the biggest fuck up of your scripts throughout the entire process...
+if this wasn't caught until the end then we would have truly messed up the
+whole process." The 10% MoE threshold is the AUTHORITATIVE representativity
+bar for this assessment - any stratum not meeting it on the rigorous check
+has to be actively justified to donors as indicative, which "fundamentally
+reframes the entire way in which this data will be used and its worth/
+value." Standard going forward: every stratum within threshold where
+physically/feasibly possible; where not possible, actively justified, never
+silently mislabelled.
+
+### The Feasibility bug (`05_build_accessibility_impact_workbook.py`)
+
+**How it was found**: not by any check - by Jack asking a direct question
+about two CRS IDP strata (Shagari/idp_NG034014, Wamako/idp_NG034021) whose
+"Realized MoE % (updated area)" column read 18.95%/12.39% while Feasibility
+said "Already at/under target." Tracing that single contradiction through
+the code, rather than explaining it away, surfaced the systemic bug.
+
+**The bug** (~line 847-930): `moe_updated` - `realized_moe_unequal()`, the
+rigorous Kish-DEFF-corrected calculation that accounts for real cluster-
+size unevenness - is correctly the FIRST check (`<= TARGET_MOE_PCT` ->
+"Already at/under target"). When it fails AND a half-cluster-more also
+fails (`moe_if_half_cluster_more > 10%` - i.e. the rigorous formula has
+just established a REAL gap), the code fell through to a completely
+different, cruder sizing: `additional_samples = max(0, target_repr -
+primary_ceiling_accessible)`. `target_repr` comes from `sample_needed_for_
+moe()`, which assumes UNIFORM cluster sizes (`deff = 1+(m-1)*ICC`, no cv
+term). Whenever the ceiling already covered that cruder number, `additional_
+clusters_needed` became 0 and the branch labelled the stratum "Already at/
+under target" - directly contradicting the rigorous check computed moments
+earlier in the same function. Scanned all 307 strata for `(moe_updated >
+10 AND Feasibility == "Already at/under target")`: **155**. Both pop types,
+IDP much more heavily (real DTM site sizes are population-weighted and
+naturally uneven - one dominant camp + several small sites is common -
+unlike Non-IDP's near-uniform m=6 hex draws, so the cv penalty is larger).
+
+**The fix**: the final else-branch now finds the TRUE minimum number of
+additional `m_used`-sized clusters by iterating the SAME rigorous formula
+- N=1,2,3... appended to `ceiling_cluster_sizes` so cv/deff recomputes each
+step (exactly what `moe_if_half_cluster_more` already did for the half-
+cluster case, extended into a real search), stopping at the first N that
+clears 10%. Searches to full-enumeration (`trial_ceiling >= N_hh_
+accessible`) INDEPENDENT of pool size - pool decides the feasibility
+LABEL afterward, never how many are genuinely needed, so a pool-exhausted
+stratum reports its true requirement rather than a number capped to look
+achievable. The `additional_clusters_needed == 0 -> "Already at/under
+target"` case is gone: unreachable once both rigorous checks have failed.
+`moe_updated`, `target_repr`, the half-cluster negligible-gap check and all
+three `assert_plausible()` gates are untouched (all still pass). Pre-fix
+workbook backed up as `resampling/output/NGA_MSNA_2026_accessibility_
+impact_workbook_PRE_moe_override_fix_2026-09-21.xlsx.bak`.
+
+**Verified by both sessions, not rubber-stamped** (Jack's explicit
+instruction: Coordinator checks every stage). Invariant re-scan: 0
+contradictions remain. Coordinator hand-coded `realized_moe_unequal()`
+clean-room in Python and reproduced Wamako from N=0..11 (25.16% -> 9.68%,
+first clears 10% exactly at N=11) - matches the workbook's own "11 /
+Not closeable - exceeds remaining pool" output precisely.
+
+**The corrected national picture** (workbook built AFTER both of tonight's
+refreshes - see the sequencing lesson below):
+
+| Feasibility | Buggy | Correct | Clusters |
+|---|---|---|---|
+| Already at/under target | 276 | 104 | 0 |
+| Negligible gap | 17 | 15 | 0 |
+| Closeable - modest top-up | 1 | 82 | 330 |
+| Closeable - near-full-enumeration | 1 | 34 | 204 |
+| Not closeable - exceeds remaining pool | 3 | 47 | 473 |
+| Not closeable - no remaining pool | 9 | 25 | 189 |
+
+**116 genuinely closeable strata need 534 clusters** (FACT 196, NRC 96,
+CRS 78, CARE 34, COOPI 23, INTERSOS 15, rest smaller) vs the buggy "2
+strata / 12 clusters" - ~45x understated. **72 not-closeable strata (662
+clusters they'd need, pool insufficient)** are the ones to justify to
+donors as indicative. Lead with the 534/662 split, never the combined 1196
+- it blurs exactly the feasible-vs-justify distinction that matters.
+
+**Stranded-remnant cv question - DECIDED by Jack, option (a), no code
+change.** `n_primary_ceiling_contribution` (line 566-570) counts a
+`partially_completed_access_lost` cluster's stranded n_achieved into
+`ceiling_cluster_sizes` (correct stranded-credit behaviour), so one real
+un-toppable interview can enter the Kish cv as a "cluster of size 1"
+beside a 42-HH cluster (Wamako: 22.2% -> 25.2% from that alone). Three
+options checked head-to-head, not assumed: (a) keep all in cv: 104 under
+10% | (c) drop remnants <4: 104, ZERO effect (every verdict-moving remnant
+is >=4; median remnant 4) | (b) drop all remnants: 106, but +5/-3 = net +2
+- dropping a mid-sized remnant can make the rest MORE uneven. (b) is the
+most generous but buys nothing at analysis time (design-based variance
+sees those singleton PSUs regardless), so it risks a walk-back at the
+donor-justification moment. Jack chose (a): most defensible, and the real
+leverage is the draw, not a 2-stratum formula tweak.
+
+**Sequencing lesson, worth a rule**: the "18.95%/12.39%" figures first
+quoted to Jack came from a workbook built at step 7 of `run_accessibility_
+refresh.py` BEFORE `refresh_working_frame_daily.R` then re-swept ward
+status against the night's new reports (flipping 4 of Wamako's 5 clusters
+inaccessible). The workbook wasn't rebuilt until the fix was tested, so
+those numbers - and the original 155 count - were stale relative to
+WORKING when quoted. Fix confirmed NOT the cause (cluster-level accessible
+flags diffed before/after). **Never quote an impact-workbook figure without
+confirming its build postdates the last WORKING refresh** - the two
+scripts don't chain automatically.
+
+### Four smaller bugs, same night, all fixed and verified
+
+1. **`build_cluster_accessibility_overlay.py` keyed "latest report" by
+   cluster_id alone**, not (cluster_id, ward_name). A straddling cluster
+   reported per ward-portion could have an earlier portion's "No" silently
+   overwritten by a later "Yes" for a DIFFERENT portion - violating the
+   script's own additive-only precedence rule. Fixed: latest per (cluster,
+   ward-portion), then union any-"No" across portions. Verified against
+   the real log: exactly 130 FACT clusters were missing from the overlay,
+   now included, zero removed. (Initially misread as "283 corrupted
+   duplicate rows" in FACT's master file - those are legitimate straddling-
+   cluster ward-portion rows, zero same-ward contradictions; retracted.)
+2. **Ward-universe gap** (found by Coordinator via Save the Children/
+   Bungudu): `04_build_master_accessibility_status.py` and `01_generate_
+   accessibility_reports.py` both seeded their ward universe from drawn-
+   clusters-only, so a Stage-1-eligible ward never drawn by chance was
+   invisible to partner reporting - the "actually-drawn-only" mistake
+   Update 2026-08-27b already rejected for the sibling GIS layer, never
+   carried to these consumers. Independently re-verified: 1,681 distinct
+   covered (State,LGA,Ward) portions in the GIS layer but not the FULL
+   frame. Fixed via `load_gis_ward_universe()` in both (union, not
+   replace; partners from the layer's own `covering_partners`). Master
+   status 2,314 -> 4,023 rows; Coordinator's national gap re-check: 0
+   still missing. Then appended the same zero-cluster ward rows into every
+   partner's `accessibility_reports_returned/` master file (`one_off_
+   analyses/append_gis_eligible_wards_to_returned_2026-09-20.py`, 1,636
+   rows across 18 partners, strictly additive, each flagged "Newly added
+   2026-09-20" in the Note column - "Why flagged" for FACT's differently-
+   shaped file, which has no Note column and no Table objects). Note: the
+   `accessibility_reports_generated/` folder was also regenerated purely
+   as a verification step - it has been dormant since the assessment
+   started; the returned folder is the live master record.
+3. **`run_accessibility_refresh.py` never called `build_cluster_
+   accessibility_overlay.py`** - the overlay existed since 2026-09-13c and
+   is consumed by `frame_status.R` and step 7, but was never wired into
+   the one-command refresh: the same "known-good fix, not a standing step"
+   pattern the orchestrator's own step 3 comment already documents hitting
+   once. Now step 2 of 7. Real, not hypothetical: IRC/Save the Children/
+   FACT/Street Child all returned cluster-level rows this round.
+4. **12 FACT supplementary clusters (Dandume/Zurmi/Shinkafi `_suppN`) had
+   no row at all in FACT's master returned file** - drawn after it was
+   last rebuilt. FACT's 18-Sept delta reported on them. Verified all 12
+   real and FACT-assigned in FULL, then appended with FACT's real answers
+   already filled in (`one_off_analyses/append_fact_unmatched_clusters_
+   2026-09-20.py`).
+
+### Also this night
+- Six partner reports ingested via `merge_accessibility_report_updates_
+  2026-09-20.py` (IRC, IMC, CRS, Street Child full resubmissions; FACT's
+  17-row cluster delta; Save the Children and FACT/Dikwa were already
+  placed in the returned folder directly). Ward-reporting gap closed from
+  1,610 unreported portions to 19. 2,649 FULL rows newly Inaccessible.
+- WORKING refreshed: 36,035 -> 33,170 rows, 2,975 -> 2,719 clusters, 2,574
+  stranded interviews' credit preserved. `assert_plausible()` clean.
+- A date-reading correction from Jack, now a memory rule: dates in this
+  workspace's Excel files are DAY-FIRST. A generated "Date reported"
+  column read as `2026-04-09` is 4 September (the stored serial itself
+  carries the swap - a creation-time bug, not a display one). Sanity-check
+  any extracted date against the project timeline before repeating it.
+
+### The draw round itself (2026-09-21, ~00:45-04:20) - all 18 partners merged
+
+Jack's scope: closeable + exceeds-pool strata, every partner; "no
+remaining pool" strata excluded (nothing to draw). Per-partner review of a
+before -> after rigorous-MoE projection before each merge (new review aid:
+`one_off_analyses/project_post_draw_moe_2026-09-21.py` - reads the STAMPED
+staged household rows, Accessible primaries only, <4 rule applied, after
+its first version, which used nominal drawn sizes, projected CRS at 10/15
+and the merge delivered 4/15 because 172 CRS rows were correctly held
+FULL-only). Staging dirs `resample_runs/<Partner>/2026-09-21_post_
+feasibility_fix/`, seed 20260921, unfiltered extracts kept as `*_ALL_
+unfiltered.csv`, every staged file stamped via `stamp_ward_accessible_
+status.py` before merge, frame backed up before every merge chain.
+Prerequisite that would otherwise have blocked every IDP draw: the site
+frame's `accessible_status` was 4 days stale vs the ward layer rebuilt
+that night - `refresh_idp_site_frame_accessibility.R` run first (52 sites
+newly Inaccessible).
+
+Order and outcome (rigorous verdict, post-merge): FACT 43 of 65 strata
+representative (68 Non-IDP clusters/798 rows + 182 IDP sites/2,592 rows);
+NRC 22/25 (40 + 76 clusters); CRS 4/15 (64 + 23; 7 strata left
+recoverable - a second CRS round is a real option); CARE 8/10 (12 + 15;
+Ngala both pop types stay indicative); COOPI 5/6; INTERSOS 3/4; then the
+12 small partners in one sequential chain (`one_off_analyses/merge_small_
+partners_2026-09-21.py`, ~6 s per merge): Save the Children 4/4, IRC 5/6,
+Malteser 2/2, MDM 1/1, ZOA 1/1, DRC 1/6, IMC 1/4, Street Child 1/3, ACF
+1/3, PLAN 1/4, FHI 360 0/1, Solidarités 0/1. Dual-coverage rule (Jack):
+Zuru + Tangaza (IRC, LHI) drawn once under IRC; Isa wasn't in scope; LHI
+had nothing solo. **FULL 122,511 -> 131,619; WORKING 33,170 -> 41,994 rows
+/ 3,353 clusters.** Every merge gate and every refresh plausibility check
+0. **National, rigorous, end of round: 207 representative / 12 indicative-
+recoverable / 62 indicative-not-recoverable / 26 other** - from
+104/116/72/15 when the Feasibility bug was fixed at the start of the night.
+
+**Two more real bugs found and fixed during the round:**
+- `draw_supplementary_clusters_batch.R` ~line 375 crashed when Tier 2
+  drew clusters that were ALL then dropped as fully-claimed (0-row sf
+  frame, `$.source <- "tier2"` -> "replacement has 1 row, data has 0"),
+  killing PLAN's run after Tier 1 had succeeded. Guarded with nrow() > 0.
+- `analysis_remaining_eligible_pool.R` re-read the RAW DTM files and
+  re-derived IDP candidates with its own filters, while the draw reads the
+  CURATED `idp_site_level_psu_frame_2026-09-02.rds` - two universes,
+  independently maintained. Baure (idp_NG021004): raw 12 rows -> pool said
+  4 unselected; curated frame 7, all already fielded (0 m from an existing
+  cluster) -> the draw correctly found nothing. 58 of 141 IDP LGAs
+  affected. Now reads the same frame with the draw's own Stage B rules
+  (30 m proximity vs live FULL points; accessible only if literally
+  "Accessible", NA excluded); raw-DTM reads removed; a soft staleness
+  WARNING vs the ward shapefile. National IDP pool 1,209 -> 889 before
+  the round (644 after it). Affects only the Feasibility LABEL, never the
+  MoE. (My own error, owned to Jack: first claimed the frame had ZERO Baure
+  sites - had filtered on `adm2_name` instead of `adm2_pcode`.)
+
+**Two things the round exposed that are not bugs, worth knowing:**
+- The Non-IDP "Remaining eligible pool" is a HEX count, not building-
+  validated (the README says so). Ngala N-IDP: pool 10, needed 8, the
+  building extraction found ZERO eligible footprints in any selected hex
+  (checked the draw's own cache) - 92 of 104 Ngala hexes are in
+  inaccessible wards and the accessible fringe is empty ground. Tier 2
+  repeat draws ARE allowed but Task 3B excludes access-lost clusters'
+  hexes (21 of Ngala's 28), so 7 hexes were eligible and 1 had unclaimed
+  buildings. Kala/Balge N-IDP (PLAN) and Gusau N-IDP (INTERSOS, 4 of 5
+  drawn clusters fell to inaccessible/<4) are the same shape. Recommended,
+  not built: make the Non-IDP pool building-validated - the analogue of
+  the IDP universe fix above.
+- The iterative Feasibility search assumes m_used-sized additions; real
+  PPS-weighted IDP sites are larger, so several "not closeable" strata
+  actually cleared once real sites were drawn (Toungo, Kaga, Faskari,
+  Tarmua, Hong, Logo IDP, Kokona, Nasarawa-Eggon, Wurno...). Refinement:
+  use expected site size in the search.
+
+**Certainty-PSU-aware MoE - built as a PARALLEL column, found flawed,
+NOT adopted.** Jack's question ("is Mafa indicative because the
+accessible population shrank?") had the answer no: Mafa IDP keeps 81% of
+its population accessible and every one of its 7 sites is now in the
+sample, but 98.6% of that population lives in one camp (GGSS, 6,647 hh) -
+the Kish cluster formula charges it a one-cluster penalty (14.3%) when
+the same 162 interviews as uniform 6-hh clusters would read 7.3%. A PSU
+selected with probability 1 (selection_count > 1) contributes no between-
+PSU variance, so Jack approved `realized_moe_certainty_aware()` as a
+parallel column (Strata Level, Partner Reference, the CSV: "...(certainty-
+PSU-aware, PARALLEL - not driving verdicts yet)"), Coordinator to verify
+before any verdict switches. It passes the structural test (40 strata
+with no certainty PSU equal the rigorous figure exactly; Mafa 7.35) but
+MY OWN checks found two flaws before anyone acted on it: (1) population
+inside N_hh_accessible with no sampled PSU is silently dropped - Talata
+Mafara IDP holds 1 of 6 sites (526 of 1,561 hh) and reads 3.34%, Binji
+0.0%, 7 strata < 5%, all nonsense; (2) `households_in_cluster` is a
+BUILDING count for Non-IDP hexes, not on the same scale as the ward-
+fraction N_hh_accessible or the PPS MOS, so 65 strata read WORSE than
+rigorous (Madagali N-IDP 10.1 -> 21.5) - an artefact. The printed "66
+would flip" is not to be trusted. Sound only where it was built for: IDP
+site-level, certainty sites covering ~all of N_hh_accessible. Proposed
+restriction (with Coordinator, Jack's call pending): apply only when
+pop_type is IDP AND the certainty sites' N_i sum >= ~90% of N_hh_
+accessible, else fall back to the rigorous formula. The analysis-stage
+survey design must declare the same PSUs as certainty units for the two
+to agree - that belongs with Task 2 (Jack, this week).
+
+**Not done / next** (SUPERSEDED the same night - see Update 2026-09-21b
+below: bump, propagation and packages done; guides, emails, the
+62-strata classification and coverage_summary_v2 still open).
+
+## Update 2026-09-21b — end of round: certainty rule PARKED, v10 -> v11, partner packages (KML + workbooks) regenerated, one more draw-artefact bug caught by the standing check
+
+Jack's four calls (~04:25): (1) the certainty-PSU rule stays **parked** -
+parallel column only, the rigorous formula drives every verdict; it
+"needs more verification and testing until it can be confidently
+implemented". (2) Bump v10 -> v11. (3) Partner emails are Jack's and
+Coordinator's, not this session's. (4) Regenerate all partner package
+folders - KML files + sampling-points workbooks now, cluster guides
+(factsheets / LGA maps) a later push. On his worry that the certainty
+question could change resampling need: it can't add any - every draw
+tonight was sized off the rigorous formula, and the certainty figure only
+ever reads lower where it applies, so adopting it later could only reduce
+future need.
+
+**Certainty column, final state for the record.** Restricted rule (IDP
+only; certainty sites' N_i >= 90% of N_total; if < 100%, the sampled
+remainder must have interviews) applied to 38 strata, 28 would flip to
+<= 10%; 4 read WORSE than rigorous. Row-checked, not reasoned: Wamako IDP
+= `idp_NG034021_1`, a certainty site (selection_count 3, N_i 85),
+access-lost, carrying exactly one stranded interview -> an SRS of n=1 from
+85 with W_i ~0.21, ~17pp on its own. Mobbar IDP is a genuinely different
+mechanism, worth keeping for Task 2: Gsss Camp Damasak
+(`idp_NG008023_supp2`, N_i 12,243 = ~77% of the stratum's 15,913
+accessible hh) has 14 interviews because the 2026-09-03 site-level draw
+gave it selection_count 2 / target 12 (a full systematic-PPS pass at 17
+draws would hit it ~13 times). The design is NOT self-weighting in
+Mobbar; the Kish figure (10.2%) assumes epsem and is optimistic there,
+the stratified 17.1% is closer to true - indicative either way, a
+weighting/design-declaration fact, not a resampling action.
+
+**v10 -> v11 mechanics.** Copied the 5 current files (household + strata
+FULL/WORKING, cluster_status) to v11 names, md5-verified; then restored
+the v10 names from `_archive/2026-09-21_pre_fact_merge_post_feasibility_
+fix/` so the frozen v10 = the pre-round roster (122,511 / 33,170 rows) -
+the v4 -> v5 convention, rather than the 09-17 bump's archived-v9-equals-
+v10 duplicate. 68 substitutions across 27 durable scripts, frame-filename
+patterns only (`sampling_frame_v10_`, `cluster_status_v10`,
+`_strata_v10_rows`); dated one-offs left as written;
+`resweep_full_ward_accessible_status_2026-09-07.py` repointed because the
+daily refresh calls it. Refresh against v11 reproduced all 5 files
+md5-identical (the bump is a verified no-op on content, both gates
+clean); `stamp_frame_version.R` archived the 4 v10 frame files,
+`cluster_status_v10.csv` moved by hand (outside its regex, same as
+09-17); `05` rebuilt (3 gates clean, now writes `..._v11_WORKING_with_
+accessibility.csv`); propagated to `2_monitoring/input_data/sampling_
+frame/` (v10 mirror -> `_archive_2026-09-21_pre_v11_sync/`, every copy
+md5-verified; 2_monitoring resolves the version by regex, no code change
+there); `dashboard_app/` mirror deliberately left to Monitoring, notified.
+2_monitoring has zero hardcoded `_v10_` references.
+
+**One residual `v10`, pre-existing, in the deferred guides path**:
+`build_cluster_maps_production.R` reads `output/gis/selected_clusters_
+v10_current.rds`, which has never existed - only `_v8_current.rds` does
+(the 09-17 sed renamed a reference nobody had rebuilt since 09-14), and
+`build_lga_summary_maps.R` still reads `_v6_current.rds`. Deliberately
+NOT renamed to v11 (equally nonexistent). The guides push needs a
+`build_consolidated_selected_clusters_2026-09-21.R` (v7/v8 precedents in
+`one_off_analyses/`) first.
+
+**Refresh log wording now stale, not a problem**: "157 strata still show
+achieved_sample > target_sample ... (should be a small residual)" is
+expected after this round - the Feasibility fix sizes draws by the
+rigorous MoE, which for uneven clusters needs more interviews than the
+frozen uniform-formula `target_sample`. The old [0,40] gate on this was
+retired 2026-09-14 with Jack's approval (Task 4's STOP-gate in `05`
+replaced it); nothing was silently widened.
+
+**Partner packages.** Backed up every KML + sampling-points workbook first
+(478 files, 45 MB -> `resampling/output/_archive_partner_package_backups/
+2026-09-21_pre_v11_regen/`). First full run: 169 partner/LGA folders, 19
+workbooks, 0 locked skips, 8,209 Non-IDP primary / 13,688 reserve / 698
+IDP Tier 1 / 15 Tier 2 / MSNA Light 173 + 275 - and the standing UUID
+reconciliation check **FAILED on exactly one point**: FACT
+`non_idp_NG036011_supp4_R02` in the reserve KML, "Inaccessible" in the
+workbook.
+
+**The bug behind it - a draw artefact, two gaps, both fixed.** Cluster
+`non_idp_NG036011_supp4` (Machina, Yobe) was drawn tonight by Tier 2 as a
+repeat of hex_69 (`_supp1`'s hex); exactly one unclaimed building
+remained and it was assigned as reserve rank 2 - so the cluster reached
+FULL with ONE reserve row and NO primary. (a) `draw_supplementary_
+clusters_batch.R`'s 2026-09-07 empty-candidate drop tested "zero
+households", not "zero PRIMARY households", and keyed on cluster_id alone
+BEFORE renumbering - tier1/tier2 restart their `_suppN` counters
+independently, so a tier1 `_supp3` with households can mask an empty
+tier2 `_supp3` at another hex: the likeliest mechanism for the 09-07
+orphan whose root cause "wasn't pinned down". Fixed: zero-primary test on
+`(.source, cluster_id)`, dropping the reserve rows with the cluster;
+synthetic test (tier1 `_supp3` with primaries / tier2 `_supp3`
+reserve-only / tier2 zero-row) passes. (b) `frame_status.R`'s
+`below_threshold_clusters` (the 09-19 fix) started from clusters WITH a
+primary row, so a cluster with none was never tested and its reserve row
+survived into WORKING and the KML, while the Python side
+(`Counter.get(cid, 0)`) already read it as 0 accessible - exactly the
+R-vs-Python disagreement the check exists to catch. Fixed: start from
+every Non-IDP cluster_id. Scanned FULL nationally: this is the ONLY
+primary-less cluster (WORKING's 939 reserve-only clusters are completed
+clusters keeping their reserves - expected). Refresh -> WORKING 41,993
+rows / 3,352 clusters (-1 / -1; FULL, strata and cluster_status
+md5-unchanged), changelog entry written, re-stamped, re-propagated;
+regen #2: **UUID RECONCILIATION PASS, all 19; STALE FOLDERS none**;
+reserve points 13,687. The row itself is left in FULL (a below-threshold
+cluster's rows stay FULL-only by convention) - Jack's call whether to
+delete the artefact row from FULL outright.
+
+**Final v11**: FULL 131,619 rows; WORKING 41,993 rows / 3,352 clusters;
+`_frame_version.txt` 04:42; `2_monitoring/input_data/sampling_frame/`
+identical. National rigorous verdicts unchanged: 207 representative / 12
+indicative-recoverable / 62 indicative-not-recoverable / 26 other.
+
+**Not done**: cluster guides + LGA summary maps (Jack: later push; blocked
+on the `selected_clusters` rds above); partner emails (Jack +
+Coordinator); the 62 not-recoverable strata classified by mechanism for
+the donor note; Task 2 weights, now carrying the Mobbar non-epsem finding;
+`NGA_MSNA_2026_coverage_summary_v2.csv` (Street Child for Dikwa). Nothing
+from tonight is committed to git.

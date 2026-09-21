@@ -40,8 +40,8 @@ PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N
 STATE_DIR = PROJECT_DIR + r"\output\data\data_collection"  # analysis_partner_coverage.py's own OUT_DIR
 OUT_DIR = PROJECT_DIR + r"\output\data\data_collection"
 OUT_PATH = OUT_DIR + r"\NGA_MSNA_2026_sampling_frame_workbook_v8.xlsx"
-HOUSEHOLD_FULL_CSV = STATE_DIR + r"\NGA_MSNA_2026_stage2_sampling_frame_v10_FULL.csv"
-STRATA_FULL_CSV = STATE_DIR + r"\NGA_MSNA_2026_strata_level_sampling_frame_v10_FULL.csv"
+HOUSEHOLD_FULL_CSV = STATE_DIR + r"\NGA_MSNA_2026_stage2_sampling_frame_v11_FULL.csv"
+STRATA_FULL_CSV = STATE_DIR + r"\NGA_MSNA_2026_strata_level_sampling_frame_v11_FULL.csv"
 
 with open(STATE_DIR + r"\_pipeline_state.pkl", "rb") as f:
     state = pickle.load(f)
@@ -66,7 +66,7 @@ print(f"Loaded strata-level FULL frame directly from disk: {len(strata_full_rows
 
 # WORKING row count only (for the README paragraph below) - real row count,
 # not the pickle's stale figure.
-with open(STATE_DIR + r"\NGA_MSNA_2026_stage2_sampling_frame_v10_WORKING.csv", encoding="utf-8") as f:
+with open(STATE_DIR + r"\NGA_MSNA_2026_stage2_sampling_frame_v11_WORKING.csv", encoding="utf-8") as f:
     n_working_rows = sum(1 for _ in csv.reader(f)) - 1
 
 # IDP camp backup GPS points (2026-08-02: folded in as a sheet here instead
@@ -129,7 +129,7 @@ write_sheet(
     "flagged large in-camp sites with a real delineated extent (NA elsewhere - the radius concept doesn't apply to Tier 1/"
     "host-community listing); tier2_fallback_used is FALSE for every in-camp IDP row (ready for field teams to set TRUE "
     "during data collection), NA where not applicable. Also delivered as separate FULL/WORKING CSVs alongside this "
-    "workbook for anyone who prefers CSV - see NGA_MSNA_2026_stage2_sampling_frame_v10_FULL.csv / _WORKING.csv.",
+    "workbook for anyone who prefers CSV - see NGA_MSNA_2026_stage2_sampling_frame_v11_FULL.csv / _WORKING.csv.",
     bool_cols={"certainty_stratum", "below_target_cluster", "reallocated", "supplementary_cluster", "tier2_fallback_used"},
     highlight=("coverage_status", "not_covered", RED),
 )

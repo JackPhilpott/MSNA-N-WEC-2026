@@ -62,7 +62,7 @@ from datetime import date
 
 PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling"
 SF_DIR = os.path.join(PROJECT_DIR, "output", "data", "data_collection")
-FULL_CSV = os.path.join(SF_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v10_FULL.csv")
+FULL_CSV = os.path.join(SF_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v11_FULL.csv")
 MASTER_WARD_CSV = os.path.join(PROJECT_DIR, "resampling", "output", "master_accessibility_status_ward_level.csv")
 ARCHIVE_DIR = os.path.join(SF_DIR, "_archive", f"{date.today().isoformat()}_pre_full_ward_accessible_resweep")
 

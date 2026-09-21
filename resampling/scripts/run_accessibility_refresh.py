@@ -14,8 +14,21 @@
 #
 # Order matters (each step reads the previous step's output):
 #   1. 02_ingest_accessibility_reports.py   - returned/*.xlsx -> master log
-#   2. 04_build_master_accessibility_status.py - master log -> ward/LGA status CSVs
-#   3. resweep_full_ward_accessible_status_2026-09-07.py - master ward status
+#   2. build_cluster_accessibility_overlay.py - master log -> cluster_
+#      accessibility_overlay.csv. FOUND MISSING 2026-09-20: this script has
+#      existed since 2026-09-13c (Update 2026-09-13c, 1_sampling/CLAUDE.md)
+#      and is consumed by both frame_status.R's compute_cluster_
+#      accessibility() and step 6 below, but was never actually wired into
+#      this "one-command refresh" - the exact same "known-good fix, not
+#      wired in as a standing step" pattern step 3 below already documents
+#      having hit once before (2026-09-08). Without this step, a partner's
+#      new CLUSTER-level (not ward-level) accessibility answers - real
+#      tonight, not hypothetical: IRC/Save the Children/FACT/Street Child
+#      all returned cluster-level rows this round - would sit correctly in
+#      the master log but never reach the overlay file everything downstream
+#      actually reads.
+#   3. 04_build_master_accessibility_status.py - master log -> ward/LGA status CSVs
+#   4. resweep_full_ward_accessible_status_2026-09-07.py - master ward status
 #      -> resweeps FULL's own ward_accessible_status for every EXISTING row,
 #      not just freshly-staged ones. Added 2026-09-08 (audit pass 3/4 prep) -
 #      this step existed and was individually correct, but was never wired
@@ -29,9 +42,9 @@
 #      example"). See 1_sampling/CLAUDE.md's Update 2026-09-08d for the fix
 #      itself and why its first draft's default direction had to be
 #      corrected before trusting it.
-#   4. analysis_accessible_area_layer.R     - ward status -> GIS polygon layer
-#   5. analysis_remaining_eligible_pool.R   - GIS layer -> remaining hex/site pools
-#   6. 05_build_accessibility_impact_workbook.py - everything -> the workbook
+#   5. analysis_accessible_area_layer.R     - ward status -> GIS polygon layer
+#   6. analysis_remaining_eligible_pool.R   - GIS layer -> remaining hex/site pools
+#   7. 05_build_accessibility_impact_workbook.py - everything -> the workbook
 #
 # sync_accessibility_mirrors.R deliberately NOT added here - it already
 # self-triggers via assert_fresh(mode="auto") on every read (see its own
@@ -50,6 +63,7 @@ RSCRIPT_EXE = r"C:\Users\JackPHILPOTT\AppData\Local\Programs\R\R-4.6.0\bin\Rscri
 
 STEPS = [
     ("Ingest returned partner reports into the master log", [sys.executable, "02_ingest_accessibility_reports.py"]),
+    ("Build cluster-level accessibility exclusion overlay", [sys.executable, "build_cluster_accessibility_overlay.py"]),
     ("Build master ward/LGA accessibility status", [sys.executable, "04_build_master_accessibility_status.py"]),
     ("Resweep FULL's ward_accessible_status against the refreshed master status", [sys.executable, "resweep_full_ward_accessible_status_2026-09-07.py"]),
     ("Build GIS accessible-area polygon layer", [RSCRIPT_EXE, "analysis_accessible_area_layer.R"]),

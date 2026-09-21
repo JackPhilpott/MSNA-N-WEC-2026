@@ -70,9 +70,10 @@ PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N
 # FULL keeps every designed cluster regardless of current accessibility;
 # filtered below to coverage_status=="covered" & exclusion_reason=="none"
 # so population-floor/certainty-excluded strata still don't reappear.
-STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v10_FULL.csv"
-STRATA_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v10_FULL.csv"
+STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v11_FULL.csv"
+STRATA_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v11_FULL.csv"
 LOG_CSV = PROJECT_DIR + r"\resampling\output\resampling_requests_log.csv"
+GIS_WARD_UNIVERSE_CSV = PROJECT_DIR + r"\resampling\output\gis\accessible_area_lga_ward_portions.csv"
 RETURNED_DIR = PROJECT_DIR + r"\resampling\input\accessibility_reports_returned"
 WARD_OUT_CSV = PROJECT_DIR + r"\resampling\output\master_accessibility_status_ward_level.csv"
 LGA_OUT_CSV = PROJECT_DIR + r"\resampling\output\master_accessibility_status_lga_level.csv"
@@ -82,12 +83,49 @@ def norm_pop_type(pt):
     return "Non-IDP" if pt == "non_idp" else "IDP"
 
 
+def load_gis_ward_universe():
+    """Stage-1-eligible (State, LGA, Ward) portions from the GIS accessible-
+    area layer, each carrying its own covering_partners. FIXED 2026-09-20:
+    build_universe() below used to define the ward universe as "every ward
+    with >=1 cluster actually drawn there" - a ward that's genuinely
+    eligible but never happened to get a cluster by chance (PPS is random)
+    was invisible to this table and therefore to partner reporting entirely.
+    Found by Coordinator via Save the Children/Bungudu (Damaga Gamagiwa,
+    Kurya - both real, GIS-eligible, neither ever drawn); independently
+    re-verified here before fixing, not taken on trust: 1,681 distinct
+    (State, LGA, Ward) portions with real partner coverage exist in this
+    GIS layer but not in the FULL frame's own covered universe. Same
+    "actually-drawn-only" mistake this project already corrected once for
+    the sibling GIS layer itself - see 1_sampling/CLAUDE.md's "Update
+    2026-08-27b" ("a ward that's fully eligible... is exactly the kind of
+    ward a future resample would draw from") - that fix never got carried
+    to this consumer. Returns a list of dicts with state/lga/ward/partners
+    (a set) - only rows with real partner coverage (this layer never has a
+    blank covering_partners in practice, but the check is defensive)."""
+    try:
+        with open(GIS_WARD_UNIVERSE_CSV, encoding="utf-8") as f:
+            gis_rows = list(csv.DictReader(f))
+    except FileNotFoundError:
+        return []
+    out = []
+    for r in gis_rows:
+        partners = {p.strip() for p in r["covering_partners"].split(";") if p.strip()}
+        if not partners:
+            continue
+        out.append({"state": r["adm1_name"], "lga": r["adm2_name"], "ward": r["wardname"], "partners": partners})
+    return out
+
+
 def build_universe():
     """(State, LGA, Ward) universe across every partner at once, mirroring
     01_generate_accessibility_reports.py's per-cluster ward-splitting fix
     (2026-08-21) so the same cluster-spanning->1-ward case is handled
     correctly here too - a cluster's households are split by their OWN ward,
-    never collapsed to one representative ward per cluster."""
+    never collapsed to one representative ward per cluster. Also unions in
+    every Stage-1-eligible-but-never-drawn ward from the GIS layer (fixed
+    2026-09-20 - see load_gis_ward_universe()'s docstring) as a zero-cluster
+    row, so it's visible to partner reporting even though no cluster ever
+    landed there."""
     with open(STAGE2_CSV, encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     # Exclude only never-in-scope rows (no partner ever covers this LGA) -
@@ -104,7 +142,6 @@ def build_universe():
     ward_to_lgas = defaultdict(set)
     for r in rows:
         ward_to_lgas[(r["adm1_name"], r["adm3_name"])].add(r["adm2_name"])
-    ward_to_lgas = {k: sorted(v) for k, v in ward_to_lgas.items()}
 
     cluster_rows = defaultdict(list)
     for r in rows:
@@ -140,6 +177,17 @@ def build_universe():
             else:
                 a["idp_clusters"].add(cid)
 
+    # Union in Stage-1-eligible wards that never had a cluster drawn there
+    # by chance - zero-cluster rows, still visible to partner reporting.
+    # A ward already present keeps its real cluster data; only its partner
+    # set is topped up in case the GIS layer knows about coverage the
+    # frame's own partners_covering column doesn't.
+    for g in load_gis_ward_universe():
+        key = (g["state"], g["lga"], g["ward"])
+        ward_to_lgas[(g["state"], g["ward"])].add(g["lga"])
+        agg[key]["partners"] |= g["partners"]
+
+    ward_to_lgas = {k: sorted(v) for k, v in ward_to_lgas.items()}
     return agg, ward_to_lgas
 
 

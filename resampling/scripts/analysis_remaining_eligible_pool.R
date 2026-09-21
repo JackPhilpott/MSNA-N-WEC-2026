@@ -100,12 +100,13 @@ mycrs <- 31028
 # keep excluded strata visible) - a stratum we've already permanently
 # dropped shouldn't show a "remaining pool" at all, since RESAMPLING_
 # DECISION_RULES.md says never draw there again regardless.
-WORKING_CSV <- "output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v10_FULL.csv"
+WORKING_CSV <- "output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v11_FULL.csv"
 ACCESSIBLE_HEX_RDS <- "input_data/boundaries/nga_hexagons/accessible_hex.rds"
 WARD_LAYER_SHP <- "resampling/output/gis/accessible_area_lga_ward_portions.shp"
-ADMIN2_SHP <- "input_data/boundaries/nga_admin_boundaries/nga_admin2.shp"
-IOM_NCNW_CSV <- "input_data/population/iom/IMPACT_IOM_DTM_NCNW_R18.csv"
-IOM_NE_CSV <- "input_data/population/iom/IMPACT_IOM_NGA_R51_NE.csv"
+# 2026-09-21: the IDP pool is now counted from the SAME curated site-level
+# frame draw_supplementary_idp_sites_batch.R draws from - not re-derived
+# from the raw DTM files (see the IDP section below for why).
+IDP_SITE_FRAME_RDS <- "input_data/population/sampling_frame/idp_site_level_psu_frame_2026-09-02.rds"
 GIS_OUT_DIR <- "resampling/output/gis"
 
 cat("Loading inputs...\n")
@@ -124,7 +125,6 @@ ward_layer_raw <- ward_layer_raw %>% rename(adm2_pcode = adm2_pc, accessible_sta
 # below so a dual-eligible ward's two rows (identical geometry) don't both
 # match the same hex/site centroid and double-count it.
 ward_layer_non_idp <- ward_layer_raw %>% filter(pop_type == "Non-IDP")
-ward_layer_idp <- ward_layer_raw %>% filter(pop_type == "IDP")
 
 # ---- NON-IDP: hexagon pool ----
 cat("Processing Non-IDP hexagon pool...\n")
@@ -155,111 +155,43 @@ cat(sprintf("Non-IDP: %d LGAs, %d total accessible-unselected hexes nationally\n
 
 # ---- IDP: DTM site pool ----
 cat("Processing IDP DTM site pool...\n")
-iom_ncnw <- read_csv(IOM_NCNW_CSV, show_col_types = FALSE, name_repair = "minimal")
-iom_ne <- read_csv(IOM_NE_CSV, show_col_types = FALSE, name_repair = "minimal")
-
-iom_ncnw_clean <- iom_ncnw %>%
-  transmute(site_id = `Site ID (SSID)`, lga_name = LGA, lat = `Latitude N?`, lon = `Longitude E?`,
-            households = Households, individuals = Individuals, population_category = `Population Category`)
-iom_ne_clean <- iom_ne %>%
-  transmute(site_id = `Site ID (SSID)`, lga_pcode = `LGA Pcode`, lga_name = LGA,
-            lat = `Latitude N`, lon = `Longitude E`, households = Households, individuals = Individuals,
-            population_category = `Population Category`)
-
-iom_all_raw <- bind_rows(iom_ncnw_clean, iom_ne_clean) %>%
-  filter(!is.na(lat), !is.na(lon), !is.na(site_id))
-# FIXED 2026-09-07 (found while adding the proximity-match fix below - two
-# raw DTM rows have a garbage `lat` value that's non-NA but not a real
-# latitude at all - site_id "New HC" at lat 115264553, "KN_H043" at lat
-# 1205077 (both, not coincidentally, orders of magnitude outside +/-90).
-# st_transform() on a coordinate like that produces an EMPTY geometry
-# rather than erroring, which previously slipped through harmlessly by
-# accident (st_join()/st_nearest_feature() both silently treat an empty
-# geometry as "no match", so these 2 rows always fell out of
-# covered_pcodes_idp scope anyway, same end result as being dropped here
-# deliberately) - but st_distance() against a specific target, used by the
-# proximity-match fix below, returns NA instead, not a graceful no-match.
-# Filtering explicitly here is the correct-by-construction fix rather than
-# correct-by-accident: an in-range check is a real geometric fact, not a
-# Nigeria-specific heuristic.
-iom_all <- iom_all_raw %>% filter(abs(lat) <= 90, abs(lon) <= 180)
-if (nrow(iom_all_raw) > nrow(iom_all)) {
-  cat(sprintf("  IDP sites: %d dropped for a lat/lon value outside +/-90/+/-180 (not real coordinates): %s\n",
-              nrow(iom_all_raw) - nrow(iom_all),
-              paste(sprintf("%s (lat=%s)", iom_all_raw$site_id[abs(iom_all_raw$lat) > 90 | abs(iom_all_raw$lon) > 180],
-                            iom_all_raw$lat[abs(iom_all_raw$lat) > 90 | abs(iom_all_raw$lon) > 180]), collapse = ", ")))
+# FIXED 2026-09-21 - ONE candidate universe, not two. Until tonight this
+# section re-read the RAW DTM files and re-derived its own candidate set
+# (coordinate sanity filter, Returnee filter, its own ward join + nearest-
+# ward fallback that DEFAULTED unmatched sites to Accessible), while the
+# real draw - draw_supplementary_idp_sites_batch.R - draws from the CURATED
+# site-level PSU frame (idp_site_level_psu_frame_2026-09-02.rds), whose
+# builder applies its own curation (site type, population category, dedup,
+# the hex_access spatial join) and whose accessible_status column is
+# refreshed by refresh_idp_site_frame_accessibility.R with the STRICTER
+# rule that an unmatched site is excluded, never defaulted Accessible.
+# Two independently-maintained filter chains over two source files drifted
+# exactly the way every other duplicated-logic pair in this project has:
+# the 2026-09-07 fixes (30m proximity, Returnees) were ported to both, but
+# the underlying universe never was. Caught live on Baure (idp_NG021004):
+# raw DTM 12 rows -> this script reported pool=4 "unselected"; the curated
+# frame has 7 Baure sites, ALL already fielded (0m from an existing
+# cluster), so the draw correctly found nothing - the 4 were raw rows the
+# frame builder had already excluded as non-candidates. 58 of 141 IDP LGAs
+# had fewer curated-frame sites than this script's raw total. The
+# workbook's "Remaining eligible pool" and its Feasibility LABEL
+# (closeable vs not-closeable) were overstated wherever that happened.
+#
+# Now: read the same frame the draw reads, apply the same Stage B rules
+# (30m proximity against the same live-FULL IDP points; a site is
+# accessible only if accessible_status is literally "Accessible" - NA is
+# excluded, matching the draw's own filter, which drops NA), so the pool
+# figure IS what the draw will find. The raw DTM files are no longer read
+# here at all - the curation belongs in the frame builder, once.
+site_frame <- readRDS(IDP_SITE_FRAME_RDS) %>% st_transform(mycrs)
+frame_mtime <- file.info(IDP_SITE_FRAME_RDS)$mtime
+shp_mtime <- file.info(file.path(GIS_OUT_DIR, "accessible_area_lga_ward_portions.shp"))$mtime
+if (!is.na(shp_mtime) && frame_mtime < shp_mtime) {
+  cat(sprintf("  WARNING: the site frame's accessible_status (%s) predates the ward layer (%s) - pool figures below reflect STALE accessibility. Run: Rscript resampling/scripts/refresh_idp_site_frame_accessibility.R\n",
+              format(frame_mtime), format(shp_mtime)))
 }
+cat(sprintf("  IDP sites: %d in the curated site-level PSU frame (the draw's own universe; raw DTM no longer read here).\n", nrow(site_frame)))
 
-# FIXED 2026-09-07 (found by msna-n-wec-2026-4c while chasing the Maradun
-# residual - see CLAUDE.md's Update 2026-09-07c): the raw DTM source mixes
-# genuine IDP sites with "Returnees" - a real, different population
-# category, not IDPs, and out of scope for this pool. Wasn't filtered
-# before, so Returnee sites were being counted as IDP candidate pool.
-# Checked nationally: Population Category cleanly separates them (no
-# messy in-between values) - "Returnees" excluded, everything else (the
-# various "IDPs ..." category strings, capitalization varies) kept as-is
-# rather than enumerated, since new category string variants shouldn't
-# need this filter updated to still work correctly.
-n_before_pop_filter <- nrow(iom_all)
-iom_all <- iom_all %>% filter(population_category != "Returnees")
-cat(sprintf("  IDP sites: %d dropped for being a Returnee site (different population category, not IDP).\n",
-            n_before_pop_filter - nrow(iom_all)))
-
-iom_sf <- st_as_sf(iom_all, coords = c("lon", "lat"), crs = 4326, remove = FALSE) %>%
-  st_transform(mycrs)
-
-site_status <- st_join(iom_sf, ward_layer_idp[c("adm2_pcode", "accessible_status")], join = st_within)
-
-# Gap fix (2026-08-30): a site with no ward match loses BOTH adm2_pcode and
-# accessible_status (both come from the same joined ward feature) - unlike
-# the Non-IDP hex case above, this means such a site was silently DROPPED
-# by the covered_pcodes_idp filter below entirely, never defaulted to
-# Accessible at all (that ifelse a few lines down never actually fired -
-# checked directly, 0 rows ever had accessible_status NA with adm2_pcode
-# non-NA). Checked what this actually meant: of 2,089 sites with no ward
-# match nationally, only 2 are genuinely within a covered IDP LGA's
-# boundary at all - the other 2,087 are simply outside the 14 assessment
-# states/covered LGAs, correctly excluded, not a bug. For the 2 genuine
-# cases, resolve both fields via the same nearest-ward fallback as the
-# Non-IDP hex join.
-admin2_covered_idp <- st_read(ADMIN2_SHP, quiet = TRUE) %>% st_make_valid() %>%
-  st_transform(mycrs) %>% filter(adm2_pcode %in% covered_pcodes_idp)
-
-na_site_idx <- which(is.na(site_status$adm2_pcode))
-if (length(na_site_idx) > 0) {
-  in_covered <- st_join(site_status[na_site_idx, ], admin2_covered_idp["adm2_pcode"], join = st_within)
-  truly_in_scope <- na_site_idx[!is.na(in_covered$adm2_pcode.y)]
-  cat(sprintf("  IDP sites: %d outside any ward polygon (%d genuinely in a covered LGA, %d correctly out of scope)...\n",
-              length(na_site_idx), length(truly_in_scope), length(na_site_idx) - length(truly_in_scope)))
-  if (length(truly_in_scope) > 0) {
-    nearest_idx <- st_nearest_feature(site_status[truly_in_scope, ], ward_layer_idp)
-    dists <- as.numeric(st_distance(site_status[truly_in_scope, ], ward_layer_idp[nearest_idx, ], by_element = TRUE))
-    within_cap <- dists <= GAP_FALLBACK_MAX_DIST_M
-    resolved <- truly_in_scope[within_cap]
-    site_status$adm2_pcode[resolved] <- ward_layer_idp$adm2_pcode[nearest_idx[within_cap]]
-    site_status$accessible_status[resolved] <- ward_layer_idp$accessible_status[nearest_idx[within_cap]]
-    cat(sprintf("  IDP sites: %d resolved via nearest ward (max %.0fm away).\n",
-                length(resolved), if (any(within_cap)) max(dists[within_cap]) else 0))
-  }
-}
-
-# FIXED 2026-09-07 (see ../../CLAUDE.md's Update 2026-09-07b for the full
-# incident): "used" was previously an exact iom_site_id string match against
-# the live frame - wrong whenever an existing cluster carries a generic
-# placeholder ID ("New HC"/"New Camp"/"New Integrated") instead of a real
-# DTM site code, which happens for clusters fielded before the site-level
-# PSU redesign (24 clusters nationally, 14 strata, confirmed directly).
-# Those clusters' real sites were then wrongly counted as still-unselected
-# pool. Caught live: Maradun (idp_NG037009) showed pool=2 here while the
-# real draw mechanism (draw_supplementary_idp_sites_batch.R) found 0 fresh
-# candidates - both Maradun's existing clusters carry iom_site_id="New HC".
-# Fixed by switching to the SAME 30m GPS-proximity match that script's own
-# Stage B already uses (site identity by physical location, not a label
-# that may never have been populated). Live IDP points read fresh from the
-# FULL frame here, unfiltered by coverage_status/exclusion_reason, for
-# exact parity with that script - NOT this script's own `working` (loaded
-# further up with a stricter filter, for the separate "which LGAs are
-# currently covered" question).
 live_idp_full <- read_csv(WORKING_CSV, show_col_types = FALSE, col_types = cols(.default = "c")) %>%
   filter(pop_type == "idp") %>%
   mutate(latitude = as.numeric(latitude), longitude = as.numeric(longitude)) %>%
@@ -268,21 +200,26 @@ live_idp_full <- read_csv(WORKING_CSV, show_col_types = FALSE, col_types = cols(
 live_idp_pts <- st_as_sf(live_idp_full, coords = c("longitude", "latitude"), crs = 4326, remove = FALSE) %>%
   st_transform(mycrs)
 
-nearest_dist_idp <- st_distance(site_status, st_union(st_geometry(live_idp_pts)))
-site_status$is_selected <- as.numeric(nearest_dist_idp) <= 30
-cat(sprintf("  IDP sites: %d of %d candidate sites already fielded (30m GPS-proximity match, was exact iom_site_id match).\n",
+nearest_dist_idp <- st_distance(site_frame, st_union(st_geometry(live_idp_pts)))
+site_status <- site_frame %>%
+  mutate(is_selected = as.numeric(nearest_dist_idp) <= 30,
+         individuals = suppressWarnings(as.numeric(pop)))
+cat(sprintf("  IDP sites: %d of %d candidate sites already fielded (30m GPS-proximity match, same rule as the draw's Stage B).\n",
             sum(site_status$is_selected), nrow(site_status)))
+cat(sprintf("  IDP sites: accessible_status - %d Accessible, %d Inaccessible, %d unmatched/NA (excluded, same as the draw).\n",
+            sum(site_status$accessible_status %in% "Accessible"), sum(site_status$accessible_status %in% "Inaccessible"),
+            sum(is.na(site_status$accessible_status))))
 
 site_status_df <- st_drop_geometry(site_status) %>%
-  filter(!is.na(adm2_pcode), adm2_pcode %in% covered_pcodes_idp)  # keep only sites that actually fall inside a covered LGA polygon
+  filter(!is.na(adm2_pcode), adm2_pcode %in% covered_pcodes_idp)  # keep only sites in a currently-covered IDP LGA
 
 idp_pool <- site_status_df %>%
   group_by(adm2_pcode) %>%
   summarise(
     total_candidate_sites = n(),
-    accessible_candidate_sites = sum(accessible_status == "Accessible"),
-    accessible_unselected_sites = sum(accessible_status == "Accessible" & !is_selected),
-    accessible_unselected_individuals = sum(individuals[accessible_status == "Accessible" & !is_selected], na.rm = TRUE),
+    accessible_candidate_sites = sum(accessible_status %in% "Accessible"),
+    accessible_unselected_sites = sum(accessible_status %in% "Accessible" & !is_selected),
+    accessible_unselected_individuals = sum(individuals[accessible_status %in% "Accessible" & !is_selected], na.rm = TRUE),
     .groups = "drop"
   )
 write_csv(idp_pool, file.path(GIS_OUT_DIR, "remaining_eligible_pool_idp.csv"))

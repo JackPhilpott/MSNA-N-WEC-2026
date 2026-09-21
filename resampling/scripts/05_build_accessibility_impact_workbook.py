@@ -78,8 +78,8 @@ SAMPLING_DIR = PROJECT_DIR + r"\1_sampling"
 # round. Filtered below to coverage_status=="covered" & exclusion_reason
 # =="none" to still exclude population-floor/certainty-excluded strata,
 # which genuinely shouldn't reappear here.
-STRATA_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v10_FULL.csv"
-HOUSEHOLD_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v10_FULL.csv"
+STRATA_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v11_FULL.csv"
+HOUSEHOLD_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v11_FULL.csv"
 # 2026-09-13 (Task 1, target-inflation-fix batch): the single source of truth
 # for "how many of this cluster's primary rows are actually accessible" -
 # written by frame_status.R's compute_cluster_status(), which applies the
@@ -88,13 +88,13 @@ HOUSEHOLD_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stag
 # which disagreed with this file for every straddling/below-threshold
 # cluster - see project memory project_resampling_target_inflation_fix_
 # 2026-09-13 for the before/after.
-CLUSTER_STATUS_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_cluster_status_v10.csv"
+CLUSTER_STATUS_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_cluster_status_v11.csv"
 # Task 4 (2026-09-13): the STOP-mode gate's own baseline - each run's
 # target_sample_representativity per stratum, compared against THIS run's.
 # Not part of the workbook itself (an .xlsx is for humans to read/annotate,
 # not a reliable round-trip source for a plausibility gate) - a small,
 # dedicated, single-purpose tracking file, same pattern as _frame_
-# version.txt/NGA_MSNA_2026_cluster_status_v10.csv elsewhere in this project.
+# version.txt/NGA_MSNA_2026_cluster_status_v11.csv elsewhere in this project.
 TARGET_REPR_LAST_RUN_CSV = SAMPLING_DIR + r"\resampling\output\target_sample_representativity_last_run.csv"
 MASTER_WARD_CSV = SAMPLING_DIR + r"\resampling\output\master_accessibility_status_ward_level.csv"
 GIS_WARD_CSV = SAMPLING_DIR + r"\resampling\output\gis\accessible_area_lga_ward_portions.csv"
@@ -156,7 +156,16 @@ TARGET_MOE_PCT = 10.0
 
 OUT_DIR = SAMPLING_DIR + r"\resampling\output"
 WORKBOOK_PATH = OUT_DIR + r"\NGA_MSNA_2026_accessibility_impact_workbook.xlsx"
-UPDATED_FRAME_CSV = OUT_DIR + r"\NGA_MSNA_2026_stage2_sampling_frame_v10_WORKING_with_accessibility.csv"
+UPDATED_FRAME_CSV = OUT_DIR + r"\NGA_MSNA_2026_stage2_sampling_frame_v11_WORKING_with_accessibility.csv"
+
+
+def _to_int(v):
+    """CSV cell -> int, or None for blank/'NA'/unparseable (frame exports
+    write 'NA' for missing numerics)."""
+    try:
+        return int(float(v)) if v not in (None, "", "NA") else None
+    except (TypeError, ValueError):
+        return None
 
 
 def realized_moe(achieved_sample, N_hh, m, ICC=0.06, Z=1.6448536269514722, p=0.5):
@@ -211,6 +220,104 @@ def realized_moe_unequal(achieved_sample, N_hh, cluster_sizes, ICC, Z=1.64485362
     if n0 <= 0:
         return None
     return math.sqrt(Z ** 2 * p * (1 - p) / n0) * 100
+
+
+CERTAINTY_MIN_COVERAGE = 0.90  # see realized_moe_certainty_aware() condition (ii)
+
+
+def realized_moe_certainty_aware(clusters, N_hh, m_used, pop_type, ICC=0.06, Z=1.6448536269514722, p=0.5):
+    """2026-09-21, Jack-approved as a PARALLEL column (not yet driving any
+    verdict): realized MoE under the variance model this design actually
+    implies once certainty PSUs are recognised.
+
+    realized_moe_unequal() treats every cluster as a sampled PSU and charges
+    the Kish cluster penalty across all of them. But a PSU whose measure of
+    size meets the sampling interval is selected with probability 1 - in
+    this frame that is every cluster drawn more than once (selection_count
+    > 1, i.e. target_households > m). A certainty PSU contributes NO
+    between-PSU variance: its sample is a simple random sample of n_i
+    households from its own N_i (households_in_cluster), with finite-
+    population correction. Charging it a cluster penalty over-states MoE -
+    Mafa IDP (idp_NG008019), where one camp holds 98.6% of the accessible
+    population and every site is in the sample, reads 14.3% under the Kish
+    formula and ~7.2% under this one; the same 162 interviews spread as
+    uniform 6-hh clusters would read 7.3%, so the gap is entirely the
+    penalty for the population living in one site. Same certainty concept
+    the original design already uses at stratum level (Revision 2026-07-23).
+
+    Model: stratified estimator, population-weighted.
+      certainty PSUs (each):  W_i^2 * p(1-p)/n_i * (1 - n_i/N_i)
+      sampled PSUs (pooled):  W_s^2 * p(1-p)/n0_s, n0_s from the existing
+                              Kish formula over the sampled clusters only,
+                              against the remaining population N_s.
+    W_i = N_i/N_total, W_s = N_s/N_total, N_total = max(N_hh, sum N_i) -
+    N_hh here is the ward-area-fraction accessible population, which can
+    sit below the DTM household count of the sites actually sampled
+    (Mafa: 6,743 vs 8,276), so the certainty sites' own N_i is never
+    truncated. Boundary cases (MOS just above the interval but drawn once)
+    are treated as sampled - the conservative direction; resolving them
+    needs psu_probability, which the pipeline computes but does not export.
+
+    The analysis-stage design declaration must mark the same PSUs as
+    certainty units for the survey variance estimator to agree with this -
+    that is part of the Task 2 weights/design work, not this script.
+
+    RESTRICTED 2026-09-21 (same night, after my own checks found two flaws
+    in the unrestricted version and Coordinator independently confirmed
+    both): the treatment only applies when ALL of
+      (i)   pop_type is IDP - Non-IDP households_in_cluster is a hex
+            BUILDING count (source "building_footprint_count"), not on the
+            same scale as the ward-fraction WorldPop N_hh nor the PPS MOS
+            (non_idp_NG021010_4: 15,315 buildings vs a whole-stratum N_hh of
+            59,450), which made 65 Non-IDP strata read WORSE than the
+            rigorous formula - an artefact;
+      (ii)  the certainty sites' summed N_i covers >= CERTAINTY_MIN_COVERAGE
+            of N_total - the treatment is for strata whose population IS
+            those sites (Mafa: 98.6%);
+      (iii) if coverage < 100%, the remainder must have real interviews
+            (sampled set non-empty) - otherwise population inside N_hh with
+            no sampled PSU silently contributed ZERO variance (Talata Mafara
+            IDP: 1 of 6 sites live, 526 of 1,561 hh, read 3.34%; Binji IDP
+            0.0%). Coordinator's refinement: (ii) bounds that damage, (iii)
+            prevents it structurally.
+    Any condition failing -> returns None and the caller falls back to the
+    rigorous realized_moe_unequal() figure, flagged as such in the output.
+    selection_count > 1 as the certainty proxy is sufficient-not-necessary
+    (misses MOS in [I, 2I) drawn once), so any residual error UNDERcounts
+    certainty PSUs - i.e. overstates the Kish penalty, the conservative
+    direction. Task 2 must use the same rule or the two MoEs diverge by a
+    small, known, conservative-direction amount."""
+    live = [c for c in clusters if c["n_primary_ceiling_contribution"] > 0]
+    if not live or pop_type != "idp":
+        return None
+    cert = [c for c in live if c.get("is_certainty") and c.get("households_in_cluster")]
+    samp = [c for c in live if c not in cert]
+    N_cert = sum(c["households_in_cluster"] for c in cert)
+    N_total = max(float(N_hh or 0), N_cert)
+    if N_total <= 0 or not cert:
+        return None
+    if N_cert / N_total < CERTAINTY_MIN_COVERAGE:
+        return None
+    if N_cert < N_total and not samp:
+        return None
+    var = 0.0
+    for c in cert:
+        n_i, N_i = c["n_primary_ceiling_contribution"], c["households_in_cluster"]
+        fpc = max(0.0, 1 - n_i / N_i)
+        var += (N_i / N_total) ** 2 * p * (1 - p) / n_i * fpc
+    if samp:
+        N_s = max(N_total - N_cert, 0.0)
+        n_s = sum(c["n_primary_ceiling_contribution"] for c in samp)
+        if N_s > n_s:
+            sizes = [c["n_primary_ceiling_contribution"] for c in samp]
+            m_bar = sum(sizes) / len(sizes)
+            cv = (math.sqrt(sum((s - m_bar) ** 2 for s in sizes) / (len(sizes) - 1)) / m_bar) if len(sizes) > 1 else 0.0
+            deff = 1 + ((cv ** 2 + 1) * m_bar - 1) * ICC
+            ndeff = n_s * (N_s - 1) / (N_s - n_s)
+            n0 = ndeff / deff
+            if n0 > 0:
+                var += (N_s / N_total) ** 2 * p * (1 - p) / n0
+    return Z * math.sqrt(var) * 100
 
 
 def sample_needed_for_moe(target_moe_pct, N_hh, m, ICC=0.06, Z=1.6448536269514722, p=0.5):
@@ -593,6 +700,14 @@ def build_cluster_level(household_rows, provenance_lookup, cluster_status_lookup
             "n_primary_accessible": n_primary_accessible,
             "n_primary_ceiling_contribution": n_primary_ceiling_contribution,
             "n_capacity_accessible": len(acc_capacity),
+            # 2026-09-21, for realized_moe_certainty_aware(): a cluster drawn
+            # more than once (selection_count > 1 <=> target_households > m)
+            # was selected with probability 1 - a certainty PSU. N_i is the
+            # cluster's own household universe (DTM site households for IDP,
+            # building count for a Non-IDP hex).
+            "households_in_cluster": _to_int(any_row.get("households_in_cluster")),
+            "selection_count": _to_int(any_row.get("selection_count")) or 1,
+            "is_certainty": (_to_int(any_row.get("selection_count")) or 1) > 1,
             "any_accessible": n_primary_accessible > 0,
             "all_accessible": n_primary_accessible == len(primaries) and len(primaries) > 0,
             "reported_by": reported_by,
@@ -848,6 +963,14 @@ def main():
             realized_moe_unequal(primary_ceiling_accessible, N_hh_accessible, ceiling_cluster_sizes, ICC=0.06)
             if N_hh_accessible > 0 else None
         )
+        # 2026-09-21: parallel certainty-PSU-aware figure. Reported alongside
+        # moe_updated, NOT used by Feasibility/Representativity below until
+        # Jack switches the verdict over explicitly (Coordinator-verified first).
+        moe_certainty_raw = realized_moe_certainty_aware(clusters, N_hh_accessible, m_used, pop_type, ICC=0.06) if N_hh_accessible > 0 else None
+        certainty_applied = moe_certainty_raw is not None
+        # Where the restricted treatment doesn't apply, the parallel column
+        # carries the rigorous figure so it is never blank or misleading.
+        moe_certainty = moe_certainty_raw if certainty_applied else moe_updated
 
         # Task 2 (2026-09-13, AMENDED): the true, margined, capped
         # requirement - see target_sample_representativity()'s own
@@ -916,11 +1039,46 @@ def main():
                 feasibility = "Negligible gap - not worth a supplementary draw"
                 additional_clusters_needed = 0
             else:
-                additional_samples = max(0, target_repr - primary_ceiling_accessible)
-                additional_clusters_needed = math.ceil(additional_samples / m_used) if additional_samples > 0 else 0
-                if additional_clusters_needed == 0:
-                    feasibility = "Already at/under target"
-                elif pool <= 0:
+                # FIXED 2026-09-21 - CRITICAL, see 1_sampling/CLAUDE.md and
+                # project memory project_feasibility_moe_override_bug_2026-
+                # 09-21 for the full incident. This branch previously used
+                # `additional_samples = max(0, target_repr - primary_
+                # ceiling_accessible)` to size the gap - target_repr's own
+                # formula (sample_needed_for_moe()) assumes UNIFORM cluster
+                # sizes and is blind to real cluster-size unevenness, unlike
+                # moe_updated/moe_if_half_cluster_more above (both already
+                # rigorously Kish-DEFF-corrected). Whenever the ceiling
+                # already covered target_repr's cruder number, this branch
+                # silently set additional_clusters_needed=0 and labelled
+                # the stratum "Already at/under target" - directly
+                # contradicting the rigorous moe_updated/moe_if_half_
+                # cluster_more checks that had JUST established a real gap
+                # exists (that's exactly how we got here). Found to affect
+                # 155 of 307 strata nationally, just over half the frame.
+                #
+                # Fix: find the TRUE minimum number of additional m_used-
+                # sized clusters by iterating the SAME rigorous
+                # realized_moe_unequal() formula used above - not a
+                # different, cruder one. Searches independently of the
+                # remaining pool size (pool only decides the FEASIBILITY
+                # LABEL afterward, never how many are genuinely needed) so
+                # a pool-exhausted stratum still reports its true
+                # requirement, not a number capped to look achievable.
+                max_search = math.ceil(max(0, N_hh_accessible - primary_ceiling_accessible) / m_used) + 1
+                additional_clusters_needed = max_search
+                for n_extra in range(1, max_search + 1):
+                    trial_ceiling = primary_ceiling_accessible + n_extra * m_used
+                    if trial_ceiling >= N_hh_accessible:
+                        additional_clusters_needed = n_extra
+                        break
+                    trial_moe = realized_moe_unequal(
+                        trial_ceiling, N_hh_accessible, ceiling_cluster_sizes + [m_used] * n_extra, ICC=0.06
+                    )
+                    if trial_moe is not None and trial_moe <= TARGET_MOE_PCT:
+                        additional_clusters_needed = n_extra
+                        break
+
+                if pool <= 0:
                     feasibility = "Not closeable - no remaining pool left"
                 elif additional_clusters_needed > pool:
                     feasibility = "Not closeable - exceeds remaining pool (recommend indicative)"
@@ -954,6 +1112,7 @@ def main():
             "[UPDATED AREA] Achievable ceiling (primary+reserve, reference only - NOT the decision basis, see README)": capacity_ceiling_accessible,
             "Realized MoE % (full frame, existing)": s["realized_moe_pct"],
             "Realized MoE % (updated area, at full completion of currently-assigned PRIMARY slots)": round(moe_updated, 2) if moe_updated is not None else "N/A (sample >= N_hh or 0 accessible)",
+            "Realized MoE % (certainty-PSU-aware, PARALLEL - not driving verdicts yet)": round(moe_certainty, 2) if moe_certainty is not None else "N/A",
             "Target sample (representativity, incl. 5% operational margin)": target_repr_display if target_repr_display is not None else "N/A",
             "Remaining eligible pool (accessible, unselected)": pool,
             f"Additional clusters needed for {TARGET_MOE_PCT:.0f}% MoE (at m={m_used})": additional_clusters_needed if additional_clusters_needed is not None else "N/A",
@@ -976,10 +1135,41 @@ def main():
             status_label = "Complete - no further collection needed here"
         else:
             status_label = f"{remaining_needed} more still needed"
+        # 2026-09-21 (Jack, same night the Feasibility override bug was
+        # fixed): an explicit Representative/Indicative verdict per stratum,
+        # driven by the RIGOROUS moe_updated (Kish cluster-size-aware, at
+        # full completion of currently-assigned accessible primary slots) -
+        # the same figure that drives Feasibility, never the crude uniform-
+        # cluster target_repr. The 10% MoE threshold is the authoritative
+        # representativity bar for this assessment: anything above it has to
+        # be actively justified to donors as indicative. This sheet is the
+        # live per-stratum record of that, regenerated every run, and is
+        # what partner prioritisation (target the still-representative
+        # strata first) should read from. Also persisted as a CSV - see
+        # main().
+        if moe_updated is None:
+            representativity = "Not computable (accessible population too small)"
+        elif moe_updated <= TARGET_MOE_PCT:
+            representativity = "Representative (<= 10% MoE at full completion)"
+        elif feasibility.startswith("Closeable"):
+            representativity = "Indicative now - RECOVERABLE via supplementary draw"
+        elif feasibility.startswith("Not closeable"):
+            representativity = "Indicative - NOT recoverable (pool insufficient), justify to donors"
+        else:
+            representativity = "Indicative now - gap negligible"
         partner_reference_rows.append({
             "State": s["adm1_name"], "LGA": s["adm2_name"], "Pop type": "Non-IDP" if pop_type == "non_idp" else "IDP",
             "Strata ID": strata_id,
             "Partners covering": s["partners_covering"],
+            "Representativity (10% MoE threshold)": representativity,
+            "Projected MoE % (rigorous, at full completion of assigned accessible slots)": round(moe_updated, 2) if moe_updated is not None else "N/A",
+            "Projected MoE % (certainty-PSU-aware, PARALLEL - not driving verdicts yet)": round(moe_certainty, 2) if moe_certainty is not None else "N/A",
+            "Certainty-PSU treatment applied": "Yes" if certainty_applied else "No - rigorous figure carried (IDP-only, >=90% certainty coverage, remainder must have interviews)",
+            "Would be Representative under certainty-PSU treatment": (
+                "Yes" if moe_certainty is not None and moe_certainty <= TARGET_MOE_PCT else ("No" if moe_certainty is not None else "N/A")),
+            "Feasibility": feasibility,
+            "Additional clusters needed": additional_clusters_needed if additional_clusters_needed is not None else "N/A",
+            "Remaining eligible pool": pool,
             "Current accessible N_hh": round(N_hh_accessible) if N_hh_accessible else 0,
             "Target sample (true requirement, incl. 5% margin)": target_repr_display if target_repr_display is not None else "N/A",
             "Achieved (real, field-collected)": real_achieved_accessible,
@@ -1081,6 +1271,27 @@ def main():
 
     reporting_stats = compute_reporting_stats()
     write_workbook(summary_rows, cluster_rows, ward_status, provenance_lookup, min_submission_date, reporting_stats, partner_reference_rows)
+
+    # 2026-09-21: the per-stratum Representative/Indicative verdict, also as
+    # a flat CSV so 2_monitoring / partner-prioritisation work can read it
+    # without opening the workbook. Same rows as the Partner Reference sheet.
+    repr_csv = os.path.join(OUT_DIR, "strata_representativity_status.csv")
+    with open(repr_csv, "w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=list(partner_reference_rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(partner_reference_rows)
+    n_repr = sum(1 for r in partner_reference_rows if r["Representativity (10% MoE threshold)"].startswith("Representative"))
+    n_recov = sum(1 for r in partner_reference_rows if "RECOVERABLE" in r["Representativity (10% MoE threshold)"])
+    n_not = sum(1 for r in partner_reference_rows if "NOT recoverable" in r["Representativity (10% MoE threshold)"])
+    print(f"Representativity (10% MoE, rigorous): {n_repr} representative | {n_recov} indicative-but-recoverable | "
+          f"{n_not} indicative-not-recoverable | {len(partner_reference_rows) - n_repr - n_recov - n_not} other -> {repr_csv}")
+    n_applied = sum(1 for r in partner_reference_rows if r["Certainty-PSU treatment applied"] == "Yes")
+    n_flip = sum(1 for r in partner_reference_rows
+                 if r["Certainty-PSU treatment applied"] == "Yes"
+                 and r["Would be Representative under certainty-PSU treatment"] == "Yes"
+                 and not r["Representativity (10% MoE threshold)"].startswith("Representative"))
+    print(f"Certainty-PSU-aware (PARALLEL, restricted, not driving verdicts): treatment applied to {n_applied} strata; "
+          f"{n_flip} of those are Indicative under the rigorous formula but <= 10% under the certainty treatment.")
     write_updated_frame(household_rows)
 
 
@@ -1256,6 +1467,18 @@ README_SECTIONS = [
         "reintroducing the exact target-inflation pattern this whole fix was built to close.",
     ]),
     ("Partner Reference sheet (new, 2026-09-13) - read this before using it in a partner conversation", "header", [
+        "2026-09-21: this sheet now carries the per-stratum REPRESENTATIVITY VERDICT - 'Representativity "
+        "(10% MoE threshold)' - and the rigorous projected MoE behind it. The 10% MoE threshold is the "
+        "authoritative representativity bar for this assessment: 'Representative' means the stratum "
+        "reaches <= 10% MoE at full completion of its currently-assigned, currently-accessible primary "
+        "slots (Kish cluster-size-aware calculation, the same one that drives Feasibility); anything "
+        "else is 'Indicative', split into RECOVERABLE (a supplementary draw can bring it under 10%) vs "
+        "NOT recoverable (candidate pool insufficient - this is the set to actively justify to donors). "
+        "Use it for partner prioritisation: target the still-representative and recoverable strata "
+        "first. Regenerated every run; the same rows are also written to "
+        "strata_representativity_status.csv next to this workbook. Added the night the Feasibility "
+        "column was found to have been silently overriding this very check on 155 of 307 strata - "
+        "see 1_sampling/CLAUDE.md, Update 2026-09-20/21.",
         "One row per stratum: partner(s), current accessible household population, the true target "
         "(representativity, with margin), REAL field-collected achieved count, remaining needed, and a "
         "plain-language status. Built for Jack's own use filtering this sheet himself in partner "

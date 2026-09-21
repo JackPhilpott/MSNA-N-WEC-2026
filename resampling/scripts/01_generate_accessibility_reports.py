@@ -29,7 +29,7 @@
 # specific LGA+Ward combination, so there's no free-floating ward-name join
 # anywhere that could cross-contaminate another partner's area.
 #
-# Reads: output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v10_WORKING.csv
+# Reads: output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v11_WORKING.csv
 # - the same per-household delivered frame build_partner_dc_packages.py reads,
 # which already carries a resolved `partners_covering` column (comma-separated
 # for multi-partner LGAs, e.g. "DRC, IRC, LHI") and per-row ward attribution
@@ -71,7 +71,8 @@ DATE_REPORTED_MIN = date(2026, 7, 1)
 DATE_REPORTED_FORMAT = "dd-mmm-yyyy"  # unambiguous regardless of the partner's locale (e.g. "27-Aug-2026")
 
 PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling"
-STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v10_WORKING.csv"
+STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v11_WORKING.csv"
+GIS_WARD_UNIVERSE_CSV = PROJECT_DIR + r"\resampling\output\gis\accessible_area_lga_ward_portions.csv"
 OUT_DIR = PROJECT_DIR + r"\resampling\input\accessibility_reports_generated"
 
 ACCESSIBLE_OPTIONS = ["Yes", "No"]
@@ -172,6 +173,34 @@ def norm_pop_type(pt):
     return "Non-IDP" if pt == "non_idp" else "IDP"
 
 
+def load_gis_ward_universe():
+    """Stage-1-eligible (State, LGA, Ward) portions with real partner
+    coverage, from the GIS accessible-area layer. FIXED 2026-09-20 (same
+    root cause and fix pattern as 04_build_master_accessibility_status.py's
+    load_gis_ward_universe() - independent code path, duplicated per this
+    project's standalone-script convention, so fixing one does NOT fix the
+    other): this script used to seed a partner's ward list purely from
+    clusters actually drawn in WORKING - a ward that's genuinely eligible
+    but never happened to get a cluster by chance (PPS is random) was
+    invisible to that partner's generated report entirely, so they could
+    never be asked about it. Found by Coordinator via Save the Children/
+    Bungudu; independently re-verified before fixing: 1,681 distinct
+    (State, LGA, Ward) portions with real partner coverage exist in the GIS
+    layer but not in WORKING's own ward set."""
+    try:
+        with open(GIS_WARD_UNIVERSE_CSV, encoding="utf-8") as f:
+            gis_rows = list(csv.DictReader(f))
+    except FileNotFoundError:
+        return []
+    out = []
+    for r in gis_rows:
+        partners = {p.strip() for p in r["covering_partners"].split(";") if p.strip()}
+        if not partners:
+            continue
+        out.append({"state": r["adm1_name"], "lga": r["adm2_name"], "ward": r["wardname"], "partners": partners})
+    return out
+
+
 def safe_folder_name(s):
     return re.sub(r'[<>:"/\\|?*]', "-", s).strip()
 
@@ -234,7 +263,6 @@ def load_cluster_rows_by_partner():
     ward_to_lgas = defaultdict(set)
     for r in rows:
         ward_to_lgas[(r["adm1_name"], r["adm3_name"])].add(r["adm2_name"])
-    ward_to_lgas = {k: sorted(v) for k, v in ward_to_lgas.items()}
 
     cluster_rows = defaultdict(list)
     for r in rows:
@@ -279,10 +307,30 @@ def load_cluster_rows_by_partner():
         for p in partners:
             cluster_repr_by_partner[p].append(cluster_record)
 
-    return ward_split_by_partner, cluster_repr_by_partner, ward_to_lgas
+    # Union in Stage-1-eligible wards that never had a cluster drawn there by
+    # chance (see load_gis_ward_universe()'s docstring) - tracked separately
+    # per partner as zero-cluster (State, LGA, Ward) keys, since there's no
+    # real cluster row to build a WARD_COLUMNS record from. build_ward_rows()
+    # seeds these into its own aggregation so they still appear as a normal
+    # (blank) row in the partner's Ward Accessibility sheet.
+    existing_ward_keys_by_partner = defaultdict(set)
+    for p, records in ward_split_by_partner.items():
+        for r in records:
+            existing_ward_keys_by_partner[p].add((r["State"], r["LGA"], r["Ward (GRID3)"]))
+
+    extra_ward_keys_by_partner = defaultdict(set)
+    for g in load_gis_ward_universe():
+        key = (g["state"], g["lga"], g["ward"])
+        ward_to_lgas[(g["state"], g["ward"])].add(g["lga"])
+        for p in g["partners"]:
+            if key not in existing_ward_keys_by_partner[p]:
+                extra_ward_keys_by_partner[p].add(key)
+
+    ward_to_lgas = {k: sorted(v) for k, v in ward_to_lgas.items()}
+    return ward_split_by_partner, cluster_repr_by_partner, ward_to_lgas, extra_ward_keys_by_partner
 
 
-def build_ward_rows(cluster_records, ward_to_lgas):
+def build_ward_rows(cluster_records, ward_to_lgas, extra_ward_keys=None):
     agg = defaultdict(lambda: {"non_idp": 0, "idp": 0, "target_hh": 0, "ward_cod": ""})
     for r in cluster_records:
         key = (r["State"], r["LGA"], r["Ward (GRID3)"])
@@ -293,6 +341,8 @@ def build_ward_rows(cluster_records, ward_to_lgas):
             a["idp"] += 1
         a["target_hh"] += int(r["Target HHs (primary)"] or 0)
         a["ward_cod"] = r["Ward (OCHA/COD)"]
+    for key in (extra_ward_keys or ()):
+        agg[key]  # touch to create a zero-cluster entry (GIS-eligible, never drawn - see load_gis_ward_universe())
     out = []
     for (state, lga, ward), a in agg.items():
         other_lgas = [l for l in ward_to_lgas.get((state, ward), [lga]) if l != lga]
@@ -424,10 +474,10 @@ def write_readme_sheet(wb, partner, n_wards, n_clusters):
         r += 1
 
 
-def write_partner_report(partner, ward_split_records, cluster_records, ward_to_lgas):
+def write_partner_report(partner, ward_split_records, cluster_records, ward_to_lgas, extra_ward_keys=None):
     ward_split_records.sort(key=lambda r: (r["State"], r["LGA"], r["Pop Type"], r["Cluster ID"]))
     cluster_records.sort(key=lambda r: (r["State"], r["LGA"], r["Pop Type"], r["Cluster ID"]))
-    ward_rows = build_ward_rows(ward_split_records, ward_to_lgas)
+    ward_rows = build_ward_rows(ward_split_records, ward_to_lgas, extra_ward_keys)
 
     wb = openpyxl.Workbook()
     write_readme_sheet(wb, partner, len(ward_rows), len(cluster_records))
@@ -442,14 +492,17 @@ def write_partner_report(partner, ward_split_records, cluster_records, ward_to_l
 
 
 if __name__ == "__main__":
-    ward_split_by_partner, cluster_repr_by_partner, ward_to_lgas = load_cluster_rows_by_partner()
+    ward_split_by_partner, cluster_repr_by_partner, ward_to_lgas, extra_ward_keys_by_partner = load_cluster_rows_by_partner()
     print(f"{len(cluster_repr_by_partner)} partners.")
+    n_extra_total = sum(len(v) for v in extra_ward_keys_by_partner.values())
+    print(f"{n_extra_total} Stage-1-eligible-but-never-drawn ward row(s) added across all partners (2026-09-20 fix).")
     failed = []
     for partner in sorted(cluster_repr_by_partner):
         records = cluster_repr_by_partner[partner]
         ward_split_records = ward_split_by_partner[partner]
         try:
-            path, n_wards = write_partner_report(partner, ward_split_records, records, ward_to_lgas)
+            path, n_wards = write_partner_report(partner, ward_split_records, records, ward_to_lgas,
+                                                   extra_ward_keys_by_partner.get(partner))
             print(f"  {partner}: {len(records)} clusters, {n_wards} wards -> {path}")
         except PermissionError:
             # File open/locked (e.g. in Excel, or mid-OneDrive-sync) at run time

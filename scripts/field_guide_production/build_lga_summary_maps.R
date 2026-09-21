@@ -59,7 +59,13 @@ nga_wards <- sf::st_read(
 # that script's own note near its selected_clusters assignment. This run
 # was first done against the stale archive before the fix existed -
 # rerun after this edit to pick up this week's new clusters' shading.
-selected_clusters <- readRDS(here::here("output", "gis", "selected_clusters_v6_current.rds"))
+# 2026-09-21: was selected_clusters_v6_current.rds - a file that has never
+# existed in this repo (same never-rebuilt-rename class as build_cluster_
+# maps_production.R's own note), so every LGA summary map on disk dates from
+# 2026-09-01 and predates the v7-v11 resampling rounds entirely. Repointed
+# to the v11 consolidated build (scripts/one_off_analyses/build_consolidated_
+# selected_clusters_2026-09-21.R).
+selected_clusters <- readRDS(here::here("output", "gis", "selected_clusters_v11_current.rds"))
 
 hex_polygons <- hex_access %>%
   st_make_valid() %>%
@@ -68,7 +74,7 @@ hex_polygons <- hex_access %>%
   distinct(uuid_hex, .keep_all = TRUE) %>%
   select(uuid_hex)
 
-full_strata <- read_csv(here::here(output_dir, "data", "data_collection", "NGA_MSNA_2026_strata_level_sampling_frame_v10_FULL.csv"), show_col_types = FALSE)
+full_strata <- read_csv(here::here(output_dir, "data", "data_collection", "NGA_MSNA_2026_strata_level_sampling_frame_v11_FULL.csv"), show_col_types = FALSE)
 working_pairs <- full_strata %>%
   filter(coverage_status == "covered", exclusion_reason == "none") %>%
   distinct(adm2_pcode, pop_type)

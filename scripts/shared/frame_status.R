@@ -194,11 +194,48 @@ compute_cluster_accessibility <- function(full_df, non_idp_min_accessible_primar
     )
   }
 
+  # 2026-09-19 fix: a cluster with ZERO accessible primary rows never
+  # survives ward_gate() at all, so a plain count(cluster_id) on the
+  # ward-gated rows never produces a row for it (count() doesn't emit a
+  # zero-count row for an empty group) - meaning it was invisible to the
+  # below-threshold filter below and could never be captured by it, even
+  # though 0 accessible primaries is the most extreme case the <4 threshold
+  # is meant to catch (see the header note above this constant in
+  # refresh_working_frame_daily.R: "Whole-cluster inaccessible clusters (0
+  # accessible) already worked this way; this only extends the SAME
+  # treatment to the 1-3-accessible case" - true only under the original,
+  # simpler ward-only check; this count()-based threshold computation
+  # reintroduced exactly that gap for the specific case where the cluster's
+  # OTHER (non-primary) rows include one in a currently-accessible ward).
+  # Found via build_partner_dc_packages.py's new standing UUID-
+  # reconciliation check (2026-09-19) - 17 clusters/24 reserve rows
+  # nationally were leaking into WORKING/KML this way. Fixed by starting
+  # from the full set of primary cluster_ids (pre-ward-gate) and explicitly
+  # filling in 0 for any cluster absent from the ward-gated count, instead
+  # of filtering an already-incomplete count table.
+  # 2026-09-21: the set to test must be EVERY Non-IDP cluster that has any
+  # row at all, not only those with a primary row. The 2026-09-19 fix
+  # started from primary cluster_ids, which still let a cluster with ZERO
+  # primary rows (only reserve rows) through: it is absent from the primary
+  # set, so it is never tested, so its reserve rows survive into WORKING/
+  # KML even though 0 accessible primaries is the most below-threshold a
+  # cluster can be. Found by the standing UUID reconciliation check on the
+  # v11 packages: non_idp_NG036011_supp4 (FACT, Machina) was drawn by a
+  # Tier 2 repeat draw with a single reserve household and no primary -
+  # itself a draw_supplementary_clusters_batch.R gap fixed the same night
+  # (it dropped zero-HOUSEHOLD clusters, not zero-PRIMARY ones). The Python
+  # side (build_partner_dc_packages.py's Counter.get(cid, 0)) already read
+  # such a cluster as 0 accessible primaries; this makes the R side agree.
+  all_primary_clusters <- covered %>%
+    filter(pop_type == "non_idp") %>%
+    distinct(cluster_id)
   cluster_accessible_primary_n <- covered %>%
     filter(pop_type == "non_idp", status == "primary") %>%
     ward_gate() %>%
     count(cluster_id, name = "n_accessible_primary")
-  below_threshold_clusters <- cluster_accessible_primary_n %>%
+  below_threshold_clusters <- all_primary_clusters %>%
+    left_join(cluster_accessible_primary_n, by = "cluster_id") %>%
+    mutate(n_accessible_primary = coalesce(n_accessible_primary, 0L)) %>%
     filter(n_accessible_primary < non_idp_min_accessible_primary_hh) %>%
     pull(cluster_id)
 

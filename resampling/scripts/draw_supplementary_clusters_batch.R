@@ -113,7 +113,7 @@ pilot_shortfalls_raw <- read_csv(SHORTFALLS_CSV, show_col_types = FALSE)
 # immediately before spending any draw effort on it, rather than trust a
 # shortfall list's age at all.
 strata_frame_current <- read_csv(
-  "output/data/data_collection/NGA_MSNA_2026_strata_level_sampling_frame_v10_WORKING.csv",
+  "output/data/data_collection/NGA_MSNA_2026_strata_level_sampling_frame_v11_WORKING.csv",
   show_col_types = FALSE, col_types = cols(.default = "c")
 )
 still_covered_strata_ids <- strata_frame_current$strata_id  # WORKING only ever contains covered, non-excluded strata by construction
@@ -191,13 +191,13 @@ non_idp_sampling_filtered$sampling_frame <- non_idp_sampling$sampling_frame %>%
 # batch.R write fresh every run (scripts/shared/frame_status.R) - not
 # recomputed here, so this doesn't need its own copy of the achieved-lookup
 # machinery.
-CLUSTER_STATUS_CSV <- "output/data/data_collection/NGA_MSNA_2026_cluster_status_v10.csv"
+CLUSTER_STATUS_CSV <- "output/data/data_collection/NGA_MSNA_2026_cluster_status_v11.csv"
 if (file.exists(CLUSTER_STATUS_CSV)) {
   cluster_status <- read_csv(CLUSTER_STATUS_CSV, show_col_types = FALSE)
   access_compromised_clusters <- cluster_status %>%
     filter(pop_type == "non_idp", status %in% c("partially_completed_access_lost", "not_started_access_lost")) %>%
     pull(cluster_id)
-  full_for_status <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v10_FULL.csv", show_col_types = FALSE)
+  full_for_status <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v11_FULL.csv", show_col_types = FALSE)
   access_compromised_hex <- full_for_status %>%
     filter(pop_type == "non_idp", cluster_id %in% access_compromised_clusters) %>%
     mutate(uuid_hex_pop = paste0(pop_type, "_", uuid_hex)) %>%
@@ -218,7 +218,7 @@ log_msg("Stage C: Tier 1 draw (fresh hexes only)...")
 # site is still a real, already-designed cluster, so a new draw must not be
 # allowed to land on the same hex and create a second cluster_id at the same
 # location. WORKING would silently permit exactly that collision.
-working <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v10_FULL.csv", show_col_types = FALSE)
+working <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v11_FULL.csv", show_col_types = FALSE)
 # WORKING's own export doesn't carry a plain uuid_hex_pop column (that's an
 # in-memory-only field in the main pipeline's own objects) - and its
 # original_uuid_hex_pop is a DIFFERENT, reallocation-audit field (99.3% blank
@@ -371,8 +371,13 @@ if (!is.null(tier1$unresolved) && nrow(tier1$unresolved) > 0) {
 # source tier BEFORE combining (so (.source, old cluster_id) is a real unique
 # key) and renumbering EVERY new cluster row-by-row rather than matching by
 # ID text - simpler and provably collision-free, not just for colliding ones.
-if (!is.null(tier1$new_clusters)) { tier1$new_clusters$.source <- "tier1"; tier1$new_households$.source <- "tier1" }
-if (!is.null(tier2$new_clusters)) { tier2$new_clusters$.source <- "tier2"; tier2$new_households$.source <- "tier2" }
+# nrow() > 0 guard added 2026-09-21: PLAN/Kala-Balge hit the case where Tier 2
+# drew 2 clusters and BOTH were then dropped entirely (every household already
+# claimed by an existing live cluster), leaving a non-NULL, 0-row sf frame -
+# `$<-` of a length-1 value onto 0 rows errors ("replacement has 1 row, data
+# has 0") and killed the whole run after Tier 1 had already succeeded.
+if (!is.null(tier1$new_clusters) && nrow(tier1$new_clusters) > 0) { tier1$new_clusters$.source <- "tier1"; tier1$new_households$.source <- "tier1" }
+if (!is.null(tier2$new_clusters) && nrow(tier2$new_clusters) > 0) { tier2$new_clusters$.source <- "tier2"; tier2$new_households$.source <- "tier2" }
 
 log_msg("Stage E: combining results...")
 all_new_clusters <- dplyr::bind_rows(tier1$new_clusters, tier2$new_clusters)
@@ -519,11 +524,34 @@ if (nrow(hex_dup_counts) > 0) {
 # clusters this way, all Tier 2). A cluster with zero real households was
 # never going to contribute anything - drop it here rather than let it
 # reach a human as an opaque mismatch error.
-empty_cluster_ids <- setdiff(unique(all_new_clusters$cluster_id), unique(all_new_households$cluster_id))
-if (length(empty_cluster_ids) > 0) {
-  log_msg("  Dropping %d cluster(s) that were added as candidates but yielded zero real households: %s",
-          length(empty_cluster_ids), paste(empty_cluster_ids, collapse = ", "))
-  all_new_clusters <- all_new_clusters %>% dplyr::filter(!(cluster_id %in% empty_cluster_ids))
+#
+# 2026-09-21, two corrections, both found by the standing UUID reconciliation
+# check on the v11 partner packages (FACT: 1 KML-only reserve point):
+#   (1) "zero households" was not strict enough. A repeat draw can leave a
+#       cluster with reserve rows but NO primary row - live case:
+#       non_idp_NG036011_supp4 (FACT/Machina, Tier 2 repeat of hex_69: exactly
+#       one unclaimed building, assigned as reserve rank 2), merged into FULL
+#       as a primary-less cluster. Such a cluster contributes nothing to
+#       achieved_sample and only ever puts a stray reserve point in front of a
+#       field team. Test for "no PRIMARY household", and drop the cluster's
+#       reserve rows with it.
+#   (2) The test keyed on cluster_id alone, BEFORE the renumbering below - but
+#       tier1 and tier2 restart their _suppN counters independently (Stage E's
+#       own comment), so a tier1 "_supp3" with households could mask an empty
+#       tier2 "_supp3" at a different hex. That is the most plausible mechanism
+#       for the 2026-09-07 orphan that "survived a filter that should have
+#       caught it" (see the post-renumbering check below). Keyed on
+#       (.source, cluster_id) - the same compound key Stage E.1 and the
+#       renumbering already use.
+.cluster_key <- function(df) paste(df$.source, df$cluster_id, sep = "|")
+primary_cluster_keys <- unique(.cluster_key(all_new_households)[all_new_households$status == "primary"])
+empty_cluster_keys <- setdiff(unique(.cluster_key(all_new_clusters)), primary_cluster_keys)
+if (length(empty_cluster_keys) > 0) {
+  n_reserve_dropped <- sum(.cluster_key(all_new_households) %in% empty_cluster_keys)
+  log_msg("  Dropping %d cluster(s) that were added as candidates but yielded zero real PRIMARY households (%d reserve-only household row(s) dropped with them): %s",
+          length(empty_cluster_keys), n_reserve_dropped, paste(empty_cluster_keys, collapse = ", "))
+  all_new_clusters <- all_new_clusters[!(.cluster_key(all_new_clusters) %in% empty_cluster_keys), ]
+  all_new_households <- all_new_households[!(.cluster_key(all_new_households) %in% empty_cluster_keys), ]
 }
 
 all_new_clusters <- all_new_clusters %>%
