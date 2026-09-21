@@ -15,7 +15,7 @@
 # only via the full build_partner_dc_packages.py when the WORKING roster
 # itself actually changes, followed by an announced email (Jack's call each
 # time, never automatic). This is exactly why this script never loads
-# WORKING (NGA_MSNA_2026_stage2_sampling_frame_v11_WORKING.csv) at all -
+# WORKING (NGA_MSNA_2026_stage2_sampling_frame_v12_WORKING.csv) at all -
 # there is nothing in its own output that WORKING could change.
 #
 # Deliberately a standalone duplicate of build_partner_dc_packages.py's
@@ -97,7 +97,7 @@ if os.path.exists(_LOCKED_FALLBACK_COPY):
         f"{_copy_age_s / 60:.0f}-minute-old fallback copy instead: {_LOCKED_FALLBACK_COPY}"
     )
     COVERAGE_XLSX = _LOCKED_FALLBACK_COPY
-STAGE2_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v11_FULL.csv"
+STAGE2_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v12_FULL.csv"
 # Canonical (not the dashboard_app/ bundled mirror - see
 # build_partner_dc_packages.py's 2026-09-08 fix note for the identical bug
 # this avoids from the start).
@@ -347,17 +347,17 @@ assert_plausible("rows of partner-reported-inaccessible / dropped clusters NOT t
 # note for the full reasoning. Kept in sync by hand, per this project's
 # standalone-script convention.
 # ---------------------------------------------------------------------------
-STRATA_LEVEL_V9_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v11_FULL.csv"
+STRATA_LEVEL_V9_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v12_FULL.csv"
 TARGET_SAMPLE_REPRESENTATIVITY_CSV = PROJECT_DIR + r"\resampling\output\target_sample_representativity_last_run.csv"
 
 with open(STRATA_LEVEL_V9_FULL_CSV, encoding="utf-8") as f:
-    _strata_v11_rows = list(csv.DictReader(f))
+    _strata_v12_rows = list(csv.DictReader(f))
 
 strata_target_sample = {}
 strata_partners_covering = {}
 strata_lga_key = {}
 strata_pop_type = {}
-for _r in _strata_v11_rows:
+for _r in _strata_v12_rows:
     sid = _r["strata_id"]
     if _r.get("coverage_status") == "covered" and _r.get("exclusion_reason") == "none":
         strata_target_sample[sid] = float(_r["target_sample"]) if _r.get("target_sample") not in (None, "", "NA") else 0.0

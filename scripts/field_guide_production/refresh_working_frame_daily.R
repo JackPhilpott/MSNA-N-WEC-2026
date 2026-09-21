@@ -132,10 +132,10 @@ source("scripts/shared/frame_status.R")
 source("scripts/shared/log_pipeline_change.R")
 
 SF_DIR <- "output/data/data_collection"
-FULL_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v11_FULL.csv")
-WORKING_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v11_WORKING.csv")
-STRATA_WORKING_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v11_WORKING.csv")
-CLUSTER_STATUS_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_cluster_status_v11.csv")
+FULL_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v12_FULL.csv")
+WORKING_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v12_WORKING.csv")
+STRATA_WORKING_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v12_WORKING.csv")
+CLUSTER_STATUS_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_cluster_status_v12.csv")
 # CORRECTED 2026-09-08: was hardcoded to the dashboard_app/data/ mirror,
 # which only refreshes on a full deploy_dashboard.R run - flagged repeatedly
 # during the 2026-09-07 incident review as a real, live staleness risk

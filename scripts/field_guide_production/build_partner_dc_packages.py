@@ -6,7 +6,7 @@
 # Reads:
 #   - input_data/boundaries/partner_coverage/Partnerscoverage.xlsx (which
 #     partner(s) cover which LGA - wide format, one column per partner)
-#   - output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v11_WORKING.csv
+#   - output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v12_WORKING.csv
 #     (household-level sampling frame, already restricted to covered LGAs)
 #   - output/data/data_collection/idp_camp_backup_points.csv (re-delineated
 #     backup GPS point for the 15 flagged large in-camp sites)
@@ -123,8 +123,8 @@ if os.path.exists(_LOCKED_FALLBACK_COPY):
         f"{_copy_age_s / 60:.0f}-minute-old fallback copy instead: {_LOCKED_FALLBACK_COPY}"
     )
     COVERAGE_XLSX = _LOCKED_FALLBACK_COPY
-STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v11_WORKING.csv"
-STAGE2_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v11_FULL.csv"
+STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v12_WORKING.csv"
+STAGE2_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v12_FULL.csv"
 # 2026-09-08 fix: was pointed at dashboard_app/data/ - the BUNDLED MIRROR
 # that only updates as a side effect of a full dashboard deploy, not the
 # canonical daily-refreshed source. Same bug class already found and fixed
@@ -564,17 +564,17 @@ assert_plausible("unmatched-ward rows NOT flagged effectively-inaccessible", _n_
 # script's own pre-existing precedent of already zeroing "Target HHs
 # (primary)" for a population-threshold-excluded cluster - not a new
 # asymmetry introduced by this change.
-STRATA_LEVEL_V9_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v11_FULL.csv"
+STRATA_LEVEL_V9_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v12_FULL.csv"
 TARGET_SAMPLE_REPRESENTATIVITY_CSV = PROJECT_DIR + r"\resampling\output\target_sample_representativity_last_run.csv"
 
 with open(STRATA_LEVEL_V9_FULL_CSV, encoding="utf-8") as f:
-    _strata_v11_rows = list(csv.DictReader(f))
+    _strata_v12_rows = list(csv.DictReader(f))
 
 strata_target_sample = {}
 strata_partners_covering = {}
 strata_lga_key = {}   # strata_id -> (adm1_name, adm2_name)
 strata_pop_type = {}
-for _r in _strata_v11_rows:
+for _r in _strata_v12_rows:
     sid = _r["strata_id"]
     if _r.get("coverage_status") == "covered" and _r.get("exclusion_reason") == "none":
         strata_target_sample[sid] = float(_r["target_sample"]) if _r.get("target_sample") not in (None, "", "NA") else 0.0
