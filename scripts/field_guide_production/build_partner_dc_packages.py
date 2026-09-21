@@ -1341,14 +1341,33 @@ def write_partner_workbook(partner_dir_path, partner_name, meta_rows, cluster_ro
     partner_strata_ids = partner_covered_strata_ids(partner_name)
     total_target = round(sum(strata_target_sample[sid] for sid in partner_strata_ids))
     total_achieved = sum(x["Achieved"] for x in cluster_rows)
-    total_remaining = max(0, total_target - total_achieved)
+    # FIX 2026-09-21 (Jack, caught live - the same bug shape was already
+    # in last night's partner status emails, which read this exact block
+    # verbatim): total_remaining used to be max(0, total_target -
+    # total_achieved), ONE subtraction after summing uncapped per-cluster
+    # Achieved across EVERY stratum this partner covers. Since the
+    # 2026-09-20/21 uncap, a cluster/stratum collected past its own target
+    # counts in full - correct at that grain - but summed like this, one
+    # oversampled stratum's surplus silently cancelled a different, still-
+    # short stratum's gap (a real interview in stratum A can never stand
+    # in for a household still needed in stratum B). Now: cap/floor at
+    # STRATUM grain first (the same per-stratum achieved_by_key the Strata
+    # Summary sheet already uses, so the headline and that sheet can't
+    # disagree), then sum. Identity by construction: total_credited +
+    # total_remaining == total_target. total_achieved stays raw/uncapped -
+    # still the honest "all real interviews" figure, shown alongside per
+    # Jack's "show both" decision, never replaced.
+    strata_rows = build_strata_summary_table(cluster_rows, partner_name)
+    total_credited = sum(min(s["Achieved"], s["Target (design)"]) for s in strata_rows)
+    total_remaining = sum(s["Still Needed"] for s in strata_rows)
     _strata_with_repr = [sid for sid in partner_strata_ids if sid in strata_target_repr]
     total_target_repr = round(sum(strata_target_repr[sid] for sid in _strata_with_repr)) if _strata_with_repr else None
     _n_strata_missing_repr = len(partner_strata_ids) - len(_strata_with_repr)
     achieved_in_inaccessible = sum(x["Achieved"] for x in inaccessible_rows)
     n_clusters_complete = sum(1 for x in cluster_rows if x["Collection Status"] == "Complete")
     n_clusters_not_started = sum(1 for x in active_rows if x["Collection Status"] == "Not started")
-    pct_complete = (total_achieved / total_target) if total_target else 0
+    pct_complete = (total_credited / total_target) if total_target else 0
+    pct_raw = (total_achieved / total_target) if total_target else 0
     ws_readme.cell(row=r, column=1, value="Where things stand right now").font = openpyxl.styles.Font(bold=True, size=12)
     r += 1
     headline_start = r
@@ -1356,9 +1375,11 @@ def write_partner_workbook(partner_dir_path, partner_name, meta_rows, cluster_ro
         ("Total target", total_target),
         ("Reference: target adjusted for current accessibility (not the headline Target - see note below)",
          total_target_repr if total_target_repr is not None else "n/a"),
-        ("Achieved so far (all real interviews, including any since become inaccessible)", total_achieved),
-        ("Still needed (Total target minus Achieved so far)", total_remaining),
-        ("% of target achieved", f"{pct_complete:.0%}"),
+        ("Achieved so far (all real interviews, including any since become inaccessible, including surplus beyond a stratum's own target)", total_achieved),
+        ("Credited toward target (Achieved capped at each LGA/population-group stratum's own target, then summed - surplus in one stratum never offsets another's gap)", total_credited),
+        ("Still needed (sum of each stratum's own remaining gap - see the Strata Summary sheet for the per-stratum breakdown)", total_remaining),
+        ("% of target achieved (credited)", f"{pct_complete:.0%}"),
+        ("% of target achieved (raw - all interviews incl. surplus / target, reference only)", f"{pct_raw:.0%}"),
         ("Clusters fully complete", f"{n_clusters_complete} of {len(cluster_rows)}"),
         ("Clusters not yet started (currently accessible)", n_clusters_not_started),
         ("Clusters currently inaccessible", len(inaccessible_rows)),

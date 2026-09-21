@@ -286,12 +286,38 @@ def realized_moe_certainty_aware(clusters, N_hh, m_used, pop_type, ICC=0.06, Z=1
     (misses MOS in [I, 2I) drawn once), so any residual error UNDERcounts
     certainty PSUs - i.e. overstates the Kish penalty, the conservative
     direction. Task 2 must use the same rule or the two MoEs diverge by a
-    small, known, conservative-direction amount."""
+    small, known, conservative-direction amount.
+
+    ADOPTED 2026-09-21 (same night, Jack's decision) to drive Feasibility/
+    Representativity verdicts, no longer parallel-only. Before switching,
+    a full national run surfaced 4 strata reading WORSE under this formula
+    than under realized_moe_unequal() - not one mechanism: idp_NG034021
+    (Wamako, CRS) and idp_NG032001 (CRS) are a single near-empty certainty
+    site's own SRS term dominating the stratum (n_i of 1 and 2 respectively
+    - Wamako's is an access-lost site stranding one interview; idp_NG032001
+    is its only cluster, period) - an artefact of trusting a tiny raw
+    sample's own SRS variance in isolation. idp_NG008023 (Mobbar, FHI 360)
+    and idp_NG034016 (DRC) are genuine: population concentrated in
+    certainty sites that weren't drawn proportionally to their size (Gsss
+    Camp Damasak is ~77% of Mobbar's stratum on a selection_count that
+    under-samples it) - Kish's pooled penalty was masking a real precision
+    problem there, not overstating one. CERTAINTY_MIN_N_I below fixes the
+    first shape (a certainty site needs a real minimum sample before its
+    own isolated SRS term is trusted; below it, the site is folded into the
+    pooled "sampled" bucket instead, same treatment a non-certainty cluster
+    of that size would get) without touching the second - a real
+    non-proportional-allocation problem should read as worse, not be
+    smoothed away. Confirmed both shapes empirically before choosing 3:
+    Wamako/idp_NG032001 (n_i 1, 2) needed demoting; Mobbar/idp_NG034016
+    (n_i 14, 12 per site) are nowhere near it and are unaffected."""
+    CERTAINTY_MIN_N_I = 3
     live = [c for c in clusters if c["n_primary_ceiling_contribution"] > 0]
     if not live or pop_type != "idp":
         return None
-    cert = [c for c in live if c.get("is_certainty") and c.get("households_in_cluster")]
-    samp = [c for c in live if c not in cert]
+    cert_all = [c for c in live if c.get("is_certainty") and c.get("households_in_cluster")]
+    cert = [c for c in cert_all if c["n_primary_ceiling_contribution"] >= CERTAINTY_MIN_N_I]
+    demoted = [c for c in cert_all if c["n_primary_ceiling_contribution"] < CERTAINTY_MIN_N_I]
+    samp = [c for c in live if c not in cert_all] + demoted
     N_cert = sum(c["households_in_cluster"] for c in cert)
     N_total = max(float(N_hh or 0), N_cert)
     if N_total <= 0 or not cert:
@@ -1000,8 +1026,21 @@ def main():
         # --- Feasibility: additional clusters needed to reach TARGET_MOE_PCT, and
         # whether the remaining accessible-unselected pool can actually supply them.
         # Driven by the primary-only achievable ceiling - see above.
+        #
+        # 2026-09-21: initial gate switched from moe_updated (rigorous only)
+        # to moe_certainty (certainty-PSU-aware where the restricted
+        # conditions apply, rigorous otherwise - see realized_moe_certainty_
+        # aware()'s docstring for the adoption decision and the n_i floor
+        # that fixed its two artefact cases). The half-cluster/additional-
+        # clusters-needed SEARCH below stays on the rigorous realized_moe_
+        # unequal() deliberately, not switched: a hypothetical future
+        # cluster is drawn from the remaining pool as an ordinary sampled
+        # PSU, never a certainty unit, so projecting it forward under the
+        # rigorous model is the methodologically correct choice, not an
+        # oversight. A stratum whose moe_certainty already clears the gate
+        # never reaches this search at all.
         pool = pool_non_idp.get(adm2_pcode, 0) if pop_type == "non_idp" else pool_idp.get(adm2_pcode, 0)
-        if moe_updated is not None and moe_updated <= TARGET_MOE_PCT:
+        if moe_certainty is not None and moe_certainty <= TARGET_MOE_PCT:
             feasibility = "Already at/under target"
             additional_clusters_needed = 0
         elif target_repr is None:
@@ -1111,8 +1150,8 @@ def main():
             "[UPDATED AREA] Achieved samples (real, post-deletion, progress-to-date)": real_achieved_accessible,
             "[UPDATED AREA] Achievable ceiling (primary+reserve, reference only - NOT the decision basis, see README)": capacity_ceiling_accessible,
             "Realized MoE % (full frame, existing)": s["realized_moe_pct"],
-            "Realized MoE % (updated area, at full completion of currently-assigned PRIMARY slots)": round(moe_updated, 2) if moe_updated is not None else "N/A (sample >= N_hh or 0 accessible)",
-            "Realized MoE % (certainty-PSU-aware, PARALLEL - not driving verdicts yet)": round(moe_certainty, 2) if moe_certainty is not None else "N/A",
+            "Realized MoE % (updated area, rigorous Kish formula, reference only since 2026-09-21)": round(moe_updated, 2) if moe_updated is not None else "N/A (sample >= N_hh or 0 accessible)",
+            "Realized MoE % (certainty-PSU-aware, DRIVES Feasibility/Representativity since 2026-09-21)": round(moe_certainty, 2) if moe_certainty is not None else "N/A",
             "Target sample (representativity, incl. 5% operational margin)": target_repr_display if target_repr_display is not None else "N/A",
             "Remaining eligible pool (accessible, unselected)": pool,
             f"Additional clusters needed for {TARGET_MOE_PCT:.0f}% MoE (at m={m_used})": additional_clusters_needed if additional_clusters_needed is not None else "N/A",
@@ -1136,20 +1175,25 @@ def main():
         else:
             status_label = f"{remaining_needed} more still needed"
         # 2026-09-21 (Jack, same night the Feasibility override bug was
-        # fixed): an explicit Representative/Indicative verdict per stratum,
-        # driven by the RIGOROUS moe_updated (Kish cluster-size-aware, at
-        # full completion of currently-assigned accessible primary slots) -
-        # the same figure that drives Feasibility, never the crude uniform-
-        # cluster target_repr. The 10% MoE threshold is the authoritative
+        # fixed; ADOPTED same day to switch the driving formula - see
+        # realized_moe_certainty_aware()'s docstring): an explicit
+        # Representative/Indicative verdict per stratum, driven by
+        # moe_certainty (certainty-PSU-aware where the restricted
+        # conditions apply - IDP-only, >=90% certainty coverage, non-empty
+        # sampled remainder, each certainty site's own realized n_i >= 3 -
+        # rigorous Kish figure otherwise), never the crude uniform-cluster
+        # target_repr. The 10% MoE threshold is the authoritative
         # representativity bar for this assessment: anything above it has to
         # be actively justified to donors as indicative. This sheet is the
         # live per-stratum record of that, regenerated every run, and is
         # what partner prioritisation (target the still-representative
         # strata first) should read from. Also persisted as a CSV - see
-        # main().
-        if moe_updated is None:
+        # main(). "Rigorous-only verdict (reference)" below shows what this
+        # would have read before the 2026-09-21 switch, for audit/comparison
+        # - never itself the authoritative figure.
+        if moe_certainty is None:
             representativity = "Not computable (accessible population too small)"
-        elif moe_updated <= TARGET_MOE_PCT:
+        elif moe_certainty <= TARGET_MOE_PCT:
             representativity = "Representative (<= 10% MoE at full completion)"
         elif feasibility.startswith("Closeable"):
             representativity = "Indicative now - RECOVERABLE via supplementary draw"
@@ -1157,16 +1201,21 @@ def main():
             representativity = "Indicative - NOT recoverable (pool insufficient), justify to donors"
         else:
             representativity = "Indicative now - gap negligible"
+        if moe_updated is None:
+            representativity_rigorous_only = "Not computable (accessible population too small)"
+        elif moe_updated <= TARGET_MOE_PCT:
+            representativity_rigorous_only = "Representative (<= 10% MoE at full completion)"
+        else:
+            representativity_rigorous_only = "Indicative (rigorous formula alone)"
         partner_reference_rows.append({
             "State": s["adm1_name"], "LGA": s["adm2_name"], "Pop type": "Non-IDP" if pop_type == "non_idp" else "IDP",
             "Strata ID": strata_id,
             "Partners covering": s["partners_covering"],
             "Representativity (10% MoE threshold)": representativity,
-            "Projected MoE % (rigorous, at full completion of assigned accessible slots)": round(moe_updated, 2) if moe_updated is not None else "N/A",
-            "Projected MoE % (certainty-PSU-aware, PARALLEL - not driving verdicts yet)": round(moe_certainty, 2) if moe_certainty is not None else "N/A",
-            "Certainty-PSU treatment applied": "Yes" if certainty_applied else "No - rigorous figure carried (IDP-only, >=90% certainty coverage, remainder must have interviews)",
-            "Would be Representative under certainty-PSU treatment": (
-                "Yes" if moe_certainty is not None and moe_certainty <= TARGET_MOE_PCT else ("No" if moe_certainty is not None else "N/A")),
+            "Projected MoE % (certainty-PSU-aware, DRIVES the verdict above)": round(moe_certainty, 2) if moe_certainty is not None else "N/A",
+            "Projected MoE % (rigorous Kish formula, reference only since 2026-09-21)": round(moe_updated, 2) if moe_updated is not None else "N/A",
+            "Certainty-PSU treatment applied": "Yes" if certainty_applied else "No - rigorous figure carried (IDP-only, >=90% certainty coverage, remainder must have interviews, each certainty site's own n_i >= 3)",
+            "Rigorous-only verdict (reference, pre-2026-09-21 basis)": representativity_rigorous_only,
             "Feasibility": feasibility,
             "Additional clusters needed": additional_clusters_needed if additional_clusters_needed is not None else "N/A",
             "Remaining eligible pool": pool,
@@ -1283,15 +1332,28 @@ def main():
     n_repr = sum(1 for r in partner_reference_rows if r["Representativity (10% MoE threshold)"].startswith("Representative"))
     n_recov = sum(1 for r in partner_reference_rows if "RECOVERABLE" in r["Representativity (10% MoE threshold)"])
     n_not = sum(1 for r in partner_reference_rows if "NOT recoverable" in r["Representativity (10% MoE threshold)"])
-    print(f"Representativity (10% MoE, rigorous): {n_repr} representative | {n_recov} indicative-but-recoverable | "
-          f"{n_not} indicative-not-recoverable | {len(partner_reference_rows) - n_repr - n_recov - n_not} other -> {repr_csv}")
+    print(f"Representativity (10% MoE, certainty-PSU-aware where applicable): {n_repr} representative | "
+          f"{n_recov} indicative-but-recoverable | {n_not} indicative-not-recoverable | "
+          f"{len(partner_reference_rows) - n_repr - n_recov - n_not} other -> {repr_csv}")
+    # 2026-09-21: certainty treatment now DRIVES the verdict above (Jack's
+    # go-ahead, same day) - this block reports the effect of that switch,
+    # not a "would be" hypothetical any more.
     n_applied = sum(1 for r in partner_reference_rows if r["Certainty-PSU treatment applied"] == "Yes")
-    n_flip = sum(1 for r in partner_reference_rows
-                 if r["Certainty-PSU treatment applied"] == "Yes"
-                 and r["Would be Representative under certainty-PSU treatment"] == "Yes"
-                 and not r["Representativity (10% MoE threshold)"].startswith("Representative"))
-    print(f"Certainty-PSU-aware (PARALLEL, restricted, not driving verdicts): treatment applied to {n_applied} strata; "
-          f"{n_flip} of those are Indicative under the rigorous formula but <= 10% under the certainty treatment.")
+    n_reclassified_up = sum(1 for r in partner_reference_rows
+                             if r["Certainty-PSU treatment applied"] == "Yes"
+                             and r["Representativity (10% MoE threshold)"].startswith("Representative")
+                             and not r["Rigorous-only verdict (reference, pre-2026-09-21 basis)"].startswith("Representative"))
+    n_worse = sum(1 for r in partner_reference_rows
+                  if r["Certainty-PSU treatment applied"] == "Yes"
+                  and r["Projected MoE % (certainty-PSU-aware, DRIVES the verdict above)"] != "N/A"
+                  and r["Projected MoE % (rigorous Kish formula, reference only since 2026-09-21)"] != "N/A"
+                  and r["Projected MoE % (certainty-PSU-aware, DRIVES the verdict above)"]
+                      > r["Projected MoE % (rigorous Kish formula, reference only since 2026-09-21)"])
+    print(f"Certainty-PSU-aware treatment applied to {n_applied} strata (ADOPTED 2026-09-21, now drives Feasibility/"
+          f"Representativity): {n_reclassified_up} reclassified Indicative -> Representative this run; "
+          f"{n_worse} read worse than the rigorous-only figure (expected - see realized_moe_certainty_aware()'s "
+          f"docstring for which of those are genuine non-proportional-allocation findings, e.g. Mobbar, vs already-"
+          f"fixed tiny-sample artefacts).")
     write_updated_frame(household_rows)
 
 
@@ -1468,17 +1530,26 @@ README_SECTIONS = [
     ]),
     ("Partner Reference sheet (new, 2026-09-13) - read this before using it in a partner conversation", "header", [
         "2026-09-21: this sheet now carries the per-stratum REPRESENTATIVITY VERDICT - 'Representativity "
-        "(10% MoE threshold)' - and the rigorous projected MoE behind it. The 10% MoE threshold is the "
+        "(10% MoE threshold)' - and the projected MoE behind it. The 10% MoE threshold is the "
         "authoritative representativity bar for this assessment: 'Representative' means the stratum "
         "reaches <= 10% MoE at full completion of its currently-assigned, currently-accessible primary "
-        "slots (Kish cluster-size-aware calculation, the same one that drives Feasibility); anything "
-        "else is 'Indicative', split into RECOVERABLE (a supplementary draw can bring it under 10%) vs "
-        "NOT recoverable (candidate pool insufficient - this is the set to actively justify to donors). "
-        "Use it for partner prioritisation: target the still-representative and recoverable strata "
-        "first. Regenerated every run; the same rows are also written to "
+        "slots; anything else is 'Indicative', split into RECOVERABLE (a supplementary draw can bring "
+        "it under 10%) vs NOT recoverable (candidate pool insufficient - this is the set to actively "
+        "justify to donors). Use it for partner prioritisation: target the still-representative and "
+        "recoverable strata first. Regenerated every run; the same rows are also written to "
         "strata_representativity_status.csv next to this workbook. Added the night the Feasibility "
         "column was found to have been silently overriding this very check on 155 of 307 strata - "
         "see 1_sampling/CLAUDE.md, Update 2026-09-20/21.",
+        "SAME DAY, LATER: the driving MoE formula switched from the rigorous Kish cluster-size-aware "
+        "figure alone to a certainty-PSU-aware model (Jack's decision, evidence: 38 of 307 strata "
+        "affected, 28 reclassify Indicative -> Representative, 4 read worse - 2 tiny-sample artefacts "
+        "now fixed via an n_i floor, 2 genuine non-proportional-allocation findings left standing on "
+        "purpose, e.g. Mobbar). 'Projected MoE % (certainty-PSU-aware, DRIVES the verdict above)' is "
+        "now the authoritative figure; the plain Kish figure is kept alongside as 'reference only', and "
+        "'Rigorous-only verdict (reference, pre-2026-09-21 basis)' shows what this sheet would have said "
+        "before the switch, for audit. See realized_moe_certainty_aware()'s own docstring (this script) "
+        "for the full model, its restrictions, and why a hypothetical future cluster is still projected "
+        "under the rigorous formula even though the current-state verdict uses the certainty-aware one.",
         "One row per stratum: partner(s), current accessible household population, the true target "
         "(representativity, with margin), REAL field-collected achieved count, remaining needed, and a "
         "plain-language status. Built for Jack's own use filtering this sheet himself in partner "
@@ -1660,7 +1731,7 @@ def write_readme(wb, summary_rows, min_submission_date, reporting_stats):
         key=lambda row: row["% of population remaining"],
     )[:15]
     snap_cols = ["State", "LGA", "Pop type", "% of population remaining", "% of area remaining",
-                 "% of clusters remaining", "Realized MoE % (updated area, at full completion of currently-assigned PRIMARY slots)", "Feasibility"]
+                 "% of clusters remaining", "Realized MoE % (certainty-PSU-aware, DRIVES Feasibility/Representativity since 2026-09-21)", "Feasibility"]
     header_row = r
     for c, col in enumerate(snap_cols, start=1):
         cell = readme.cell(row=header_row, column=c, value=col)
