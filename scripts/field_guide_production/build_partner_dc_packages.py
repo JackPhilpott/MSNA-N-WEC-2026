@@ -880,7 +880,16 @@ def non_idp_metadata_row(partner, state_name, lga_name, r):
 def idp_primary_metadata_row(partner, state_name, lga_name, cluster_id, r):
     cat = "In-camp" if r["idp_population_category"] == "idps in camp" else "In-host"
     target = int(r["target_households"]) if r["target_households"] not in (None, "", "NA") else 0
-    n_achieved = min(cluster_achieved_n.get(cluster_id, 0), target) if target else cluster_achieved_n.get(cluster_id, 0)
+    # 2026-09-21: was min(cluster_achieved_n, target) - the per-cluster
+    # oversampling cap. Removed per Jack's 2026-09-20 decision ("include ALL
+    # oversampled interviews in achieved counts, without inflating stratum
+    # target"), which had landed in 2_monitoring's compute_progress_by_stratum()
+    # but not in either of this project's two duplicated workbook generators -
+    # so every partner workbook was under-reporting Achieved against the
+    # dashboard and against frame_status.R's own achieved_sample. See the
+    # matching fix in refresh_partner_workbooks_daily.py; both must stay in
+    # step or the daily tier silently re-caps what this script just fixed.
+    n_achieved = cluster_achieved_n.get(cluster_id, 0)
     if target > 0 and n_achieved >= target:
         status = "Complete"
     elif _row_effectively_inaccessible(r):
@@ -980,13 +989,15 @@ def non_idp_cluster_summary_rows(state_name, lga_name, primary_rows, reserve_row
         cluster_inaccessible = len(accessible_primary) < NON_IDP_MIN_ACCESSIBLE_PRIMARY_HH or _cluster_overlay_excluded(cluster_id)
         target = 0 if cluster_inaccessible else len(accessible_primary)
         nominal_target = len(g["primary"])
-        # Achieved is capped at the NOMINAL (full-cluster) target, not the
-        # accessible-only one - real credit already earned must never be
-        # reduced just because the cap shrank (a fully-inaccessible
-        # cluster with historical achieved interviews must still show that
-        # credit, not 0 - see the header note above frame_rows_full on why
-        # this matters, 417 real interviews nationally).
-        achieved = min(n_achieved_exact, nominal_target) if nominal_target else n_achieved_exact
+        # Achieved is UNCAPPED (2026-09-21, Jack's 2026-09-20 oversampling
+        # decision - see idp_primary_metadata_row above). It was previously
+        # capped at the NOMINAL (full-cluster) target; that cap existed to stop
+        # a shrinking accessible-only target from erasing credit already
+        # earned, which uncapping achieves just as well and more simply - a
+        # fully-inaccessible cluster still shows its full historical credit
+        # (417 real interviews nationally), and an over-collected cluster now
+        # shows every interview actually done there.
+        achieved = n_achieved_exact
         any_r = g["primary"][0] if g["primary"] else g["reserve"][0]
         # 2026-09-14 fix (found by Coordinator tracing a ZOA "target/
         # achieved/still needed don't add up" question, independently
@@ -1009,17 +1020,18 @@ def non_idp_cluster_summary_rows(state_name, lga_name, primary_rows, reserve_row
         # stay internally consistent (a nonzero Still Needed next to a
         # Target that already equals Achieved would be its own new,
         # different inconsistency). Naturally floors to 0 whenever achieved
-        # (capped at nominal_target, can legitimately exceed the smaller
-        # accessible-only target for a straddling cluster) already covers
-        # the accessible target - resolves the exact "achieved can exceed
-        # target" case the 2026-09-05 per-point design was originally
-        # trying to sidestep, just via max(..., 0) instead of a parallel
-        # point-count mechanism.
+        # already covers the accessible target - resolves the exact
+        # "achieved can exceed target" case the 2026-09-05 per-point design
+        # was originally trying to sidestep, just via max(..., 0) instead of
+        # a parallel point-count mechanism. Since 2026-09-21 achieved is
+        # uncapped, so it exceeds target more often (every over-collected
+        # cluster) - the max(..., 0) floor is what keeps this correct, and is
+        # now load-bearing rather than a rare-edge-case guard.
         still_needed = 0 if cluster_inaccessible else max(target - achieved, 0)
-        # Status driven by still_needed (not achieved>=target) - achieved
-        # is capped at nominal_target and can exceed the smaller
-        # accessible-only target for a straddling cluster, so comparing
-        # achieved against target directly would be ambiguous there.
+        # Status driven by still_needed (not achieved>=target) - achieved is
+        # uncapped and can exceed this row's accessible-only target (a
+        # straddling or over-collected cluster), so comparing achieved
+        # against target directly would be ambiguous here.
         if cluster_inaccessible:
             status = "Inaccessible"
         elif still_needed == 0 and target > 0:
@@ -1059,10 +1071,11 @@ def idp_cluster_summary_row(state_name, lga_name, cluster_id, r):
     reserve_n = int(r["reserve_households"]) if r["reserve_households"] not in (None, "", "NA") else 0
     collected = cluster_collected_n.get(cluster_id, 0)
     n_achieved = cluster_achieved_n.get(cluster_id, 0)
-    # Achieved is always capped at the NOMINAL target - real credit already
-    # earned is never reduced just because the site later became
-    # inaccessible (same principle as the Non-IDP side).
-    achieved = min(n_achieved, nominal_target) if nominal_target else n_achieved
+    # Achieved is UNCAPPED (2026-09-21, same change and same reasoning as the
+    # Non-IDP side above and idp_primary_metadata_row) - real credit already
+    # earned is never reduced, and an over-collected site now shows every
+    # interview actually done there rather than stopping at its own target.
+    achieved = n_achieved
     # IDP sites are single-point (a DTM GPS location, not a hexagon) - no
     # straddling-ward/partial-accessibility or accessible-household-COUNT
     # threshold concept applies here (that's Non-IDP-only, see
@@ -1117,7 +1130,7 @@ README_FIELD_NOTES = [
 
 CLUSTER_SUMMARY_FIELD_NOTES = [
     ("Collected", "Every real interview matched to this cluster so far, uncapped - includes any surplus beyond target (see 'Still Needed' - if this is 0 while Collected keeps growing, that cluster is oversampled; further visits there don't help your remaining total)."),
-    ("Achieved", "Collected, capped at this cluster's own target - what actually counts toward finishing it. Matches the dashboard's own definition. Kept in full even for a cluster now marked Inaccessible - real completed work isn't erased by the area becoming unreachable afterward."),
+    ("Achieved", "Every real interview here that counts toward the assessment - completed, matched to this cluster, not a duplicate and not confirmed for deletion. Uncapped: where a cluster was over-collected, all of those interviews are counted, so this can exceed the cluster's own target. Matches the monitoring dashboard's own definition. Kept in full even for a cluster now marked Inaccessible - real completed work isn't erased by the area becoming unreachable afterward."),
     ("Still Needed", "Target minus Achieved, floored at 0 - EXCEPT for a cluster marked Inaccessible, where this is always 0 regardless of the gap: you are not being asked to go back there right now, however far from target it is."),
     ("Collection Status = Inaccessible", "This cluster's ward is currently flagged as not safely reachable. It's excluded from the 'Needs Collecting' sheet, but its Achieved/Collected figures still count in full. Note: the README headline's 'Total target' is now the frozen, stratum-level target_sample figure (2026-09-16) - it does not vary with any individual cluster's accessibility, so an Inaccessible cluster here does not change the headline Target the way it used to; only Achieved/Still-needed at that headline level move."),
 ]

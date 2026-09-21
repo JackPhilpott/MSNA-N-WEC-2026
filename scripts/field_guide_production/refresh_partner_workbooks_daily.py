@@ -468,7 +468,12 @@ def non_idp_metadata_row(partner, state_name, lga_name, r):
 def idp_primary_metadata_row(partner, state_name, lga_name, cluster_id, r):
     cat = "In-camp" if r["idp_population_category"] == "idps in camp" else "In-host"
     target = int(r["target_households"]) if r["target_households"] not in (None, "", "NA") else 0
-    n_achieved = min(cluster_achieved_n.get(cluster_id, 0), target) if target else cluster_achieved_n.get(cluster_id, 0)
+    # 2026-09-21: oversampling cap removed - see the matching fix and full
+    # reasoning in build_partner_dc_packages.py (Jack's 2026-09-20 decision).
+    # These two scripts duplicate this logic by convention; they must be
+    # changed together or the daily tier silently re-caps every workbook the
+    # push tier just corrected.
+    n_achieved = cluster_achieved_n.get(cluster_id, 0)
     if target > 0 and n_achieved >= target:
         status = "Complete"
     elif _row_effectively_inaccessible(r):
@@ -527,7 +532,8 @@ def non_idp_cluster_summary_rows(state_name, lga_name, primary_rows, reserve_row
         cluster_inaccessible = len(accessible_primary) < NON_IDP_MIN_ACCESSIBLE_PRIMARY_HH
         target = 0 if cluster_inaccessible else len(accessible_primary)
         nominal_target = len(g["primary"])
-        achieved = min(n_achieved_exact, nominal_target) if nominal_target else n_achieved_exact
+        # 2026-09-21: uncapped, same change as build_partner_dc_packages.py.
+        achieved = n_achieved_exact
         any_r = g["primary"][0] if g["primary"] else g["reserve"][0]
         # 2026-09-14 fix - same bug and same fix as build_partner_dc_
         # packages.py's identical formula (see that script's own detailed
@@ -564,7 +570,8 @@ def idp_cluster_summary_row(state_name, lga_name, cluster_id, r):
     reserve_n = int(r["reserve_households"]) if r["reserve_households"] not in (None, "", "NA") else 0
     collected = cluster_collected_n.get(cluster_id, 0)
     n_achieved = cluster_achieved_n.get(cluster_id, 0)
-    achieved = min(n_achieved, nominal_target) if nominal_target else n_achieved
+    # 2026-09-21: uncapped, same change as build_partner_dc_packages.py.
+    achieved = n_achieved
     inaccessible = _row_effectively_inaccessible(r)
     target = 0 if inaccessible else nominal_target
     if not inaccessible and target > 0 and achieved >= target:
@@ -607,7 +614,7 @@ README_FIELD_NOTES = [
 
 CLUSTER_SUMMARY_FIELD_NOTES = [
     ("Collected", "Every real interview matched to this cluster so far, uncapped - includes any surplus beyond target (see 'Still Needed' - if this is 0 while Collected keeps growing, that cluster is oversampled; further visits there don't help your remaining total)."),
-    ("Achieved", "Collected, capped at this cluster's own target - what actually counts toward finishing it. Matches the dashboard's own definition. Kept in full even for a cluster now marked Inaccessible - real completed work isn't erased by the area becoming unreachable afterward."),
+    ("Achieved", "Every real interview here that counts toward the assessment - completed, matched to this cluster, not a duplicate and not confirmed for deletion. Uncapped: where a cluster was over-collected, all of those interviews are counted, so this can exceed the cluster's own target. Matches the monitoring dashboard's own definition. Kept in full even for a cluster now marked Inaccessible - real completed work isn't erased by the area becoming unreachable afterward."),
     ("Still Needed", "Target minus Achieved, floored at 0 - EXCEPT for a cluster marked Inaccessible, where this is always 0 regardless of the gap: you are not being asked to go back there right now, however far from target it is."),
     ("Collection Status = Inaccessible", "This cluster's ward is currently flagged as not safely reachable. It's excluded from the 'Needs Collecting' sheet, but its Achieved/Collected figures still count in full. Note: the README headline's 'Total target' is now the frozen, stratum-level target_sample figure (2026-09-16) - it does not vary with any individual cluster's accessibility, so an Inaccessible cluster here does not change the headline Target the way it used to; only Achieved/Still-needed at that headline level move."),
 ]
