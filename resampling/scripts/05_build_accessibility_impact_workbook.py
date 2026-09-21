@@ -742,14 +742,19 @@ def build_cluster_level(household_rows, provenance_lookup, cluster_status_lookup
     return out
 
 
-def load_collected_samples():
+def load_collected_samples(exclude_cluster_ids=frozenset()):
     """matched_strata_id -> collected count (completed, not quality-flagged).
     Also matched_cluster_id -> collected count, for the accessible-area-only
     figure. Also returns the earliest submission_date in the file, for the
     README's data-recency note - computed from the real data every run
-    rather than hardcoded, so it can't go stale."""
+    rather than hardcoded, so it can't go stale.
+    2026-09-21: exclude_cluster_ids = MSNA Light clusters. They share their
+    design stratum's strata_id, so without this their interviews counted
+    toward the Full Design stratum - against Jack's 2026-09-11 rule. See
+    main()'s MSNA Light note."""
     rows = load_csv(REAL_SUBMISSIONS_CSV)
-    clean = [r for r in rows if r["interview_outcome"] == "completed" and r["any_quality_flag"] == "FALSE"]
+    clean = [r for r in rows if r["interview_outcome"] == "completed" and r["any_quality_flag"] == "FALSE"
+             and r.get("matched_cluster_id") not in exclude_cluster_ids]
     by_strata = defaultdict(int)
     by_cluster = defaultdict(int)
     for r in clean:
@@ -760,8 +765,11 @@ def load_collected_samples():
     return by_strata, by_cluster, min_date
 
 
-def load_real_achieved():
-    """TRUE achieved sample per matched_cluster_id/matched_strata_id - the
+def load_real_achieved(exclude_cluster_ids=frozenset()):
+    """2026-09-21: exclude_cluster_ids = MSNA Light clusters, same reason as
+    load_collected_samples() - see main()'s MSNA Light note.
+
+    TRUE achieved sample per matched_cluster_id/matched_strata_id - the
     resampling-decision figure, added 2026-08-29 per Jack's own explicit
     formula (2_monitoring is the single source of truth for this, don't
     re-derive it differently):
@@ -823,6 +831,7 @@ def load_real_achieved():
             r["interview_outcome"] == "completed"
             and r["matched_survey_id"] not in (None, "", "NA")
             and r["submission_uuid"] not in deletion_uuids
+            and r.get("matched_cluster_id") not in exclude_cluster_ids
         )
 
     achieved = [r for r in rows if is_achieved(r)]
@@ -850,10 +859,27 @@ def main():
     cluster_rows = build_cluster_level(household_rows, provenance_lookup, cluster_status_lookup)
     cluster_by_id = {c["cluster_id"]: c for c in cluster_rows}
 
+    # 2026-09-21 (Jack): MSNA Light never counts toward a Full Design stratum.
+    # MSNA Light clusters (the government-negotiated, disclosed-only sample in
+    # Abadam, Nganzai and Guzamala, 2026-09-11) share their design stratum's
+    # strata_id, and until now this script had no MSNA Light handling at all -
+    # so their clusters sat in the Full Design ceiling and MoE, and their
+    # interviews in collected/achieved. That was the whole of Abadam Non-IDP's
+    # "Representative 8.79%" (it has no Full Design cluster with sample) and
+    # took Nganzai Non-IDP from 12.45% to 7.37%. Found by the fixed drop
+    # rule's safety check, which recomputes every stratum's MoE the
+    # frame_status.R way (MSNA Light already excluded there and in both
+    # partner-workbook generators) and refused to run on a mismatch. MSNA
+    # Light clusters stay in the row-level outputs; they're only kept out of
+    # per-stratum figures.
+    msna_light_cluster_ids = frozenset(
+        r["cluster_id"] for r in household_rows if r.get("sampling_method") == "MSNA Light")
+    print(f"Excluding {len(msna_light_cluster_ids)} MSNA Light cluster(s) from every Full Design stratum figure.")
+
     print("Loading real submissions (collected samples)...")
-    collected_by_strata, collected_by_cluster, min_submission_date = load_collected_samples()
+    collected_by_strata, collected_by_cluster, min_submission_date = load_collected_samples(msna_light_cluster_ids)
     print("Loading real achieved samples for resampling decisions (canonical formula + deletion log)...")
-    real_achieved_by_strata, real_achieved_by_cluster = load_real_achieved()
+    real_achieved_by_strata, real_achieved_by_cluster = load_real_achieved(msna_light_cluster_ids)
 
     # 2026-09-14 gap found via a Jack question, not an audit: this pool CSV
     # (analysis_remaining_eligible_pool.R's own output) had gone stale
@@ -886,6 +912,8 @@ def main():
 
     strata_clusters = defaultdict(list)
     for c in cluster_rows:
+        if c["cluster_id"] in msna_light_cluster_ids:  # see the MSNA Light note above
+            continue
         strata_clusters[c["strata_id"]].append(c)
 
     last_run_targets = load_last_run_targets()

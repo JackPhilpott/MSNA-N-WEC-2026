@@ -5393,6 +5393,51 @@ written. **The daily tier is safe to run again.** Task 5 drops themselves
 are a separate, still-open question (18 still-accessible dropped clusters
 in 10 non-Representative strata; reinstating them makes 7 Representative).
 
+**Task 2: reinstating dropped clusters, fixing the drop rule, and an MSNA
+Light leak in the verdicts (2026-09-21 evening, Jack's go at each step).**
+- *Reinstatement.* The Task 5 excess-capacity rule (2026-09-13/14) dropped 76
+  clusters by comparing completed-cluster achieved against
+  target_sample_representativity - the equal-cluster formula, the same
+  understatement as the Feasibility bug - and nothing ever revisited them.
+  18 were still accessible and unstarted in 10 strata that were not
+  representative. Jack reinstated all 18 (FACT 13, NRC 4, IRC 1; 138
+  households): removed from `target_correction_dropped_clusters.csv`
+  (archived first) and logged in `target_correction_reinstated_clusters.csv`.
+  After WORKING refresh + 05 rebuild, 8 of the 10 are Representative, the
+  record matching the projections to the hundredth: Demsa IDP 10.29->8.89 and
+  Bakura IDP 11.50->9.78 left the donor-justification list; Kaita IDP, Gwoza,
+  Lamurde, Konduga (non_idp_NG008016_supp6) and Tsafe Non-IDP followed; and
+  Tureta IDP went Representative under the certainty rule (7.19%) because
+  its reinstated cluster lifted certainty-site coverage from 89.7% to 100%.
+  Still indicative: Shinkafi IDP (10.31), Binji IDP (not computable).
+  Packages rebuilt: reconciliation PASS 19/19, all 18 on to-do lists.
+- *Drop rule fixed, never run live.* `compute_target_correction_drops.R` now
+  drops a not-started cluster only if the stratum stays <= 9.5% on the
+  verdict MoE without it (Jack chose 9.5% over 10% after a preview: 10%
+  would have proposed 105 drops, 9.5% proposes 24, 9.0% proposes 4). It
+  skips certainty-treatment strata rather than copying that logic into R,
+  and refuses to run unless its recomputed MoE matches the representativity
+  record for every stratum (allowing for the record's integer-rounded N;
+  a stratum computable on one side only is a mismatch). `--dry-run <dir>`
+  writes nowhere live. Current dry run: 270/270 agree, 24 proposed drops,
+  none of them reinstated clusters.
+- *MSNA Light was propping up two Full Design verdicts.* That safety check
+  first matched only 268/270: 05 had no MSNA Light handling, so MSNA Light
+  clusters sat in their design stratum's ceiling and MoE, and their
+  interviews in collected/achieved - against Jack's 2026-09-11 rule, which
+  frame_status.R and both workbook generators already follow. Abadam
+  Non-IDP's "Representative 8.79%" rested entirely on MSNA Light (no Full
+  Design cluster with sample); Nganzai Non-IDP read 7.37% instead of 12.45%.
+  Fixed in 05 (Jack: fix now): MSNA Light excluded from the per-stratum
+  cluster grouping and from per-stratum collected/achieved; row-level
+  outputs unchanged. Diff of the record before/after: exactly those two
+  strata changed, none elsewhere. Abadam -> not computable; Nganzai ->
+  Indicative, recoverable via a supplementary draw. Caveat for the donor
+  note: 05's label for any stratum without an MoE says "accessible
+  population too small", which is untrue for Abadam (973 accessible hh) -
+  its real reason is no Full Design sample. The dashboard's matching MSNA
+  Light leak is still open (Task 4).
+
 **Jack's calls, afternoon of 2026-09-21** (relayed by Coordinator, and
 consistent with his direct instructions in-session): he pushes to GitHub
 himself; headline "Still needed" stays stratum-based (no reconciliation to
