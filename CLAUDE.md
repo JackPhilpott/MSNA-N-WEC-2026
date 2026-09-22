@@ -5765,3 +5765,58 @@ National: 254 Representative (255 before the flips).
 **Not done (Jack: later):** partner packages for Street Child and NRC, the
 returned-report append of the 8 new clusters, guides, and a classification
 page refresh. Madagali Non-IDP and Jere are new entries for it.
+
+## Update 2026-09-21i — late-evening wrap: partner-report cleanup, v12 bump completed in git, guides finished
+
+Jack's checklist, agreed explicitly before he went to bed, run unattended
+with the Coordinator verifying throughout.
+
+**Partner accessibility reports (all 19), a SharePoint/OneDrive sync
+artifact, not any script here.** Found while investigating why 5 files
+showed changed with no edit of mine: every returned report carries a
+13-entry `[trash]/*.dat` + `customXml/*` set - SharePoint document-library
+metadata plus Excel repair residue. Verified before touching anything:
+customXml was legitimately declared (not dangling), `[trash]/*.dat` was
+referenced nowhere and held only null-padded bytes, every real worksheet
+byte-identical to a clean baseline. 7 files restored straight from clean
+git history; the other 11 had it already committed, so cleaned by targeted
+zip surgery with a before/after row-count check on every file (`3c10fb2`,
+`one_off_analyses/strip_trash_customxml_2026-09-21.py`). It recurred twice
+more overnight on 7 of the 19 (same pattern, zero real diffs both times) -
+external to anything run here, safe to just restore from git each time it
+shows up; not chasing the root cause further tonight.
+
+**v11 -> v12 bump - the git commit was incomplete, disk was not.** `5512a1d`'s
+`git add` path list covered `resampling/scripts` fully but only 2 of 9
+sed-touched files under `scripts/field_guide_production`, and missed
+`scripts/methodology_maps` and `scripts/partner_coverage` entirely - every
+script had already run correctly against v12 all evening (the disk was
+right), only git's history disagreed with it. Completed in `eb07cfb`, same
+substitution, nothing else changed.
+
+**Full 19-partner package rebuild, twice.** First right after the v12 bump
+(reconciliation FAIL - 9 of 19, all one direction: workbook says Achieved,
+KML/WORKING still lists the point outstanding). Traced, not assumed: Monitoring's
+dashboard-deploy re-ran `prep_real_submissions.R` at 23:31-23:34, after my
+last WORKING refresh (23:03:54) - the workbook step reads
+`real_submissions.csv` fresh at build time, KML is sourced from WORKING,
+built earlier. Nobody's code wrong, a genuine two-session race. Confirmed
+with Monitoring the file was stable, re-ran WORKING refresh + 05 + the full
+package build: reconciliation PASS 19/19.
+
+**Field guides, resumed and finished** (stopped earlier on Jack's "not a
+priority right now"): cluster maps 35 new pairs rendered, 0 errors; LGA
+summary maps all 166 rendered, 0 failed; factsheets 2,374 built, 2,406
+copies distributed, 0 missing, 0 failed - matches the sweep's own
+in-scope count exactly.
+
+**Donor note drafted**, not sent: `resampling/output/donor_representativity_note_2026-09-21.html`,
+private page. 254 representative / 36 not recoverable (grouped by reason,
+with the real per-stratum tables) / 17 within half a cluster. Binji and
+the certainty-PSU design-declaration note both carried into it as open
+items, not resolved here.
+
+**Handed to the Coordinator's sweep as the authoritative final check** -
+not duplicated here. Their two script edits (Strata Summary "Last
+Collection Date" column + a real NA-date-outranking-real-dates bug fix,
+both files) land in the next commit bundle alongside this entry.
