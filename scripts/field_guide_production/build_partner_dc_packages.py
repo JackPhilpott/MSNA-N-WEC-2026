@@ -649,12 +649,31 @@ def _is_collected(r):
     return r.get("interview_outcome") == "completed"
 
 
+# 2026-09-21 fix: submission_date can be the literal string "NA" (4 NRC rows
+# when found - no start time recorded, deletion still pending so they still
+# count). Compared as plain strings "NA" > "2026-..." so it won every
+# latest-date comparison below and displayed as the cluster's Last
+# Collection Date over a real date (3 NRC clusters were showing "NA").
+# _real_date() ranks anything that isn't an ISO date BELOW every real date
+# and is what every date shown to a partner goes through. The stored value
+# itself is deliberately left as-is: achieved_date_by_survey_id's
+# truthiness is also the Non-IDP achieved test (the achieved_dates filter
+# in non_idp_cluster_summary_rows), so an NA-dated interview must stay
+# counted - it just never gets shown as a date. Mirrored in
+# refresh_partner_workbooks_daily.py - keep both in step.
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _real_date(d):
+    return d if d and _ISO_DATE_RE.match(d) else ""
+
+
 achieved_date_by_survey_id = {}
 for r in real_subs:
     if r.get("pop_type") == "non_idp" and _is_achieved(r):
         sid = r["matched_survey_id"]
         d = r.get("submission_date") or ""
-        if sid not in achieved_date_by_survey_id or d > achieved_date_by_survey_id[sid]:
+        if sid not in achieved_date_by_survey_id or _real_date(d) > _real_date(achieved_date_by_survey_id[sid]):
             achieved_date_by_survey_id[sid] = d
 print(f"Non-IDP achieved survey_ids (exact join): {len(achieved_date_by_survey_id)}")
 
@@ -668,7 +687,7 @@ for r in real_subs:
     if _is_collected(r):
         cluster_collected_n[cid] += 1
         d = r.get("submission_date") or ""
-        if cid not in cluster_last_date or d > cluster_last_date[cid]:
+        if cid not in cluster_last_date or _real_date(d) > _real_date(cluster_last_date[cid]):
             cluster_last_date[cid] = d
     if _is_achieved(r):
         cluster_achieved_n[cid] += 1
@@ -867,7 +886,7 @@ def non_idp_metadata_row(partner, state_name, lga_name, r):
         "Latitude": r["latitude"], "Longitude": r["longitude"],
         "Building ID": r["building_id"], "Building Confidence": r["confidence"],
         "Achieved": "Yes" if date is not None else "No",
-        "Date Collected": date or "",
+        "Date Collected": _real_date(date),
         "Collection Status": collection_status,
     }
 
@@ -902,7 +921,7 @@ def idp_primary_metadata_row(partner, state_name, lga_name, cluster_id, r):
         "Site Radius (m)": r["site_radius_m"],
         "Target HHs (primary)": r["target_households"], "Reserve HHs": r["reserve_households"],
         "Achieved": f"{n_achieved} of {target}",
-        "Date Collected": cluster_last_date.get(cluster_id, ""),
+        "Date Collected": _real_date(cluster_last_date.get(cluster_id, "")),
         "Collection Status": status,
     }
 
@@ -1052,7 +1071,7 @@ def non_idp_cluster_summary_rows(state_name, lga_name, primary_rows, reserve_row
             "Collected": collected, "Achieved": achieved, "Still Needed": still_needed,
             "% Achieved": (achieved / target) if target else None,
             "Collection Status": status,
-            "Last Collection Date": max(achieved_dates) if achieved_dates else "",
+            "Last Collection Date": max((_real_date(d) for d in achieved_dates), default=""),
         })
     return out
 
@@ -1110,7 +1129,7 @@ def idp_cluster_summary_row(state_name, lga_name, cluster_id, r):
         "Collected": collected, "Achieved": achieved, "Still Needed": 0 if inaccessible else max(nominal_target - achieved, 0),
         "% Achieved": (achieved / target) if target else None,
         "Collection Status": status,
-        "Last Collection Date": cluster_last_date.get(cluster_id, ""),
+        "Last Collection Date": _real_date(cluster_last_date.get(cluster_id, "")),
     }
 
 
@@ -1233,7 +1252,7 @@ def build_partner_summary_table(meta_rows, partner_name):
 
 STRATA_SUMMARY_COLUMNS = [
     "State", "LGA", "Population Type", "Target (design)", "Achieved", "Still Needed",
-    "% Achieved", "Reference: target adjusted for accessibility",
+    "% Achieved", "Last Collection Date", "Reference: target adjusted for accessibility",
 ]
 
 
@@ -1256,10 +1275,25 @@ def build_strata_summary_table(cluster_rows, partner_name):
     # reproduce the exact bug the 2026-09-21 partner status emails were
     # caught and fixed for (a displayed Still Needed computed against a
     # different Target than the one shown next to it).
+    #
+    # Last Collection Date (2026-09-21, Jack: "show which was the last time
+    # their field team collected in that strata"): the latest of this
+    # stratum's own Cluster Summary "Last Collection Date" values - rolled
+    # up from the same rows as Achieved, so the two sheets can never
+    # disagree (Non-IDP = latest achieved interview, IDP = latest completed
+    # one; checked 2026-09-21, the two definitions give the same stratum
+    # date in all 161 Non-IDP strata with data). In a SHARED LGA it is the
+    # latest interview by ANY covering partner's team - the same basis as
+    # Achieved and this workbook's shared-LGA convention (see the Decision C
+    # note above TWO_TARGET_FIGURES_NOTE); 3 strata when added, all IRC/LHI
+    # (Tangaza x2, Zuru), each collected by only one of the two so far.
     achieved_by_key = defaultdict(int)
+    last_date_by_key = defaultdict(str)
     for row in cluster_rows:
         pt_norm = "non_idp" if row["Population Type"] == "Non-IDP" else "idp"
-        achieved_by_key[(row["State"], row["LGA"], pt_norm)] += row["Achieved"]
+        key = (row["State"], row["LGA"], pt_norm)
+        achieved_by_key[key] += row["Achieved"]
+        last_date_by_key[key] = max(last_date_by_key[key], row.get("Last Collection Date") or "")
 
     out = []
     for sid in partner_covered_strata_ids(partner_name):
@@ -1274,6 +1308,7 @@ def build_strata_summary_table(cluster_rows, partner_name):
             "Population Type": "Non-IDP" if pop_type == "non_idp" else "IDP",
             "Target (design)": target, "Achieved": achieved, "Still Needed": still_needed,
             "% Achieved": (achieved / target) if target else None,
+            "Last Collection Date": last_date_by_key.get((state, lga, pop_type), ""),
             "Reference: target adjusted for accessibility": round(target_repr) if target_repr is not None else "n/a",
         })
     # Sorted for prioritisation - biggest remaining gap first, so the
@@ -1304,7 +1339,7 @@ def write_partner_workbook(partner_dir_path, partner_name, meta_rows, cluster_ro
     r += 1
     ws_readme.cell(row=r, column=1, value=f"Last refreshed: {datetime.datetime.now().strftime('%d %b %Y %H:%M')} - regenerated regularly against your team's actual submitted interviews. If this looks out of date, ask your IMPACT focal point for a fresh copy.").font = openpyxl.styles.Font(italic=True, color="808080")
     r += 2
-    ws_readme.cell(row=r, column=1, value="Every GPS sampling point assigned to this partner, across all covered LGAs, with live achieved status. 'Strata Summary' = one row per LGA/population type - start HERE if you're deciding which LGA to prioritise this week. 'Sampling Points' = every point, done or not. 'Available to Collect' = just what's still outstanding - a straight to-do list, but with far more rows than 'Strata Summary' since it's point-level. 'Cluster Summary' = one row per cluster (target/achieved/still needed) - the middle ground between the two. This sheet gives definitions and a per-LGA target-sample summary.").font = openpyxl.styles.Font(italic=True)
+    ws_readme.cell(row=r, column=1, value="Every GPS sampling point assigned to this partner, across all covered LGAs, with live achieved status. 'Strata Summary' = one row per LGA/population type - start HERE if you're deciding which LGA to prioritise this week; its 'Last Collection Date' is the most recent interview counted in that stratum (in an LGA shared with another partner, by either partner's team). 'Sampling Points' = every point, done or not. 'Available to Collect' = just what's still outstanding - a straight to-do list, but with far more rows than 'Strata Summary' since it's point-level. 'Cluster Summary' = one row per cluster (target/achieved/still needed) - the middle ground between the two. This sheet gives definitions and a per-LGA target-sample summary.").font = openpyxl.styles.Font(italic=True)
     r += 2
 
     # ---- headline block (2026-09-05, REVISED 2026-09-16 per Decision A):
