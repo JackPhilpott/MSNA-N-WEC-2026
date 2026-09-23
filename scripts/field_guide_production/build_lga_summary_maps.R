@@ -65,7 +65,7 @@ nga_wards <- sf::st_read(
 # 2026-09-01 and predates the v7-v11 resampling rounds entirely. Repointed
 # to the v11 consolidated build (scripts/one_off_analyses/build_consolidated_
 # selected_clusters_2026-09-21.R).
-selected_clusters <- readRDS(here::here("output", "gis", "selected_clusters_v12_current.rds"))
+selected_clusters <- readRDS(here::here("output", "gis", "selected_clusters_v13_current.rds"))
 
 hex_polygons <- hex_access %>%
   st_make_valid() %>%
@@ -74,7 +74,7 @@ hex_polygons <- hex_access %>%
   distinct(uuid_hex, .keep_all = TRUE) %>%
   select(uuid_hex)
 
-full_strata <- read_csv(here::here(output_dir, "data", "data_collection", "NGA_MSNA_2026_strata_level_sampling_frame_v12_FULL.csv"), show_col_types = FALSE)
+full_strata <- read_csv(here::here(output_dir, "data", "data_collection", "NGA_MSNA_2026_strata_level_sampling_frame_v13_FULL.csv"), show_col_types = FALSE)
 working_pairs <- full_strata %>%
   filter(coverage_status == "covered", exclusion_reason == "none") %>%
   distinct(adm2_pcode, pop_type)

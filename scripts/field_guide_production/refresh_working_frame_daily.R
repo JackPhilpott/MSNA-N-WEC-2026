@@ -132,10 +132,11 @@ source("scripts/shared/frame_status.R")
 source("scripts/shared/log_pipeline_change.R")
 
 SF_DIR <- "output/data/data_collection"
-FULL_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v12_FULL.csv")
-WORKING_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v12_WORKING.csv")
-STRATA_WORKING_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v12_WORKING.csv")
-CLUSTER_STATUS_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_cluster_status_v12.csv")
+FULL_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v13_FULL.csv")
+WORKING_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v13_WORKING.csv")
+STRATA_FULL_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v13_FULL.csv")
+STRATA_WORKING_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v13_WORKING.csv")
+CLUSTER_STATUS_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_cluster_status_v13.csv")
 # CORRECTED 2026-09-08: was hardcoded to the dashboard_app/data/ mirror,
 # which only refreshes on a full deploy_dashboard.R run - flagged repeatedly
 # during the 2026-09-07 incident review as a real, live staleness risk
@@ -184,6 +185,7 @@ log_msg("=== WORKING frame refresh: %s ===", format(Sys.time()))
 log_msg("Real-submissions source: %s (modified %s)", REAL_SUBMISSIONS_CSV, format(file.info(REAL_SUBMISSIONS_CSV)$mtime))
 
 full_df <- read_csv(FULL_CSV, show_col_types = FALSE, col_types = cols(.default = "c"))
+full_sl <- read_csv(STRATA_FULL_CSV, show_col_types = FALSE, col_types = cols(.default = "c"))
 subs <- read_csv(REAL_SUBMISSIONS_CSV, show_col_types = FALSE, col_types = cols(.default = "c"))
 
 # ---- canonical is_achieved(), mirrored from 2_monitoring/dashboard_app/
@@ -429,6 +431,57 @@ strata_working_new <- strata_working_old %>%
     }, strata_id, achieved_sample, N_hh, ICC)
   ) %>%
   select(-achieved_clusters_new, -achieved_sample_new)
+
+# 2026-09-22 (R6 gap, found via Guzamala): the left_join above can only ever
+# REFRESH a stratum already present in strata_working_old - it can't add one.
+# That's correct for the routine case this script was built for (ward
+# status/submissions moving day to day, universe of covered strata fixed),
+# but R6 reinstated Guzamala (excluded -> covered in FULL) via a one-off
+# frame patch, and strata-level WORKING only ever contains covered strata by
+# construction - so its row for Guzamala simply didn't exist yet for the
+# join to refresh. Same gap would hit any future stratum un-excluded this
+# way. Fix: any stratum covered in strata-level FULL but missing from
+# strata_working_new is seeded straight from its FULL row (FULL's own
+# target_sample/N_hh/etc. ARE current for a stratum that's never been through
+# the "recalibrate separately" batching this script otherwise defers to,
+# since it has no prior WORKING figure to preserve), then gets the same
+# achieved-figure computation as every other row.
+strata_full_covered <- full_sl %>%
+  filter(coverage_status == "covered", exclusion_reason %in% c("none", "", NA)) %>%
+  mutate(across(c(N_hh, m_used, ICC, target_sample), as.numeric))
+newly_covered_ids <- setdiff(strata_full_covered$strata_id, strata_working_new$strata_id)
+if (length(newly_covered_ids) > 0) {
+  log_msg("Strata newly covered in FULL but not yet present in strata-level WORKING - adding: %s",
+          paste(newly_covered_ids, collapse = ", "))
+  newly_covered_rows <- strata_full_covered %>%
+    filter(strata_id %in% newly_covered_ids) %>%
+    select(-any_of(c("achieved_clusters", "achieved_sample", "realized_moe_pct"))) %>%
+    select(any_of(names(strata_working_new))) %>%
+    left_join(strata_result$agg, by = "strata_id") %>%
+    mutate(
+      achieved_clusters = coalesce(achieved_clusters, 0L),
+      achieved_sample = coalesce(achieved_sample, 0L),
+      realized_moe_pct = mapply(function(strata_id, achieved_sample, N_hh, ICC) {
+        if (!(achieved_sample > 0 & achieved_sample < N_hh)) return(NA_real_)
+        sizes <- cluster_size_vecs[[strata_id]]
+        if (is.null(sizes)) return(NA_real_)
+        100 * realized_moe_unequal(achieved_sample, N_hh, sizes, ICC)
+      }, strata_id, achieved_sample, N_hh, ICC)
+    )
+  strata_working_new <- bind_rows(strata_working_new, newly_covered_rows)
+}
+
+# sampling_method is a live design-basis tag (which method a stratum
+# currently uses), not one of the deliberately-frozen "recalibrate
+# separately" figures above - it must always mirror FULL's current value,
+# same as achieved_clusters/achieved_sample. Found stale for exactly this
+# reason (R6): non_idp_NG008001/NG008026 were tagged "MSNA Light" in FULL by
+# apply_r6_msna_light_frame_changes_2026-09-22.R, but the join above never
+# touches this column, so it silently kept reading "MSNA Full Design" here
+# until now.
+strata_working_new <- strata_working_new %>%
+  select(-any_of("sampling_method")) %>%
+  left_join(strata_full_covered %>% select(strata_id, sampling_method), by = "strata_id")
 
 n_strata_changed <- sum(strata_working_old$achieved_sample != strata_working_new$achieved_sample, na.rm = TRUE)
 still_over_target <- strata_working_new %>% filter(achieved_sample > target_sample)

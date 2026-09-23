@@ -78,8 +78,8 @@ SAMPLING_DIR = PROJECT_DIR + r"\1_sampling"
 # round. Filtered below to coverage_status=="covered" & exclusion_reason
 # =="none" to still exclude population-floor/certainty-excluded strata,
 # which genuinely shouldn't reappear here.
-STRATA_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v12_FULL.csv"
-HOUSEHOLD_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v12_FULL.csv"
+STRATA_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v13_FULL.csv"
+HOUSEHOLD_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v13_FULL.csv"
 # 2026-09-13 (Task 1, target-inflation-fix batch): the single source of truth
 # for "how many of this cluster's primary rows are actually accessible" -
 # written by frame_status.R's compute_cluster_status(), which applies the
@@ -88,13 +88,13 @@ HOUSEHOLD_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stag
 # which disagreed with this file for every straddling/below-threshold
 # cluster - see project memory project_resampling_target_inflation_fix_
 # 2026-09-13 for the before/after.
-CLUSTER_STATUS_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_cluster_status_v12.csv"
+CLUSTER_STATUS_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_cluster_status_v13.csv"
 # Task 4 (2026-09-13): the STOP-mode gate's own baseline - each run's
 # target_sample_representativity per stratum, compared against THIS run's.
 # Not part of the workbook itself (an .xlsx is for humans to read/annotate,
 # not a reliable round-trip source for a plausibility gate) - a small,
 # dedicated, single-purpose tracking file, same pattern as _frame_
-# version.txt/NGA_MSNA_2026_cluster_status_v12.csv elsewhere in this project.
+# version.txt/NGA_MSNA_2026_cluster_status_v13.csv elsewhere in this project.
 TARGET_REPR_LAST_RUN_CSV = SAMPLING_DIR + r"\resampling\output\target_sample_representativity_last_run.csv"
 MASTER_WARD_CSV = SAMPLING_DIR + r"\resampling\output\master_accessibility_status_ward_level.csv"
 GIS_WARD_CSV = SAMPLING_DIR + r"\resampling\output\gis\accessible_area_lga_ward_portions.csv"
@@ -156,7 +156,7 @@ TARGET_MOE_PCT = 10.0
 
 OUT_DIR = SAMPLING_DIR + r"\resampling\output"
 WORKBOOK_PATH = OUT_DIR + r"\NGA_MSNA_2026_accessibility_impact_workbook.xlsx"
-UPDATED_FRAME_CSV = OUT_DIR + r"\NGA_MSNA_2026_stage2_sampling_frame_v12_WORKING_with_accessibility.csv"
+UPDATED_FRAME_CSV = OUT_DIR + r"\NGA_MSNA_2026_stage2_sampling_frame_v13_WORKING_with_accessibility.csv"
 
 
 def _to_int(v):
@@ -779,19 +779,17 @@ def build_cluster_level(household_rows, provenance_lookup, cluster_status_lookup
     return out
 
 
-def load_collected_samples(exclude_cluster_ids=frozenset()):
+def load_collected_samples():
     """matched_strata_id -> collected count (completed, not quality-flagged).
     Also matched_cluster_id -> collected count, for the accessible-area-only
     figure. Also returns the earliest submission_date in the file, for the
     README's data-recency note - computed from the real data every run
     rather than hardcoded, so it can't go stale.
-    2026-09-21: exclude_cluster_ids = MSNA Light clusters. They share their
-    design stratum's strata_id, so without this their interviews counted
-    toward the Full Design stratum - against Jack's 2026-09-11 rule. See
-    main()'s MSNA Light note."""
+    2026-09-22 (R6): counts MSNA Light interviews same as Full Design - see
+    main()'s R6 note. Briefly (2026-09-21 to 2026-09-22) took an
+    exclude_cluster_ids param to strip MSNA Light clusters out; reversed."""
     rows = load_csv(REAL_SUBMISSIONS_CSV)
-    clean = [r for r in rows if r["interview_outcome"] == "completed" and r["any_quality_flag"] == "FALSE"
-             and r.get("matched_cluster_id") not in exclude_cluster_ids]
+    clean = [r for r in rows if r["interview_outcome"] == "completed" and r["any_quality_flag"] == "FALSE"]
     by_strata = defaultdict(int)
     by_cluster = defaultdict(int)
     for r in clean:
@@ -802,9 +800,11 @@ def load_collected_samples(exclude_cluster_ids=frozenset()):
     return by_strata, by_cluster, min_date
 
 
-def load_real_achieved(exclude_cluster_ids=frozenset()):
-    """2026-09-21: exclude_cluster_ids = MSNA Light clusters, same reason as
-    load_collected_samples() - see main()'s MSNA Light note.
+def load_real_achieved():
+    """2026-09-22 (R6): counts MSNA Light interviews same as Full Design -
+    see main()'s R6 note and load_collected_samples() above. Briefly
+    (2026-09-21 to 2026-09-22) took an exclude_cluster_ids param to strip
+    MSNA Light clusters out; reversed.
 
     TRUE achieved sample per matched_cluster_id/matched_strata_id - the
     resampling-decision figure, added 2026-08-29 per Jack's own explicit
@@ -868,7 +868,6 @@ def load_real_achieved(exclude_cluster_ids=frozenset()):
             r["interview_outcome"] == "completed"
             and r["matched_survey_id"] not in (None, "", "NA")
             and r["submission_uuid"] not in deletion_uuids
-            and r.get("matched_cluster_id") not in exclude_cluster_ids
         )
 
     achieved = [r for r in rows if is_achieved(r)]
@@ -896,27 +895,22 @@ def main():
     cluster_rows = build_cluster_level(household_rows, provenance_lookup, cluster_status_lookup)
     cluster_by_id = {c["cluster_id"]: c for c in cluster_rows}
 
-    # 2026-09-21 (Jack): MSNA Light never counts toward a Full Design stratum.
-    # MSNA Light clusters (the government-negotiated, disclosed-only sample in
-    # Abadam, Nganzai and Guzamala, 2026-09-11) share their design stratum's
-    # strata_id, and until now this script had no MSNA Light handling at all -
-    # so their clusters sat in the Full Design ceiling and MoE, and their
-    # interviews in collected/achieved. That was the whole of Abadam Non-IDP's
-    # "Representative 8.79%" (it has no Full Design cluster with sample) and
-    # took Nganzai Non-IDP from 12.45% to 7.37%. Found by the fixed drop
-    # rule's safety check, which recomputes every stratum's MoE the
-    # frame_status.R way (MSNA Light already excluded there and in both
-    # partner-workbook generators) and refused to run on a mismatch. MSNA
-    # Light clusters stay in the row-level outputs; they're only kept out of
-    # per-stratum figures.
-    msna_light_cluster_ids = frozenset(
-        r["cluster_id"] for r in household_rows if r.get("sampling_method") == "MSNA Light")
-    print(f"Excluding {len(msna_light_cluster_ids)} MSNA Light cluster(s) from every Full Design stratum figure.")
-
+    # 2026-09-22 (R6, Jack approved directly, INTERSOS-triggered review):
+    # reverses the 2026-09-21 rule below. MSNA Light now counts everywhere,
+    # same as Full Design - the exclusion inverted the actual policy need:
+    # Abadam/Nganzai/Guzamala's MSNA Light interviews are real collected
+    # sample and belong in their stratum's achieved/MoE/representativity,
+    # not stripped out of it. Guzamala is reinstated as covered (frame-level
+    # change, see apply_r6_msna_light_frame_changes_2026-09-22.R) precisely
+    # because its population is now counted this way. The 2026-09-21 note
+    # this replaces: "MSNA Light never counts toward a Full Design stratum"
+    # - that was Jack's rule for one day, now superseded; kept here only as
+    # history since frame_status.R and the partner-workbook generators moved
+    # the same day and the reasoning trail is otherwise lost.
     print("Loading real submissions (collected samples)...")
-    collected_by_strata, collected_by_cluster, min_submission_date = load_collected_samples(msna_light_cluster_ids)
+    collected_by_strata, collected_by_cluster, min_submission_date = load_collected_samples()
     print("Loading real achieved samples for resampling decisions (canonical formula + deletion log)...")
-    real_achieved_by_strata, real_achieved_by_cluster = load_real_achieved(msna_light_cluster_ids)
+    real_achieved_by_strata, real_achieved_by_cluster = load_real_achieved()
 
     # 2026-09-14 gap found via a Jack question, not an audit: this pool CSV
     # (analysis_remaining_eligible_pool.R's own output) had gone stale
@@ -949,8 +943,6 @@ def main():
 
     strata_clusters = defaultdict(list)
     for c in cluster_rows:
-        if c["cluster_id"] in msna_light_cluster_ids:  # see the MSNA Light note above
-            continue
         strata_clusters[c["strata_id"]].append(c)
 
     last_run_targets = load_last_run_targets()
@@ -1272,12 +1264,16 @@ def main():
         # would have read before the 2026-09-21 switch, for audit/comparison
         # - never itself the authoritative figure.
         # 2026-09-21 (Jack, Task 3 review): a stratum with NO Full Design
-        # sample in the accessible area (primary ceiling 0 - e.g. Abadam
-        # Non-IDP, whose only interviews are MSNA Light, which never counts
-        # toward Full Design figures) is not computable for that reason, not
-        # because its population is small - label it as such so the record
-        # and the donor note give the same reason. Still starts with "Not
-        # computable" so every existing startswith() read keeps working.
+        # sample in the accessible area (primary ceiling 0) is not
+        # computable for that reason, not because its population is small -
+        # label it as such so the record and the donor note give the same
+        # reason. Still starts with "Not computable" so every existing
+        # startswith() read keeps working.
+        # 2026-09-22 (R6): this branch's original trigger example - Abadam
+        # Non-IDP, whose only interviews were MSNA Light - no longer applies;
+        # MSNA Light now counts toward Full Design figures (see main()'s R6
+        # note), so a stratum only lands here now if it genuinely has zero
+        # accessible Full Design sample of any kind.
         not_computable_label = (
             "Not computable (no Full Design sample in the accessible area)"
             if primary_ceiling_accessible == 0
@@ -1619,8 +1615,9 @@ README_SECTIONS = [
         "because the route adds interviews, not clusters. Verdict: 'RECOVERABLE via extra interviews at a "
         "certainty site'.",
         "'Not computable (no Full Design sample in the accessible area)' (2026-09-21): the stratum's "
-        "Full Design achievable ceiling is 0 - e.g. its only interviews are MSNA Light, which never count "
-        "toward Full Design figures. Distinct from 'accessible population too small'.",
+        "Full Design achievable ceiling is 0. Distinct from 'accessible population too small'. (2026-09-22, "
+        "R6: MSNA Light now counts toward Full Design figures same as any other interview, so this no longer "
+        "covers an MSNA-Light-only stratum - only a genuinely zero-sample one.)",
         "A standing STOP-mode check runs every time this script runs: a stratum's target_sample_"
         "representativity must never increase from the previous run UNLESS that stratum's own accessible "
         "population (N_hh_accessible) increased too (see target_sample_representativity_last_run.csv, which "

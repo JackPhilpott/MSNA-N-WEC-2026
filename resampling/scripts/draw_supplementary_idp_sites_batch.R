@@ -83,7 +83,7 @@ shortfalls_idp_raw <- read_csv(SHORTFALLS_IDP_CSV, show_col_types = FALSE)
 # assert_fresh() would catch) can otherwise waste a real draw on a stratum
 # that's since left the sampling universe entirely.
 strata_frame_current_idp <- read_csv(
-  "output/data/data_collection/NGA_MSNA_2026_strata_level_sampling_frame_v12_WORKING.csv",
+  "output/data/data_collection/NGA_MSNA_2026_strata_level_sampling_frame_v13_WORKING.csv",
   show_col_types = FALSE, col_types = cols(.default = "c")
 )
 still_covered_strata_ids_idp <- strata_frame_current_idp$strata_id
@@ -98,6 +98,19 @@ if (any(now_excluded_idp)) {
           sum(now_excluded_idp), paste(shortfalls_idp_id_col[now_excluded_idp], collapse = ", "))
 }
 shortfalls_idp_raw <- shortfalls_idp_raw[!now_excluded_idp, ]
+shortfalls_idp_id_col <- shortfalls_idp_id_col[!now_excluded_idp]
+
+# 2026-09-22 (R6): same MSNA Light guard as draw_supplementary_clusters_
+# batch.R - self-derives from the WORKING frame's own sampling_method
+# column (no IDP stratum is MSNA Light today, but this is generic, not a
+# hardcoded 3-LGA/Non-IDP-only list, so it holds if that ever changes).
+light_strata_ids_idp <- strata_frame_current_idp$strata_id[strata_frame_current_idp$sampling_method == "MSNA Light"]
+now_light_idp <- shortfalls_idp_id_col %in% light_strata_ids_idp
+if (any(now_light_idp)) {
+  log_msg("  WARNING: %d IDP shortfall row(s) reference a stratum now sampling_method == 'MSNA Light' (no further Full Design supplementary draws, R6) - dropping from this draw: %s",
+          sum(now_light_idp), paste(shortfalls_idp_id_col[now_light_idp], collapse = ", "))
+}
+shortfalls_idp_raw <- shortfalls_idp_raw[!now_light_idp, ]
 
 shortfalls <- shortfalls_idp_raw %>%
   transmute(adm2_pcode = adm2_pcode, households_needed = additional_clusters_needed * 6)
@@ -110,7 +123,7 @@ log_msg("%d stratum/strata in shortfalls, %d total households needed.", nrow(sho
 # uses the same site-identity logic as select_stage2_idp_sites()'s own
 # 30m dedup radius - a live cluster's GPS point within 30m of a candidate
 # site is the same physical site already fielded.
-full <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v12_FULL.csv", show_col_types = FALSE, col_types = cols(.default = "c")) %>%
+full <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v13_FULL.csv", show_col_types = FALSE, col_types = cols(.default = "c")) %>%
   filter(pop_type == "idp") %>%
   mutate(latitude = as.numeric(latitude), longitude = as.numeric(longitude)) %>%
   distinct(cluster_id, latitude, longitude)

@@ -29,7 +29,7 @@
 # specific LGA+Ward combination, so there's no free-floating ward-name join
 # anywhere that could cross-contaminate another partner's area.
 #
-# Reads: output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v12_WORKING.csv
+# Reads: output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v13_WORKING.csv
 # - the same per-household delivered frame build_partner_dc_packages.py reads,
 # which already carries a resolved `partners_covering` column (comma-separated
 # for multi-partner LGAs, e.g. "DRC, IRC, LHI") and per-row ward attribution
@@ -83,8 +83,8 @@ DATE_REPORTED_MIN = date(2026, 7, 1)
 DATE_REPORTED_FORMAT = "dd-mmm-yyyy"  # unambiguous regardless of the partner's locale (e.g. "27-Aug-2026")
 
 PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling"
-STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v12_WORKING.csv"
-STAGE2_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v12_FULL.csv"
+STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v13_WORKING.csv"
+STAGE2_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v13_FULL.csv"
 GIS_WARD_UNIVERSE_CSV = PROJECT_DIR + r"\resampling\output\gis\accessible_area_lga_ward_portions.csv"
 OUT_DIR = PROJECT_DIR + r"\resampling\input\accessibility_reports_generated"
 REQUESTS_LOG_CSV = PROJECT_DIR + r"\resampling\output\resampling_requests_log.csv"

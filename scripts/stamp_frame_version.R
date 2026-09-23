@@ -44,8 +44,8 @@ stamp_file <- function(path) {
   )
 }
 
-working_csv <- file.path(DATA_COLLECTION_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v12_WORKING.csv")
-strata_csv <- file.path(DATA_COLLECTION_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v12_WORKING.csv")
+working_csv <- file.path(DATA_COLLECTION_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v13_WORKING.csv")
+strata_csv <- file.path(DATA_COLLECTION_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v13_WORKING.csv")
 stopifnot(file.exists(working_csv), file.exists(strata_csv))
 
 working_stamp <- stamp_file(working_csv)
@@ -145,8 +145,8 @@ if (length(stray_backups) > 0) {
 # exists to keep consistent, so there's nothing left for the sweep above to
 # ever need to catch going forward.
 archive_before_fix <- function(reason, files = c(
-  file.path(DATA_COLLECTION_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v12_WORKING.csv"),
-  file.path(DATA_COLLECTION_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v12_WORKING.csv")
+  file.path(DATA_COLLECTION_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v13_WORKING.csv"),
+  file.path(DATA_COLLECTION_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v13_WORKING.csv")
 )) {
   reason_clean <- tolower(gsub("[^A-Za-z0-9]+", "_", reason))
   dest_dir <- file.path(DATA_COLLECTION_DIR, "_archive", paste0(format(Sys.Date(), "%Y-%m-%d"), "_", reason_clean))

@@ -39,8 +39,26 @@ s$additional_num <- suppressWarnings(as.numeric(s$Additional.clusters.needed.for
 # sub()'s `pattern` argument does not vectorize per-row (only pattern[1] is
 # ever used) - stripping a per-row-varying prefix needs one fixed pattern
 # per branch (via ifelse), not a pattern built from a column.
+# 2026-09-22 (R6): a stratum whose CURRENT sampling_method is "MSNA Light"
+# (Abadam/Nganzai/Guzamala today - self-derives from the strata-level frame's
+# own column, not a hardcoded LGA list) never enters a shortfall list -
+# Jack's explicit R6 decision that these LGAs get no further Full Design
+# supplementary draws, now covered by the government-negotiated Light
+# design instead. The workbook's own Strata Level sheet has no sampling_
+# method column, so this joins against the strata-level WORKING frame
+# directly - same source draw_supplementary_clusters_batch.R /
+# draw_supplementary_idp_sites_batch.R re-validate against right before a
+# real draw (belt-and-suspenders: this is the earlier catch, that's the
+# last one, regardless of how the shortfalls CSV was generated).
+strata_sampling_method <- read_csv(
+  "output/data/data_collection/NGA_MSNA_2026_strata_level_sampling_frame_v13_WORKING.csv",
+  show_col_types = FALSE, col_types = cols(.default = "c")
+) %>% select(strata_id, sampling_method)
+s <- s %>% left_join(strata_sampling_method, by = c("Strata.ID" = "strata_id"))
+
 partner_rows <- s %>%
-  filter(grepl(PARTNER, Partners.covering, fixed = TRUE), !is.na(additional_num), additional_num > 0) %>%
+  filter(grepl(PARTNER, Partners.covering, fixed = TRUE), !is.na(additional_num), additional_num > 0,
+         is.na(sampling_method) | sampling_method != "MSNA Light") %>%
   transmute(
     strata_id = Strata.ID,
     pop_type = ifelse(Pop.type == "IDP", "idp", "non_idp"),

@@ -262,28 +262,29 @@ compute_cluster_accessibility <- function(full_df, non_idp_min_accessible_primar
 #'   filter_ward_accessible = TRUE  (WORKING): ward-accessible + above-
 #'     threshold rows, PLUS stranded-achieved credit for now-excluded rows
 #'     that already have a real completed interview (so the shortfall never
-#'     double-asks for work already done), MINUS sampling_method rows in
-#'     `exclude_sampling_methods` (MSNA Light etc. - government-negotiated,
-#'     unverifiable collection that must never blend into a stratum's
-#'     normal design-capacity figure).
+#'     double-asks for work already done).
 #'   filter_ward_accessible = FALSE (FULL): every primary row ever drawn for
 #'     the stratum, completely unfiltered - FULL is the complete historical
-#'     record regardless of current accessibility AND regardless of
-#'     sampling_method (an MSNA Light row genuinely was drawn; FULL doesn't
-#'     distinguish sampling methods, only WORKING's operational figure does).
+#'     record regardless of current accessibility.
+#'
+#' 2026-09-22 (R6, Jack approved directly): MSNA Light now counts toward
+#' strata-level achieved_clusters/achieved_sample same as Full Design -
+#' this function used to strip sampling_method %in% exclude_sampling_methods
+#' (default "MSNA Light") out of the WORKING-mode figure; that exclusion and
+#' its parameter are removed. See 05_build_accessibility_impact_workbook.py's
+#' main() for the fuller R6 note (same policy, same day, mirrored here since
+#' this is the one shared - not duplicated - copy of the aggregation logic).
 #'
 #' @param full_df household-level FULL (or FULL+staged-new-rows) frame.
 #' @param achieved_lookup from compute_achieved_lookup().
 #' @param accessibility from compute_cluster_accessibility() - required only
 #'   when filter_ward_accessible = TRUE.
 #' @param filter_ward_accessible see above.
-#' @param exclude_sampling_methods character vector of sampling_method
-#'   values to exclude from the WORKING-mode figure. Default "MSNA Light".
 #' @return list(agg = tibble(strata_id, achieved_clusters, achieved_sample),
 #'   cluster_sizes = tibble(strata_id, cluster_id, n) for Task 4's
 #'   distribution-aware DEFF, stranded_rows)
 compute_strata_achieved <- function(full_df, achieved_lookup, accessibility = NULL,
-                                     filter_ward_accessible, exclude_sampling_methods = "MSNA Light") {
+                                     filter_ward_accessible) {
   if (!filter_ward_accessible) {
     eligible <- full_df %>% filter(status == "primary")
     agg <- eligible %>% group_by(strata_id) %>%
@@ -299,8 +300,6 @@ compute_strata_achieved <- function(full_df, achieved_lookup, accessibility = NU
   cluster_overlay_excluded <- accessibility$cluster_overlay_excluded
   target_correction_dropped <- accessibility$target_correction_dropped
 
-  not_msna_light <- function(df) df %>% filter(is.na(sampling_method) | !(sampling_method %in% exclude_sampling_methods))
-
   excluded_primary <- covered %>%
     filter(status == "primary") %>%
     filter(
@@ -308,8 +307,7 @@ compute_strata_achieved <- function(full_df, achieved_lookup, accessibility = NU
       (pop_type == "non_idp" & cluster_id %in% below_threshold_clusters) |
       (cluster_id %in% cluster_overlay_excluded) |
       (cluster_id %in% target_correction_dropped)
-    ) %>%
-    not_msna_light()
+    )
 
   stranded_non_idp <- excluded_primary %>% filter(pop_type == "non_idp", survey_id %in% achieved_lookup$non_idp_survey_ids)
 
@@ -331,7 +329,7 @@ compute_strata_achieved <- function(full_df, achieved_lookup, accessibility = NU
   stranded_rows <- bind_rows(stranded_non_idp, stranded_idp)
 
   eligible <- bind_rows(
-    covered_accessible %>% filter(status == "primary") %>% not_msna_light(),
+    covered_accessible %>% filter(status == "primary"),
     stranded_rows
   )
   agg <- eligible %>% group_by(strata_id) %>%

@@ -6,7 +6,7 @@
 # Reads:
 #   - input_data/boundaries/partner_coverage/Partnerscoverage.xlsx (which
 #     partner(s) cover which LGA - wide format, one column per partner)
-#   - output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v12_WORKING.csv
+#   - output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v13_WORKING.csv
 #     (household-level sampling frame, already restricted to covered LGAs)
 #   - output/data/data_collection/idp_camp_backup_points.csv (re-delineated
 #     backup GPS point for the 15 flagged large in-camp sites)
@@ -123,8 +123,8 @@ if os.path.exists(_LOCKED_FALLBACK_COPY):
         f"{_copy_age_s / 60:.0f}-minute-old fallback copy instead: {_LOCKED_FALLBACK_COPY}"
     )
     COVERAGE_XLSX = _LOCKED_FALLBACK_COPY
-STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v12_WORKING.csv"
-STAGE2_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v12_FULL.csv"
+STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v13_WORKING.csv"
+STAGE2_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v13_FULL.csv"
 # 2026-09-08 fix: was pointed at dashboard_app/data/ - the BUNDLED MIRROR
 # that only updates as a side effect of a full dashboard deploy, not the
 # canonical daily-refreshed source. Same bug class already found and fixed
@@ -438,6 +438,25 @@ frame_rows_full_msna_light = [r for r in frame_rows_full_all if _is_msna_light(r
 print(f"Loaded {len(frame_rows_full_all)} household-level rows (FULL, covered-or-population-threshold-excluded - drives workbook sheets): "
       f"{len(frame_rows_full)} MSNA Full Design, {len(frame_rows_full_msna_light)} MSNA Light (kept separate).")
 
+# 2026-09-22 (Jack, INTERSOS-triggered review, Task R5 - "-31" FACT item
+# finally closed): partner totals (README headline) must exclude a
+# population-threshold-excluded stratum ENTIRELY, target AND achieved.
+# _in_scope_row() deliberately ADMITS these rows so their real achieved
+# credit still shows on Cluster Summary/Available to Collect (see that
+# function's own comment) - correct there, but that same admission was
+# leaking a dropped stratum's real interviews into the PARTNER-LEVEL
+# total_achieved sum with no offsetting target (target_sample is 0 for an
+# excluded stratum), silently inflating a partner's % achieved. Self-
+# deriving from coverage_status/exclusion_reason, not a hardcoded stratum
+# list - correctly empties out once a stratum like Guzamala is reinstated
+# (Task R6, same night).
+POPULATION_THRESHOLD_EXCLUDED_STRATA = {
+    r["strata_id"] for r in frame_rows_full_all if _population_threshold_excluded_stratum_row(r)
+}
+CLUSTER_ID_TO_STRATA_ID = {r["cluster_id"]: r["strata_id"] for r in frame_rows_full_all}
+print(f"{len(POPULATION_THRESHOLD_EXCLUDED_STRATA)} population-threshold-excluded (dropped) stratum/strata - "
+      f"excluded from every partner-level total (README headline), per Jack's 2026-09-22 decision.")
+
 rows_by_pcode_full = defaultdict(list)
 for r in frame_rows_full:
     rows_by_pcode_full[r["adm2_pcode"]].append(r)
@@ -564,17 +583,17 @@ assert_plausible("unmatched-ward rows NOT flagged effectively-inaccessible", _n_
 # script's own pre-existing precedent of already zeroing "Target HHs
 # (primary)" for a population-threshold-excluded cluster - not a new
 # asymmetry introduced by this change.
-STRATA_LEVEL_V9_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v12_FULL.csv"
+STRATA_LEVEL_V9_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v13_FULL.csv"
 TARGET_SAMPLE_REPRESENTATIVITY_CSV = PROJECT_DIR + r"\resampling\output\target_sample_representativity_last_run.csv"
 
 with open(STRATA_LEVEL_V9_FULL_CSV, encoding="utf-8") as f:
-    _strata_v12_rows = list(csv.DictReader(f))
+    _strata_v13_rows = list(csv.DictReader(f))
 
 strata_target_sample = {}
 strata_partners_covering = {}
 strata_lga_key = {}   # strata_id -> (adm1_name, adm2_name)
 strata_pop_type = {}
-for _r in _strata_v12_rows:
+for _r in _strata_v13_rows:
     sid = _r["strata_id"]
     if _r.get("coverage_status") == "covered" and _r.get("exclusion_reason") == "none":
         strata_target_sample[sid] = float(_r["target_sample"]) if _r.get("target_sample") not in (None, "", "NA") else 0.0
@@ -927,6 +946,14 @@ def idp_primary_metadata_row(partner, state_name, lga_name, cluster_id, r):
 
 
 def idp_tier2_metadata_row(partner, state_name, lga_name, cluster_id, r, backup_row):
+    # 2026-09-22 (Coordinator found, Jack: every row should carry some
+    # status): unlike non_idp_metadata_row/idp_primary_metadata_row above,
+    # this never set "Collection Status" at all, so it wrote blank for
+    # every IDP Tier 2 backup point (75 rows/16 partners, checked directly).
+    # A Tier 2 point is never an independent collection target - it's a
+    # backup only used if a Tier 1 primary is infeasible - so it gets a
+    # fixed, explicitly non-target label rather than Complete/Partial/Not
+    # started, which would misleadingly imply it's something to track.
     return {
         "Partner": partner, "Point Type": "IDP Tier 2 backup point",
         "State": state_name, "LGA": lga_name, "Ward (GRID3)": r["adm3_name"], "Ward (OCHA/COD)": cod_ward_value(r),
@@ -934,12 +961,21 @@ def idp_tier2_metadata_row(partner, state_name, lga_name, cluster_id, r, backup_
         "Latitude": backup_row["backup_gps_lat"], "Longitude": backup_row["backup_gps_lon"],
         "IOM Site Name": r["iom_site_name"], "IOM Site Type": r["iom_site_type"],
         "Notes": backup_row["extent_source_note"],
+        "Collection Status": "Backup - only if Tier 1 infeasible",
     }
 
 
+# 2026-09-22 (Jack, Task R3): this column renamed from "Still Needed" to
+# "Open at this cluster" - it's the CLUSTER's own remaining gap against its
+# accessible-only target, which sums to MORE than a stratum's real "Still
+# Needed" (INTERSOS: 406 here vs the aligned 367 at stratum grain) since
+# several clusters can each show open slots even after the stratum overall
+# has met its target elsewhere. That name collision was half of why the
+# Excel looked wrong against the dashboard. "Still Needed" is now reserved
+# for the Strata Summary sheet's own (correct, aligned) figure only.
 CLUSTER_SUMMARY_COLUMNS = [
     "Cluster ID", "Population Type", "State", "LGA", "Ward (GRID3)", "Ward (OCHA/COD)",
-    "Target HHs (primary)", "Reserve HHs", "Collected", "Achieved", "Still Needed",
+    "Target HHs (primary)", "Reserve HHs", "Collected", "Achieved", "Open at this cluster",
     "% Achieved", "Collection Status", "Last Collection Date",
 ]
 
@@ -967,6 +1003,21 @@ def non_idp_cluster_summary_rows(state_name, lga_name, primary_rows, reserve_row
         # partner reading "Collected" should get what the column promises.
         n_achieved_exact = len(achieved_dates)
         collected = max(cluster_collected_n.get(cluster_id, 0), n_achieved_exact)
+        # 2026-09-22 (Jack, INTERSOS-triggered review, Task R1): Achieved
+        # below now reads cluster_achieved_n directly - a real per-INTERVIEW
+        # count from real_submissions.csv (every completed, matched,
+        # non-deleted row, uncapped) - not n_achieved_exact, which is
+        # len(achieved_dates), a per-POINT count (achieved_date_by_survey_id
+        # keeps only the latest date per survey_id, so two interviews at the
+        # same household point were counted once). Same figure the dashboard
+        # itself already uses (global.R's achieved_n, matched_cluster_id
+        # count) - this is what "Achieved and Still needed must be
+        # IDENTICAL between the workbook and the dashboard" required.
+        # Verified live: INTERSOS's own 26-interview gap was exactly this.
+        # n_achieved_exact/achieved_dates are kept, unchanged, for Last
+        # Collection Date and the per-household Yes/No on Sampling Points
+        # (non_idp_metadata_row) - Jack: "keep the per-household Yes/No as-
+        # is", so only THIS cluster-grain figure changes.
         # Cluster-level accessibility (2026-09-05): a Non-IDP hexagon can
         # straddle two wards with different status (verified, 221 clusters
         # do) - individual rows already carry their own correct per-row
@@ -1011,7 +1062,7 @@ def non_idp_cluster_summary_rows(state_name, lga_name, primary_rows, reserve_row
         # fully-inaccessible cluster still shows its full historical credit
         # (417 real interviews nationally), and an over-collected cluster now
         # shows every interview actually done there.
-        achieved = n_achieved_exact
+        achieved = cluster_achieved_n.get(cluster_id, 0)
         # 2026-09-21 fix (Jack's non_idp_NG036003_17 report): a straddling
         # cluster's Ward here used to be whichever primary row happened to
         # come first in the frame CSV's own row order - order-dependent,
@@ -1068,10 +1119,15 @@ def non_idp_cluster_summary_rows(state_name, lga_name, primary_rows, reserve_row
             "Cluster ID": cluster_id, "Population Type": "Non-IDP", "State": state_name, "LGA": lga_name,
             "Ward (GRID3)": dom_ward, "Ward (OCHA/COD)": dom_ward_cod,
             "Target HHs (primary)": target, "Reserve HHs": len(g["reserve"]),
-            "Collected": collected, "Achieved": achieved, "Still Needed": still_needed,
+            "Collected": collected, "Achieved": achieved, "Open at this cluster": still_needed,
             "% Achieved": (achieved / target) if target else None,
             "Collection Status": status,
-            "Last Collection Date": max((_real_date(d) for d in achieved_dates), default=""),
+            # 2026-09-22: sourced from cluster_last_date (per-interview,
+            # matches Achieved above) rather than achieved_dates
+            # (per-point) - the two could disagree on which cluster's most
+            # recent interview date is "latest" for a repeat-interviewed
+            # household, now that Achieved counts every interview.
+            "Last Collection Date": _real_date(cluster_last_date.get(cluster_id, "")),
         })
     return out
 
@@ -1126,7 +1182,7 @@ def idp_cluster_summary_row(state_name, lga_name, cluster_id, r):
         "Cluster ID": cluster_id, "Population Type": "IDP", "State": state_name, "LGA": lga_name,
         "Ward (GRID3)": r["adm3_name"], "Ward (OCHA/COD)": cod_ward_value(r),
         "Target HHs (primary)": target, "Reserve HHs": reserve_n,
-        "Collected": collected, "Achieved": achieved, "Still Needed": 0 if inaccessible else max(nominal_target - achieved, 0),
+        "Collected": collected, "Achieved": achieved, "Open at this cluster": 0 if inaccessible else max(nominal_target - achieved, 0),
         "% Achieved": (achieved / target) if target else None,
         "Collection Status": status,
         "Last Collection Date": _real_date(cluster_last_date.get(cluster_id, "")),
@@ -1155,7 +1211,7 @@ README_FIELD_NOTES = [
 CLUSTER_SUMMARY_FIELD_NOTES = [
     ("Collected", "Every real interview matched to this cluster so far, uncapped - includes any surplus beyond target (see 'Still Needed' - if this is 0 while Collected keeps growing, that cluster is oversampled; further visits there don't help your remaining total)."),
     ("Achieved", "Every real interview here that counts toward the assessment - completed, matched to this cluster, not a duplicate and not confirmed for deletion. Uncapped: where a cluster was over-collected, all of those interviews are counted, so this can exceed the cluster's own target. Matches the monitoring dashboard's own definition. Kept in full even for a cluster now marked Inaccessible - real completed work isn't erased by the area becoming unreachable afterward."),
-    ("Still Needed", "Target minus Achieved, floored at 0 - EXCEPT for a cluster marked Inaccessible, where this is always 0 regardless of the gap: you are not being asked to go back there right now, however far from target it is."),
+    ("Open at this cluster", "This CLUSTER'S OWN target minus Achieved, floored at 0 - EXCEPT for a cluster marked Inaccessible, where this is always 0 regardless of the gap: you are not being asked to go back there right now, however far from target it is. Sums to MORE than the Strata Summary sheet's own 'Still Needed' for the same LGA/population type - that figure is the aligned, stratum-wide gap (matches the dashboard); this one is per-cluster and doesn't know when a different cluster in the same stratum has already covered the gap. Use Strata Summary to know whether an LGA overall still needs more; use this to see which specific cluster has open slots."),
     ("Collection Status = Inaccessible", "This cluster's ward is currently flagged as not safely reachable. It's excluded from the 'Available to Collect' sheet, but its Achieved/Collected figures still count in full. Note: the README headline's 'Total target' is now the frozen, stratum-level target_sample figure (2026-09-16) - it does not vary with any individual cluster's accessibility, so an Inaccessible cluster here does not change the headline Target the way it used to; only Achieved/Still-needed at that headline level move."),
 ]
 
@@ -1251,8 +1307,8 @@ def build_partner_summary_table(meta_rows, partner_name):
 
 
 STRATA_SUMMARY_COLUMNS = [
-    "State", "LGA", "Population Type", "Target (design)", "Achieved", "Still Needed",
-    "% Achieved", "Last Collection Date", "Reference: target adjusted for accessibility",
+    "State", "LGA", "Population Type", "Target (design)", "Achieved", "of which MSNA Light",
+    "Still Needed", "% Achieved", "Last Collection Date", "Reference: target adjusted for accessibility",
 ]
 
 
@@ -1288,15 +1344,32 @@ def build_strata_summary_table(cluster_rows, partner_name):
     # note above TWO_TARGET_FIGURES_NOTE); 3 strata when added, all IRC/LHI
     # (Tangaza x2, Zuru), each collected by only one of the two so far.
     achieved_by_key = defaultdict(int)
+    msna_light_achieved_by_key = defaultdict(int)
     last_date_by_key = defaultdict(str)
     for row in cluster_rows:
         pt_norm = "non_idp" if row["Population Type"] == "Non-IDP" else "idp"
         key = (row["State"], row["LGA"], pt_norm)
         achieved_by_key[key] += row["Achieved"]
+        # 2026-09-22 (Task R2): MSNA Light-tagged rows are already included
+        # in achieved_by_key above (merged into cluster_rows at the source -
+        # see the comment there) - this is a SEPARATE running sub-total,
+        # purely for the "tagged so they stay distinguishable" column below,
+        # never subtracted from the main figure.
+        if row.get("Sampling Method") == "MSNA Light":
+            msna_light_achieved_by_key[key] += row["Achieved"]
         last_date_by_key[key] = max(last_date_by_key[key], row.get("Last Collection Date") or "")
 
     out = []
     for sid in partner_covered_strata_ids(partner_name):
+        # 2026-09-22 (Jack, Task R5): a population-threshold-excluded
+        # (dropped) stratum is skipped here entirely, not just zeroed -
+        # "Partner totals must exclude Dropped/excluded strata entirely,
+        # both target AND achieved." Self-derives from POPULATION_
+        # THRESHOLD_EXCLUDED_STRATA (built once at load, coverage_status/
+        # exclusion_reason on the live frame) - correctly empties out once
+        # a stratum like Guzamala is reinstated (Task R6).
+        if sid in POPULATION_THRESHOLD_EXCLUDED_STRATA:
+            continue
         state, lga = strata_lga_key[sid]
         pop_type = strata_pop_type[sid]
         target = round(strata_target_sample.get(sid, 0))
@@ -1306,7 +1379,9 @@ def build_strata_summary_table(cluster_rows, partner_name):
         out.append({
             "State": state, "LGA": lga,
             "Population Type": "Non-IDP" if pop_type == "non_idp" else "IDP",
-            "Target (design)": target, "Achieved": achieved, "Still Needed": still_needed,
+            "Target (design)": target, "Achieved": achieved,
+            "of which MSNA Light": msna_light_achieved_by_key.get((state, lga, pop_type), 0),
+            "Still Needed": still_needed,
             "% Achieved": (achieved / target) if target else None,
             "Last Collection Date": last_date_by_key.get((state, lga, pop_type), ""),
             "Reference: target adjusted for accessibility": round(target_repr) if target_repr is not None else "n/a",
@@ -1367,9 +1442,21 @@ def write_partner_workbook(partner_dir_path, partner_name, meta_rows, cluster_ro
     # dashboard's own frozen target_sample figure for the same stratum).
     active_rows = [x for x in cluster_rows if x["Collection Status"] != "Inaccessible"]
     inaccessible_rows = [x for x in cluster_rows if x["Collection Status"] == "Inaccessible"]
-    partner_strata_ids = partner_covered_strata_ids(partner_name)
+    partner_strata_ids = [sid for sid in partner_covered_strata_ids(partner_name) if sid not in POPULATION_THRESHOLD_EXCLUDED_STRATA]
     total_target = round(sum(strata_target_sample[sid] for sid in partner_strata_ids))
-    total_achieved = sum(x["Achieved"] for x in cluster_rows)
+    # 2026-09-22 (Task R5): a dropped/population-threshold-excluded
+    # stratum's clusters are filtered out of every partner-level total here
+    # too (target above via partner_strata_ids; achieved below via
+    # CLUSTER_ID_TO_STRATA_ID) - this is the exact "-31" FACT item: real
+    # interviews on an excluded stratum's clusters were inflating Achieved
+    # with no offsetting Target. An MSNA Light-tagged row's "Cluster ID"
+    # still resolves through CLUSTER_ID_TO_STRATA_ID normally (Light
+    # clusters are never population-threshold-excluded), so this doesn't
+    # interact with Task R2/R6's inclusion of MSNA Light - the two filters
+    # are independent and compose correctly.
+    _total_rows = [x for x in cluster_rows if CLUSTER_ID_TO_STRATA_ID.get(x["Cluster ID"]) not in POPULATION_THRESHOLD_EXCLUDED_STRATA]
+    total_achieved = sum(x["Achieved"] for x in _total_rows)
+    total_achieved_msna_light = sum(x["Achieved"] for x in _total_rows if x.get("Sampling Method") == "MSNA Light")
     # FIX 2026-09-21 (Jack, caught live - the same bug shape was already
     # in last night's partner status emails, which read this exact block
     # verbatim): total_remaining used to be max(0, total_target -
@@ -1392,11 +1479,10 @@ def write_partner_workbook(partner_dir_path, partner_name, meta_rows, cluster_ro
     _strata_with_repr = [sid for sid in partner_strata_ids if sid in strata_target_repr]
     total_target_repr = round(sum(strata_target_repr[sid] for sid in _strata_with_repr)) if _strata_with_repr else None
     _n_strata_missing_repr = len(partner_strata_ids) - len(_strata_with_repr)
-    achieved_in_inaccessible = sum(x["Achieved"] for x in inaccessible_rows)
+    achieved_in_inaccessible = sum(x["Achieved"] for x in inaccessible_rows if CLUSTER_ID_TO_STRATA_ID.get(x["Cluster ID"]) not in POPULATION_THRESHOLD_EXCLUDED_STRATA)
     n_clusters_complete = sum(1 for x in cluster_rows if x["Collection Status"] == "Complete")
     n_clusters_not_started = sum(1 for x in active_rows if x["Collection Status"] == "Not started")
     pct_complete = (total_credited / total_target) if total_target else 0
-    pct_raw = (total_achieved / total_target) if total_target else 0
     ws_readme.cell(row=r, column=1, value="Where things stand right now").font = openpyxl.styles.Font(bold=True, size=12)
     r += 1
     headline_start = r
@@ -1405,10 +1491,10 @@ def write_partner_workbook(partner_dir_path, partner_name, meta_rows, cluster_ro
         ("Reference: target adjusted for current accessibility (not the headline Target - see note below)",
          total_target_repr if total_target_repr is not None else "n/a"),
         ("Achieved so far (all real interviews, including any since become inaccessible, including surplus beyond a stratum's own target)", total_achieved),
+        ("...of which, MSNA Light (government-negotiated, unverified - see the MSNA Light sheet)", total_achieved_msna_light),
         ("Credited toward target (Achieved capped at each LGA/population-group stratum's own target, then summed - surplus in one stratum never offsets another's gap)", total_credited),
         ("Still needed (sum of each stratum's own remaining gap - see the Strata Summary sheet for the per-stratum breakdown)", total_remaining),
         ("% of target achieved (credited)", f"{pct_complete:.0%}"),
-        ("% of target achieved (raw - all interviews incl. surplus / target, reference only)", f"{pct_raw:.0%}"),
         ("Clusters fully complete", f"{n_clusters_complete} of {len(cluster_rows)}"),
         ("Clusters not yet started (currently accessible)", n_clusters_not_started),
         ("Clusters currently inaccessible", len(inaccessible_rows)),
@@ -1569,18 +1655,44 @@ def write_partner_workbook(partner_dir_path, partner_name, meta_rows, cluster_ro
         if row.get("Collection Status", "") not in ("Complete", "Inaccessible")
         and row.get("Point Type") not in NEEDS_COLLECTING_EXCLUDED_TYPES
     ]
+    # 2026-09-22 (Jack, Task R3, Option (b)): a point can be individually
+    # "Not started" while its STRATUM has already met the aligned target
+    # (Still Needed == 0, same basis Strata Summary/the dashboard's
+    # "Complete" both use) - INTERSOS's Gusau/Maiduguri example, still sent
+    # 34 points + 5 clusters there. Jack wants to keep offering these points
+    # (he'll speak with teams directly), just labelled - not removed from
+    # this sheet the way Complete/Inaccessible already are above. Keyed off
+    # strata_rows (already built, same (State, LGA, Population Type) key
+    # every other rollup in this workbook uses), not a new computation.
+    STRATUM_STATUS_NEEDED = "Needed"
+    STRATUM_STATUS_EXTRA = "Stratum complete - extra, not needed for target"
+    _stratum_complete_keys = {(s["State"], s["LGA"], s["Population Type"]) for s in strata_rows if s["Still Needed"] == 0}
+    for row in needs_rows:
+        row["Stratum status"] = (
+            STRATUM_STATUS_EXTRA if (row.get("State"), row.get("LGA"), row.get("Population Type")) in _stratum_complete_keys
+            else STRATUM_STATUS_NEEDED
+        )
+    # Needed rows first (Jack: sorted so the real to-do sits above the
+    # extra/already-target-met rows), stable otherwise (preserves whatever
+    # order meta_rows already had within each group).
+    needs_rows.sort(key=lambda row: row["Stratum status"] != STRATUM_STATUS_NEEDED)
+    NEEDS_COLLECTING_COLUMNS = METADATA_COLUMNS + ["Stratum status"]
     ws_needs = wb_out.create_sheet("Available to Collect")
-    ws_needs.append(METADATA_COLUMNS)
+    ws_needs.append(NEEDS_COLLECTING_COLUMNS)
     for cell in ws_needs[1]:
         cell.font = openpyxl.styles.Font(bold=True, color="FFFFFF")
         cell.fill = openpyxl.styles.PatternFill("solid", fgColor="A5281B")
+    stratum_status_col_idx = len(NEEDS_COLLECTING_COLUMNS)
     for row in needs_rows:
-        ws_needs.append([row.get(c, "") for c in METADATA_COLUMNS])
+        ws_needs.append([row.get(c, "") for c in NEEDS_COLLECTING_COLUMNS])
+        if row["Stratum status"] != STRATUM_STATUS_NEEDED:
+            for cell in ws_needs[ws_needs.max_row]:
+                cell.font = openpyxl.styles.Font(color="9C9C9C")
     ws_needs.freeze_panes = "A2"
-    for i, col in enumerate(METADATA_COLUMNS, start=1):
+    for i, col in enumerate(NEEDS_COLLECTING_COLUMNS, start=1):
         ws_needs.column_dimensions[openpyxl.utils.get_column_letter(i)].width = max(12, min(28, len(col) + 4))
     if needs_rows:
-        tbl_needs = Table(displayName="NeedsCollecting", ref=f"A1:{openpyxl.utils.get_column_letter(len(METADATA_COLUMNS))}{len(needs_rows)+1}")
+        tbl_needs = Table(displayName="NeedsCollecting", ref=f"A1:{openpyxl.utils.get_column_letter(len(NEEDS_COLLECTING_COLUMNS))}{len(needs_rows)+1}")
         tbl_needs.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showRowStripes=True)
         ws_needs.add_table(tbl_needs)
 
@@ -1858,7 +1970,25 @@ for pcode, partners in partners_by_pcode.items():
 
         cluster_rows_msna_light = partner_cluster_rows_msna_light[(partner_dir, partner)]
         if non_idp_primary_rows_full_msna_light or non_idp_reserve_rows_full_msna_light:
-            cluster_rows_msna_light.extend(non_idp_cluster_summary_rows(state_name, lga_name, non_idp_primary_rows_full_msna_light, non_idp_reserve_rows_full_msna_light))
+            _light_cluster_rows = non_idp_cluster_summary_rows(state_name, lga_name, non_idp_primary_rows_full_msna_light, non_idp_reserve_rows_full_msna_light)
+            for _row in _light_cluster_rows:
+                _row["Sampling Method"] = "MSNA Light"
+            cluster_rows_msna_light.extend(_light_cluster_rows)
+            # 2026-09-22 (Jack, Task R2, explicit today - "from a pure
+            # collection monitoring point of view it's correct to include"):
+            # MSNA Light must COUNT in Strata Summary/README achieved, not
+            # sit in its own separate-and-therefore-invisible total. Merged
+            # into the SAME `cluster_rows` list Strata Summary/README both
+            # read - "Population Type" stays plain "Non-IDP" (so the
+            # (state,lga,pop_type) grouping key used everywhere still
+            # matches its Full Design siblings in the same LGA), and the
+            # new "Sampling Method" tag above is what keeps it
+            # distinguishable (build_strata_summary_table below reports a
+            # separate "of which MSNA Light" sub-total per Jack's "tagged"
+            # instruction, rather than silently blending in unmarked). The
+            # OLD separate MSNA Light sheet/cluster_rows_msna_light list is
+            # untouched - this is additive, not a replacement.
+            cluster_rows.extend(_light_cluster_rows)
 
 # ---------------------------------------------------------------------------
 # 8. One summary Excel workbook per partner, at the partner's root folder

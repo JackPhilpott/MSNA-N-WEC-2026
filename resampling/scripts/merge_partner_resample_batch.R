@@ -27,7 +27,7 @@ source("scripts/shared/frame_status.R")
 # header - a pure-logging audit trail of when WORKING materially changes.
 source("scripts/shared/log_pipeline_change.R")
 MASTER_WARD_CSV <- "resampling/output/master_accessibility_status_ward_level.csv"
-CLUSTER_STATUS_CSV <- "output/data/data_collection/NGA_MSNA_2026_cluster_status_v12.csv"
+CLUSTER_STATUS_CSV <- "output/data/data_collection/NGA_MSNA_2026_cluster_status_v13.csv"
 
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) < 4) stop("Usage: Rscript merge_partner_resample_batch.R <PartnerName> <staging_dir> <shortfalls_csv> <shortfalls_idp_csv>")
@@ -49,10 +49,10 @@ log_msg("==== Merge %s resample into live frame - %s ====", PARTNER, format(Sys.
 log_msg("Partner LGAs (%d): %s", length(PARTNER_PCODES), paste(PARTNER_PCODES, collapse = ", "))
 
 # ---- Load live frame ----
-full_hh    <- read_csv(file.path(DC_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v12_FULL.csv"), show_col_types = FALSE)
-working_hh <- read_csv(file.path(DC_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v12_WORKING.csv"), show_col_types = FALSE)
-full_sl    <- read_csv(file.path(DC_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v12_FULL.csv"), show_col_types = FALSE)
-working_sl <- read_csv(file.path(DC_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v12_WORKING.csv"), show_col_types = FALSE)
+full_hh    <- read_csv(file.path(DC_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v13_FULL.csv"), show_col_types = FALSE)
+working_hh <- read_csv(file.path(DC_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v13_WORKING.csv"), show_col_types = FALSE)
+full_sl    <- read_csv(file.path(DC_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v13_FULL.csv"), show_col_types = FALSE)
+working_sl <- read_csv(file.path(DC_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v13_WORKING.csv"), show_col_types = FALSE)
 
 live_survey_ids <- union(full_hh$survey_id, working_hh$survey_id)
 live_cluster_ids <- union(full_hh$cluster_id, working_hh$cluster_id)
@@ -603,10 +603,10 @@ assert_plausible("WORKING rows in a currently-Inaccessible ward", n_working_in_i
                   context = "must always be exactly 0 - this is the 2026-09-07 incident's core invariant")
 
 # ---- Write ----
-write_csv(full_hh_new, file.path(DC_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v12_FULL.csv"))
-write_csv(working_hh_new, file.path(DC_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v12_WORKING.csv"))
-write_csv(full_sl_new, file.path(DC_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v12_FULL.csv"))
-write_csv(working_sl_new, file.path(DC_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v12_WORKING.csv"))
+write_csv(full_hh_new, file.path(DC_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v13_FULL.csv"))
+write_csv(working_hh_new, file.path(DC_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v13_WORKING.csv"))
+write_csv(full_sl_new, file.path(DC_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v13_FULL.csv"))
+write_csv(working_sl_new, file.path(DC_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v13_WORKING.csv"))
 log_msg("Written: FULL + WORKING household-level and strata-level CSVs in %s.", DC_DIR)
 
 # 2026-09-14: changelog entry - a real merge always represents a real event

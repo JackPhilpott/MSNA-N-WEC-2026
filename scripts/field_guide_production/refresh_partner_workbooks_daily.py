@@ -15,7 +15,7 @@
 # only via the full build_partner_dc_packages.py when the WORKING roster
 # itself actually changes, followed by an announced email (Jack's call each
 # time, never automatic). This is exactly why this script never loads
-# WORKING (NGA_MSNA_2026_stage2_sampling_frame_v12_WORKING.csv) at all -
+# WORKING (NGA_MSNA_2026_stage2_sampling_frame_v13_WORKING.csv) at all -
 # there is nothing in its own output that WORKING could change.
 #
 # Deliberately a standalone duplicate of build_partner_dc_packages.py's
@@ -97,7 +97,7 @@ if os.path.exists(_LOCKED_FALLBACK_COPY):
         f"{_copy_age_s / 60:.0f}-minute-old fallback copy instead: {_LOCKED_FALLBACK_COPY}"
     )
     COVERAGE_XLSX = _LOCKED_FALLBACK_COPY
-STAGE2_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v12_FULL.csv"
+STAGE2_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v13_FULL.csv"
 # Canonical (not the dashboard_app/ bundled mirror - see
 # build_partner_dc_packages.py's 2026-09-08 fix note for the identical bug
 # this avoids from the start).
@@ -263,31 +263,41 @@ def _in_scope_row(r):
 
 with open(STAGE2_FULL_CSV, encoding="utf-8") as f:
     frame_rows_full_all = [r for r in csv.DictReader(f) if _in_scope_row(r)]
-# 2026-09-14 fix (found investigating a real Jack-reported MSNA Light
-# issue, while checking whether this script shared build_partner_dc_
-# packages.py's own 2026-09-13b sampling_method split): it never did -
-# checked directly, zero "sampling_method"/"MSNA Light" references
-# anywhere in this file before this fix. Since this script was run for
-# all 19 partners earlier tonight (the Bug 2 Still Needed rollout), FACT's
-# live workbook would have had all 564 MSNA Light rows silently mixed into
-# its NORMAL Cluster Summary/Sampling Points/Available to Collect figures for
-# that window - exactly what Jack's 2026-09-11 "must be visibly different,
-# never mixed in" requirement exists to prevent. Unlike build_partner_dc_
-# packages.py, this script has no MSNA Light presentation of its own (no
-# KML, no dedicated sheet) - the safest fix is to exclude these rows
-# entirely from this script's scope, same treatment build_cluster_
-# factsheets.py already gives them tonight for the same "no correct
-# treatment built here yet" reason. MSNA Light's own workbook presentation
-# stays exclusively build_partner_dc_packages.py's job (the resampling-
-# push tier), which already handles it correctly.
+# 2026-09-14: this script had no sampling_method split at all, so MSNA
+# Light rows were silently mixing into normal Cluster Summary/Sampling
+# Points/Available to Collect - fixed then by excluding them entirely
+# (Jack's 2026-09-11 "must be visibly different, never mixed in" rule).
+# 2026-09-22 SUPERSEDED (Jack, Task R2, explicit today - "from a pure
+# collection monitoring point of view it's correct to include"): MSNA
+# Light must now COUNT toward Strata Summary/README achieved everywhere,
+# tagged so it stays distinguishable, matching build_partner_dc_packages.py's
+# own Task R2 fix the same night. Kept as its own stream here (never mixed
+# into frame_rows_full itself) - only its Cluster-Summary-equivalent rows
+# get merged in below, tagged "Sampling Method": "MSNA Light", same
+# mechanism as the other script. This tier still has no KML/dedicated
+# sheet of its own for Light (unchanged) - that stays
+# build_partner_dc_packages.py's job; the existing "MSNA Light" sheet is
+# still preserved as-is by this script (see the sheet-preservation logic
+# below), untouched by this change.
 frame_rows_full = [r for r in frame_rows_full_all if r.get("sampling_method") != "MSNA Light"]
-n_light_excluded = len(frame_rows_full_all) - len(frame_rows_full)
-print(f"Loaded {len(frame_rows_full)} household-level rows (FULL, covered-or-population-threshold-excluded - drives every workbook sheet)"
-      + (f", {n_light_excluded} MSNA Light row(s) excluded (see 2026-09-14 comment above)." if n_light_excluded else "."))
+frame_rows_full_msna_light = [r for r in frame_rows_full_all if r.get("sampling_method") == "MSNA Light"]
+print(f"Loaded {len(frame_rows_full)} household-level rows (FULL, covered-or-population-threshold-excluded - drives every workbook sheet), "
+      f"{len(frame_rows_full_msna_light)} MSNA Light (kept separate, merged into Strata Summary/README achieved only - Task R2).")
+
+# 2026-09-22 (Task R5): same as build_partner_dc_packages.py - a
+# population-threshold-excluded (dropped) stratum's real interviews must
+# never inflate a partner's total_achieved with no offsetting target.
+POPULATION_THRESHOLD_EXCLUDED_STRATA = {
+    r["strata_id"] for r in frame_rows_full_all if _population_threshold_excluded_stratum_row(r)
+}
+CLUSTER_ID_TO_STRATA_ID = {r["cluster_id"]: r["strata_id"] for r in frame_rows_full_all}
 
 rows_by_pcode_full = defaultdict(list)
 for r in frame_rows_full:
     rows_by_pcode_full[r["adm2_pcode"]].append(r)
+rows_by_pcode_full_msna_light = defaultdict(list)
+for r in frame_rows_full_msna_light:
+    rows_by_pcode_full_msna_light[r["adm2_pcode"]].append(r)
 
 # Sub-4-accessible-household cluster threshold - same rule, same value, as
 # build_partner_dc_packages.py's section 3d (Jack's 2026-09-05 decision).
@@ -347,17 +357,17 @@ assert_plausible("rows of partner-reported-inaccessible / dropped clusters NOT t
 # note for the full reasoning. Kept in sync by hand, per this project's
 # standalone-script convention.
 # ---------------------------------------------------------------------------
-STRATA_LEVEL_V9_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v12_FULL.csv"
+STRATA_LEVEL_V9_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v13_FULL.csv"
 TARGET_SAMPLE_REPRESENTATIVITY_CSV = PROJECT_DIR + r"\resampling\output\target_sample_representativity_last_run.csv"
 
 with open(STRATA_LEVEL_V9_FULL_CSV, encoding="utf-8") as f:
-    _strata_v12_rows = list(csv.DictReader(f))
+    _strata_v13_rows = list(csv.DictReader(f))
 
 strata_target_sample = {}
 strata_partners_covering = {}
 strata_lga_key = {}
 strata_pop_type = {}
-for _r in _strata_v12_rows:
+for _r in _strata_v13_rows:
     sid = _r["strata_id"]
     if _r.get("coverage_status") == "covered" and _r.get("exclusion_reason") == "none":
         strata_target_sample[sid] = float(_r["target_sample"]) if _r.get("target_sample") not in (None, "", "NA") else 0.0
@@ -539,6 +549,14 @@ def idp_primary_metadata_row(partner, state_name, lga_name, cluster_id, r):
 
 
 def idp_tier2_metadata_row(partner, state_name, lga_name, cluster_id, r, backup_row):
+    # 2026-09-22 (Coordinator found, Jack: every row should carry some
+    # status): mirrors the same fix in build_partner_dc_packages.py - this
+    # never set "Collection Status" at all, so it wrote blank for every IDP
+    # Tier 2 backup point. A Tier 2 point is never an independent collection
+    # target - it's a backup only used if a Tier 1 primary is infeasible -
+    # so it gets a fixed, explicitly non-target label rather than
+    # Complete/Partial/Not started, which would misleadingly imply it's
+    # something to track.
     return {
         "Partner": partner, "Point Type": "IDP Tier 2 backup point",
         "State": state_name, "LGA": lga_name, "Ward (GRID3)": r["adm3_name"], "Ward (OCHA/COD)": cod_ward_value(r),
@@ -546,12 +564,17 @@ def idp_tier2_metadata_row(partner, state_name, lga_name, cluster_id, r, backup_
         "Latitude": backup_row["backup_gps_lat"], "Longitude": backup_row["backup_gps_lon"],
         "IOM Site Name": r["iom_site_name"], "IOM Site Type": r["iom_site_type"],
         "Notes": backup_row["extent_source_note"],
+        "Collection Status": "Backup - only if Tier 1 infeasible",
     }
 
 
+# 2026-09-22 (Task R3): renamed "Still Needed" -> "Open at this cluster" -
+# mirrors build_partner_dc_packages.py's own fix (see that file's comment
+# for the full reasoning: this is the cluster's own gap, sums to MORE than
+# the aligned Strata Summary figure).
 CLUSTER_SUMMARY_COLUMNS = [
     "Cluster ID", "Population Type", "State", "LGA", "Ward (GRID3)", "Ward (OCHA/COD)",
-    "Target HHs (primary)", "Reserve HHs", "Collected", "Achieved", "Still Needed",
+    "Target HHs (primary)", "Reserve HHs", "Collected", "Achieved", "Open at this cluster",
     "% Achieved", "Collection Status", "Last Collection Date",
 ]
 
@@ -567,6 +590,10 @@ def non_idp_cluster_summary_rows(state_name, lga_name, primary_rows, reserve_row
         all_rows = g["primary"] + g["reserve"]
         achieved_dates = [achieved_date_by_survey_id[r["survey_id"]] for r in all_rows if achieved_date_by_survey_id.get(r["survey_id"])]
         n_achieved_exact = len(achieved_dates)
+        # 2026-09-22 (Task R1): mirrors build_partner_dc_packages.py's own
+        # fix - Achieved below reads cluster_achieved_n (every real
+        # interview, uncapped), not n_achieved_exact (per-POINT, collapses
+        # repeat interviews at the same household to one).
         collected = max(cluster_collected_n.get(cluster_id, 0), n_achieved_exact)
         # 2026-09-08: also exclude population-threshold-excluded-stratum rows
         # here directly - see build_partner_dc_packages.py's identical note.
@@ -579,7 +606,7 @@ def non_idp_cluster_summary_rows(state_name, lga_name, primary_rows, reserve_row
         target = 0 if cluster_inaccessible else len(accessible_primary)
         nominal_target = len(g["primary"])
         # 2026-09-21: uncapped, same change as build_partner_dc_packages.py.
-        achieved = n_achieved_exact
+        achieved = cluster_achieved_n.get(cluster_id, 0)
         # 2026-09-21 fix - same bug and same fix as build_partner_dc_
         # packages.py's identical formula: this used to be whichever
         # primary row came first in the frame CSV's row order, not the
@@ -609,10 +636,10 @@ def non_idp_cluster_summary_rows(state_name, lga_name, primary_rows, reserve_row
             "Cluster ID": cluster_id, "Population Type": "Non-IDP", "State": state_name, "LGA": lga_name,
             "Ward (GRID3)": dom_ward, "Ward (OCHA/COD)": dom_ward_cod,
             "Target HHs (primary)": target, "Reserve HHs": len(g["reserve"]),
-            "Collected": collected, "Achieved": achieved, "Still Needed": still_needed,
+            "Collected": collected, "Achieved": achieved, "Open at this cluster": still_needed,
             "% Achieved": (achieved / target) if target else None,
-            "Collection Status": status,
-            "Last Collection Date": max((_real_date(d) for d in achieved_dates), default=""),
+                        "Collection Status": status,
+            "Last Collection Date": _real_date(cluster_last_date.get(cluster_id, "")),
         })
     return out
 
@@ -638,7 +665,7 @@ def idp_cluster_summary_row(state_name, lga_name, cluster_id, r):
         "Cluster ID": cluster_id, "Population Type": "IDP", "State": state_name, "LGA": lga_name,
         "Ward (GRID3)": r["adm3_name"], "Ward (OCHA/COD)": cod_ward_value(r),
         "Target HHs (primary)": target, "Reserve HHs": reserve_n,
-        "Collected": collected, "Achieved": achieved, "Still Needed": 0 if inaccessible else max(nominal_target - achieved, 0),
+        "Collected": collected, "Achieved": achieved, "Open at this cluster": 0 if inaccessible else max(nominal_target - achieved, 0),
         "% Achieved": (achieved / target) if target else None,
         "Collection Status": status,
         "Last Collection Date": _real_date(cluster_last_date.get(cluster_id, "")),
@@ -667,7 +694,7 @@ README_FIELD_NOTES = [
 CLUSTER_SUMMARY_FIELD_NOTES = [
     ("Collected", "Every real interview matched to this cluster so far, uncapped - includes any surplus beyond target (see 'Still Needed' - if this is 0 while Collected keeps growing, that cluster is oversampled; further visits there don't help your remaining total)."),
     ("Achieved", "Every real interview here that counts toward the assessment - completed, matched to this cluster, not a duplicate and not confirmed for deletion. Uncapped: where a cluster was over-collected, all of those interviews are counted, so this can exceed the cluster's own target. Matches the monitoring dashboard's own definition. Kept in full even for a cluster now marked Inaccessible - real completed work isn't erased by the area becoming unreachable afterward."),
-    ("Still Needed", "Target minus Achieved, floored at 0 - EXCEPT for a cluster marked Inaccessible, where this is always 0 regardless of the gap: you are not being asked to go back there right now, however far from target it is."),
+    ("Open at this cluster", "This CLUSTER'S OWN target minus Achieved, floored at 0 - EXCEPT for a cluster marked Inaccessible, where this is always 0 regardless of the gap. Sums to MORE than the Strata Summary sheet's own 'Still Needed' for the same LGA/population type - that figure is the aligned, stratum-wide gap; this one is per-cluster."),
     ("Collection Status = Inaccessible", "This cluster's ward is currently flagged as not safely reachable. It's excluded from the 'Available to Collect' sheet, but its Achieved/Collected figures still count in full. Note: the README headline's 'Total target' is now the frozen, stratum-level target_sample figure (2026-09-16) - it does not vary with any individual cluster's accessibility, so an Inaccessible cluster here does not change the headline Target the way it used to; only Achieved/Still-needed at that headline level move."),
 ]
 
@@ -740,7 +767,7 @@ def build_partner_summary_table(meta_rows, partner_name):
 
 
 STRATA_SUMMARY_COLUMNS = [
-    "State", "LGA", "Population Type", "Target (design)", "Achieved", "Still Needed",
+    "State", "LGA", "Population Type", "Target (design)", "Achieved", "of which MSNA Light", "Still Needed",
     "% Achieved", "Last Collection Date", "Reference: target adjusted for accessibility",
 ]
 
@@ -756,15 +783,23 @@ def build_strata_summary_table(cluster_rows, partner_name):
     # Summary dates, shared-LGA basis = any covering partner's team - see
     # the identical function in build_partner_dc_packages.py.
     achieved_by_key = defaultdict(int)
+    msna_light_achieved_by_key = defaultdict(int)
     last_date_by_key = defaultdict(str)
     for row in cluster_rows:
         pt_norm = "non_idp" if row["Population Type"] == "Non-IDP" else "idp"
         key = (row["State"], row["LGA"], pt_norm)
         achieved_by_key[key] += row["Achieved"]
+        # 2026-09-22 (Task R2): mirrors build_partner_dc_packages.py.
+        if row.get("Sampling Method") == "MSNA Light":
+            msna_light_achieved_by_key[key] += row["Achieved"]
         last_date_by_key[key] = max(last_date_by_key[key], row.get("Last Collection Date") or "")
 
     out = []
     for sid in partner_covered_strata_ids(partner_name):
+        # 2026-09-22 (Task R5): mirrors build_partner_dc_packages.py -
+        # dropped/population-threshold-excluded strata are skipped entirely.
+        if sid in POPULATION_THRESHOLD_EXCLUDED_STRATA:
+            continue
         state, lga = strata_lga_key[sid]
         pop_type = strata_pop_type[sid]
         target = round(strata_target_sample.get(sid, 0))
@@ -774,7 +809,9 @@ def build_strata_summary_table(cluster_rows, partner_name):
         out.append({
             "State": state, "LGA": lga,
             "Population Type": "Non-IDP" if pop_type == "non_idp" else "IDP",
-            "Target (design)": target, "Achieved": achieved, "Still Needed": still_needed,
+            "Target (design)": target, "Achieved": achieved,
+            "of which MSNA Light": msna_light_achieved_by_key.get((state, lga, pop_type), 0),
+            "Still Needed": still_needed,
             "% Achieved": (achieved / target) if target else None,
             "Last Collection Date": last_date_by_key.get((state, lga, pop_type), ""),
             "Reference: target adjusted for accessibility": round(target_repr) if target_repr is not None else "n/a",
@@ -827,9 +864,13 @@ def write_partner_workbook(partner_dir_path, partner_name, meta_rows, cluster_ro
     # 2026-09-16 (Decision A) - see build_partner_dc_packages.py's identical
     # headline block for the full reasoning (this script was duplicated
     # from it).
-    partner_strata_ids = partner_covered_strata_ids(partner_name)
+    # 2026-09-22 (Task R5): mirrors build_partner_dc_packages.py - dropped/
+    # population-threshold-excluded strata excluded from every total here.
+    partner_strata_ids = [sid for sid in partner_covered_strata_ids(partner_name) if sid not in POPULATION_THRESHOLD_EXCLUDED_STRATA]
     total_target = round(sum(strata_target_sample[sid] for sid in partner_strata_ids))
-    total_achieved = sum(x["Achieved"] for x in cluster_rows)
+    _total_rows = [x for x in cluster_rows if CLUSTER_ID_TO_STRATA_ID.get(x["Cluster ID"]) not in POPULATION_THRESHOLD_EXCLUDED_STRATA]
+    total_achieved = sum(x["Achieved"] for x in _total_rows)
+    total_achieved_msna_light = sum(x["Achieved"] for x in _total_rows if x.get("Sampling Method") == "MSNA Light")
     # FIX 2026-09-21 - same bug and same fix as build_partner_dc_packages.py's
     # identical headline block (see that script's full comment): cap/floor
     # per stratum FIRST, then sum, so one oversampled stratum's surplus
@@ -840,11 +881,10 @@ def write_partner_workbook(partner_dir_path, partner_name, meta_rows, cluster_ro
     _strata_with_repr = [sid for sid in partner_strata_ids if sid in strata_target_repr]
     total_target_repr = round(sum(strata_target_repr[sid] for sid in _strata_with_repr)) if _strata_with_repr else None
     _n_strata_missing_repr = len(partner_strata_ids) - len(_strata_with_repr)
-    achieved_in_inaccessible = sum(x["Achieved"] for x in inaccessible_rows)
+    achieved_in_inaccessible = sum(x["Achieved"] for x in inaccessible_rows if CLUSTER_ID_TO_STRATA_ID.get(x["Cluster ID"]) not in POPULATION_THRESHOLD_EXCLUDED_STRATA)
     n_clusters_complete = sum(1 for x in cluster_rows if x["Collection Status"] == "Complete")
     n_clusters_not_started = sum(1 for x in active_rows if x["Collection Status"] == "Not started")
     pct_complete = (total_credited / total_target) if total_target else 0
-    pct_raw = (total_achieved / total_target) if total_target else 0
     ws_readme.cell(row=r, column=1, value="Where things stand right now").font = openpyxl.styles.Font(bold=True, size=12)
     r += 1
     headline = [
@@ -852,10 +892,10 @@ def write_partner_workbook(partner_dir_path, partner_name, meta_rows, cluster_ro
         ("Reference: target adjusted for current accessibility (not the headline Target - see note below)",
          total_target_repr if total_target_repr is not None else "n/a"),
         ("Achieved so far (all real interviews, including any since become inaccessible, including surplus beyond a stratum's own target)", total_achieved),
+        ("...of which, MSNA Light (government-negotiated, unverified - see the MSNA Light sheet)", total_achieved_msna_light),
         ("Credited toward target (Achieved capped at each LGA/population-group stratum's own target, then summed - surplus in one stratum never offsets another's gap)", total_credited),
         ("Still needed (sum of each stratum's own remaining gap - see the Strata Summary sheet for the per-stratum breakdown)", total_remaining),
         ("% of target achieved (credited)", f"{pct_complete:.0%}"),
-        ("% of target achieved (raw - all interviews incl. surplus / target, reference only)", f"{pct_raw:.0%}"),
         ("Clusters fully complete", f"{n_clusters_complete} of {len(cluster_rows)}"),
         ("Clusters not yet started (currently accessible)", n_clusters_not_started),
         ("Clusters currently inaccessible", len(inaccessible_rows)),
@@ -998,18 +1038,34 @@ def write_partner_workbook(partner_dir_path, partner_name, meta_rows, cluster_ro
     # level, above this function) so the pre-write guard in section 8 tests
     # exactly the rows this sheet gets - no second copy of the filter.
     needs_rows = available_to_collect_rows(meta_rows)
+    # 2026-09-22 (Task R3, Option (b)): mirrors build_partner_dc_packages.py
+    # exactly - see that script's comment for the full reasoning. Keyed off
+    # strata_rows (already built above for the README headline).
+    STRATUM_STATUS_NEEDED = "Needed"
+    STRATUM_STATUS_EXTRA = "Stratum complete - extra, not needed for target"
+    _stratum_complete_keys = {(s["State"], s["LGA"], s["Population Type"]) for s in strata_rows if s["Still Needed"] == 0}
+    for row in needs_rows:
+        row["Stratum status"] = (
+            STRATUM_STATUS_EXTRA if (row.get("State"), row.get("LGA"), row.get("Population Type")) in _stratum_complete_keys
+            else STRATUM_STATUS_NEEDED
+        )
+    needs_rows.sort(key=lambda row: row["Stratum status"] != STRATUM_STATUS_NEEDED)
+    NEEDS_COLLECTING_COLUMNS = METADATA_COLUMNS + ["Stratum status"]
     ws_needs = wb_out.create_sheet("Available to Collect")
-    ws_needs.append(METADATA_COLUMNS)
+    ws_needs.append(NEEDS_COLLECTING_COLUMNS)
     for cell in ws_needs[1]:
         cell.font = openpyxl.styles.Font(bold=True, color="FFFFFF")
         cell.fill = openpyxl.styles.PatternFill("solid", fgColor="A5281B")
     for row in needs_rows:
-        ws_needs.append([row.get(c, "") for c in METADATA_COLUMNS])
+        ws_needs.append([row.get(c, "") for c in NEEDS_COLLECTING_COLUMNS])
+        if row["Stratum status"] != STRATUM_STATUS_NEEDED:
+            for cell in ws_needs[ws_needs.max_row]:
+                cell.font = openpyxl.styles.Font(color="9C9C9C")
     ws_needs.freeze_panes = "A2"
-    for i, col in enumerate(METADATA_COLUMNS, start=1):
+    for i, col in enumerate(NEEDS_COLLECTING_COLUMNS, start=1):
         ws_needs.column_dimensions[openpyxl.utils.get_column_letter(i)].width = max(12, min(28, len(col) + 4))
     if needs_rows:
-        tbl_needs = Table(displayName="NeedsCollecting", ref=f"A1:{openpyxl.utils.get_column_letter(len(METADATA_COLUMNS))}{len(needs_rows)+1}")
+        tbl_needs = Table(displayName="NeedsCollecting", ref=f"A1:{openpyxl.utils.get_column_letter(len(NEEDS_COLLECTING_COLUMNS))}{len(needs_rows)+1}")
         tbl_needs.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showRowStripes=True)
         ws_needs.add_table(tbl_needs)
 
@@ -1090,7 +1146,8 @@ partner_cluster_rows = defaultdict(list)
 
 for pcode, partners in partners_by_pcode.items():
     rows_full = rows_by_pcode_full.get(pcode) or []
-    if not rows_full:
+    rows_full_msna_light = rows_by_pcode_full_msna_light.get(pcode) or []
+    if not rows_full and not rows_full_msna_light:
         continue
     v = master_lgas[pcode]
     state_name, lga_name = v["adm1_name"], v["adm2_name"]
@@ -1101,6 +1158,11 @@ for pcode, partners in partners_by_pcode.items():
     for r in rows_full:
         if r["pop_type"] == "idp":
             idp_rows_by_cluster_full.setdefault(r["cluster_id"], r)
+
+    # 2026-09-22 (Task R2): MSNA Light is Non-IDP only (checked directly,
+    # same as build_partner_dc_packages.py's own equivalent note).
+    non_idp_primary_rows_full_msna_light = [r for r in rows_full_msna_light if r["pop_type"] == "non_idp" and r["status"] == "primary"]
+    non_idp_reserve_rows_full_msna_light = [r for r in rows_full_msna_light if r["pop_type"] == "non_idp" and r["status"] == "reserve"]
 
     for partner in partners:
         partner_dir = safe_folder_name(partner)
@@ -1126,6 +1188,15 @@ for pcode, partners in partners_by_pcode.items():
             cluster_rows.extend(non_idp_cluster_summary_rows(state_name, lga_name, non_idp_primary_rows_full, non_idp_reserve_rows_full))
         if idp_rows_by_cluster_full:
             cluster_rows.extend(idp_cluster_summary_row(state_name, lga_name, cid, r) for cid, r in idp_rows_by_cluster_full.items())
+        # 2026-09-22 (Task R2, mirrors build_partner_dc_packages.py exactly):
+        # MSNA Light achieved must count in Strata Summary/README, tagged.
+        # "Population Type" stays plain "Non-IDP" (same grouping key as its
+        # Full Design siblings in this LGA); "Sampling Method" is the tag.
+        if non_idp_primary_rows_full_msna_light or non_idp_reserve_rows_full_msna_light:
+            _light_cluster_rows = non_idp_cluster_summary_rows(state_name, lga_name, non_idp_primary_rows_full_msna_light, non_idp_reserve_rows_full_msna_light)
+            for _row in _light_cluster_rows:
+                _row["Sampling Method"] = "MSNA Light"
+            cluster_rows.extend(_light_cluster_rows)
 
 # ---------------------------------------------------------------------------
 # 8. One summary Excel workbook per partner, at the partner's root folder
