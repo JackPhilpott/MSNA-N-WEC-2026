@@ -1,0 +1,67 @@
+=== WORKING frame refresh: 2026-09-11 23:18:19 ===
+Real-submissions source: c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/2_monitoring/data/real_submissions.csv (modified 2026-09-11 15:51:24)
+Confirmed-deletions overlay: 907 rows (897 confirmed, 10 contested/other).
+Real submissions: 16906 total, 14879 achieved (canonical formula).
+Non-IDP achieved survey_ids (exact join): 6654
+IDP (cluster, status) combinations with achieved interviews: 503
+FULL rows: 117031 | covered & not excluded: 71473 | ward-inaccessible rows dropped: 12050 | below-4-accessible-HH clusters (187 clusters) also dropped entirely: 690 rows | in-scope pool: 58733
+Non-IDP: 33065 -> 26907 rows (dropped 6158 achieved)
+IDP: 25668 -> 18176 rows (dropped 7492 achieved, count-based)
+
+WORKING (household-level, new): 45083 rows, 3197 distinct clusters
+WORKING (household-level, previous): 45083 rows, 3197 distinct clusters
+Clusters now fully achieved/inaccessible and removed entirely from WORKING this run: 0
+Wrote output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v7_WORKING.csv (in place, no version bump).
+Stranded-achieved credit: 404 Non-IDP + 194 IDP = 598 real completed interviews sit in rows excluded from the accessible pool (ward-inaccessible or below-threshold) - added back into strata-level achieved_sample so the shortfall doesn't double-ask for them.
+
+Strata-level WORKING: 314 strata refreshed, 45 changed achieved_sample. 49 stratum/strata still show achieved_sample > target_sample after this fix (should be a small residual, not systemic).
+  non_idp_NG002002: target=102 achieved=107
+  non_idp_NG002005: target=102 achieved=105
+  non_idp_NG002008: target=102 achieved=106
+  non_idp_NG002019: target=102 achieved=107
+  non_idp_NG007006: target=102 achieved=107
+  non_idp_NG007013: target=102 achieved=103
+  non_idp_NG008002: target=102 achieved=107
+  non_idp_NG008003: target=102 achieved=106
+  non_idp_NG008004: target=102 achieved=107
+  non_idp_NG008005: target=102 achieved=106
+  non_idp_NG008006: target=102 achieved=104
+  non_idp_NG008007: target=102 achieved=103
+  non_idp_NG008008: target=102 achieved=106
+  non_idp_NG008027: target=102 achieved=106
+  non_idp_NG021009: target=102 achieved=114
+  non_idp_NG021015: target=102 achieved=104
+  non_idp_NG021020: target=102 achieved=103
+  non_idp_NG021026: target=102 achieved=106
+  non_idp_NG022001: target=102 achieved=108
+  non_idp_NG022004: target=102 achieved=103
+  non_idp_NG022011: target=102 achieved=113
+  non_idp_NG022012: target=102 achieved=107
+  non_idp_NG022014: target=102 achieved=103
+  non_idp_NG022020: target=102 achieved=107
+  non_idp_NG026011: target=102 achieved=107
+  non_idp_NG034022: target=102 achieved=107
+  non_idp_NG034023: target=102 achieved=103
+  non_idp_NG036002: target=102 achieved=107
+  non_idp_NG036006: target=102 achieved=105
+  non_idp_NG036010: target=102 achieved=103
+  non_idp_NG036012: target=102 achieved=103
+  non_idp_NG036013: target=102 achieved=104
+  non_idp_NG036015: target=102 achieved=104
+  non_idp_NG036016: target=102 achieved=105
+  non_idp_NG037002: target=102 achieved=108
+  non_idp_NG037003: target=102 achieved=104
+  non_idp_NG037007: target=102 achieved=106
+  non_idp_NG037009: target=102 achieved=105
+  non_idp_NG037010: target=102 achieved=104
+  idp_NG007013: target=102 achieved=107
+  idp_NG021012: target=96 achieved=114
+  idp_NG021014: target=96 achieved=204
+  idp_NG037002: target=96 achieved=138
+  non_idp_NG021010: target=102 achieved=106
+  non_idp_NG022002: target=102 achieved=111
+  non_idp_NG022005: target=102 achieved=104
+  non_idp_NG034004: target=102 achieved=105
+  non_idp_NG037011: target=102 achieved=107
+  idp_NG021003: target=102 achieved=108
+Wrote output/data/data_collection/NGA_MSNA_2026_strata_level_sampling_frame_v7_WORKING.csv (in place, no version bump).

@@ -48,8 +48,12 @@ source("temp_boundaries_lga_kml.R")
 file.remove("temp_boundaries_lga_kml.R")
 
 OUT_ROOT <- "C:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/3. External coordination/NGA MSNA 2026 Package"
+# 2026-09-25: opt-in staging root, unset = live folder (same env var as build_partner_dc_packages.py)
+if (nzchar(Sys.getenv("BUILD_DC_OUT_ROOT"))) OUT_ROOT <- Sys.getenv("BUILD_DC_OUT_ROOT")
 STRATA_CSV <- here::here("_archive", "2026-08-06_design_frame_post_nw_targeted_resample", "strata_level_sampling_frame.csv")
 COVERAGE_XLSX <- here::here("input_data", "boundaries", "partner_coverage", "Partnerscoverage.xlsx")
+# 2026-09-25: opt-in, stage a coverage change before the live Excel is edited
+if (nzchar(Sys.getenv("BUILD_DC_COVERAGE_XLSX"))) COVERAGE_XLSX <- Sys.getenv("BUILD_DC_COVERAGE_XLSX")
 
 IN_SCOPE_STATES <- c(
   "Adamawa", "Borno", "Yobe",
@@ -257,6 +261,7 @@ n_written <- 0
 for (partner in all_partners) {
   partner_pcodes <- pcodes_covered[sapply(pcodes_covered, function(p) partner %in% get(p, envir = partners_by_pcode))]
   out_path <- file.path(OUT_ROOT, safe_folder_name(partner), sprintf("LGA_boundaries_%s.kml", safe_folder_name(partner)))
+  if (nzchar(Sys.getenv("BUILD_DC_OUT_ROOT"))) dir.create(dirname(out_path), recursive = TRUE, showWarnings = FALSE)
   write_lga_boundary_kml(out_path, admin2_all, partner_pcodes)
   n_written <- n_written + 1
   cat(sprintf("  %s: %d of %d LGA(s) are theirs -> %s\n", partner, length(partner_pcodes), nrow(admin2_all), out_path))

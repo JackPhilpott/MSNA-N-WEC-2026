@@ -36,13 +36,15 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
 PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling"
-STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v13_WORKING.csv"
+STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v14_WORKING.csv"
 BACKUP_POINTS_CSV = PROJECT_DIR + r"\output\data\data_collection\idp_camp_backup_points.csv"
 HOST_FEASIBILITY_CSV = PROJECT_DIR + r"\output\data\supporting_analysis\idp_host_feasibility\idp_host_community_feasibility_flags.csv"
 POI_NEAREST_CSV = PROJECT_DIR + r"\output\data\supporting_analysis\poi\poi_nearest_non_idp.csv"
 POI_DISTANCE_CUTOFF_M = 5000
 STRATA_CSV = PROJECT_DIR + r"\_archive\2026-08-06_design_frame_post_nw_targeted_resample\strata_level_sampling_frame.csv"
 COVERAGE_XLSX = PROJECT_DIR + r"\input_data\boundaries\partner_coverage\Partnerscoverage.xlsx"
+if os.environ.get("BUILD_DC_COVERAGE_XLSX"):  # 2026-09-25: opt-in, stage a coverage change before the live Excel is edited
+    COVERAGE_XLSX = os.environ["BUILD_DC_COVERAGE_XLSX"]
 CLUSTER_VECTOR_MAPS_DIR = PROJECT_DIR + r"\output\maps\cluster_vector"
 DIAGRAM_PATH = PROJECT_DIR + r"\output\maps\cluster_diagram_v2.png"
 GPS_TOLERANCE_DIAGRAM_PATH = PROJECT_DIR + r"\output\maps\gps_tolerance_diagram.png"
@@ -52,6 +54,8 @@ GPS_TOLERANCE_DIAGRAM_PATH = PROJECT_DIR + r"\output\maps\gps_tolerance_diagram.
 EXAMPLE_CLUSTER_MAPS_DIR = PROJECT_DIR + r"\output\maps\cluster_map_examples_v3"
 LGA_CONTEXT_MAPS_DIR = PROJECT_DIR + r"\output\maps\cluster_lga_context_v1"
 OUT_ROOT = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\3. External coordination\NGA MSNA 2026 Package"
+if os.environ.get("BUILD_DC_OUT_ROOT"):  # 2026-09-25: opt-in staging root, unset = live folder (see build_partner_dc_packages.py)
+    OUT_ROOT = os.environ["BUILD_DC_OUT_ROOT"]
 TEMP_DIR = PROJECT_DIR + r"\output\cluster_factsheets_tmp"
 
 _LOCKED_FALLBACK_COPY = r"C:\Users\JACKPH~1\AppData\Local\Temp\claude\Partnerscoverage_copy.xlsx"
@@ -423,6 +427,15 @@ if _n_reserve_only:
 if _only_partner:
     clusters = {cid: rows for cid, rows in clusters.items() if rows[0]["adm2_pcode"] in partners_by_pcode}
     print(f"BUILD_DC_ONLY_PARTNER set - scoped to {len(clusters)} cluster(s) in {_only_partner}'s LGA(s).")
+
+# 2026-09-25: opt-in LGA scoping, same env var as build_partner_dc_packages.py; staging root required.
+_only_pcodes = os.environ.get("BUILD_DC_ONLY_PCODES")
+if _only_pcodes:
+    if not os.environ.get("BUILD_DC_OUT_ROOT"):
+        raise SystemExit("BUILD_DC_ONLY_PCODES needs BUILD_DC_OUT_ROOT set to a staging folder.")
+    _keep_pcodes = {p.strip() for p in _only_pcodes.split(",") if p.strip()}
+    clusters = {cid: rows for cid, rows in clusters.items() if rows[0]["adm2_pcode"] in _keep_pcodes}
+    print(f"BUILD_DC_ONLY_PCODES set - scoped to {len(clusters)} cluster(s) in {sorted(_keep_pcodes)}.")
 
 print(f"  {len(clusters)} distinct clusters")
 

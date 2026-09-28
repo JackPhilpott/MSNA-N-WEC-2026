@@ -78,8 +78,8 @@ SAMPLING_DIR = PROJECT_DIR + r"\1_sampling"
 # round. Filtered below to coverage_status=="covered" & exclusion_reason
 # =="none" to still exclude population-floor/certainty-excluded strata,
 # which genuinely shouldn't reappear here.
-STRATA_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v13_FULL.csv"
-HOUSEHOLD_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v13_FULL.csv"
+STRATA_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v14_FULL.csv"
+HOUSEHOLD_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v14_FULL.csv"
 # 2026-09-13 (Task 1, target-inflation-fix batch): the single source of truth
 # for "how many of this cluster's primary rows are actually accessible" -
 # written by frame_status.R's compute_cluster_status(), which applies the
@@ -88,13 +88,13 @@ HOUSEHOLD_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stag
 # which disagreed with this file for every straddling/below-threshold
 # cluster - see project memory project_resampling_target_inflation_fix_
 # 2026-09-13 for the before/after.
-CLUSTER_STATUS_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_cluster_status_v13.csv"
+CLUSTER_STATUS_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_cluster_status_v14.csv"
 # Task 4 (2026-09-13): the STOP-mode gate's own baseline - each run's
 # target_sample_representativity per stratum, compared against THIS run's.
 # Not part of the workbook itself (an .xlsx is for humans to read/annotate,
 # not a reliable round-trip source for a plausibility gate) - a small,
 # dedicated, single-purpose tracking file, same pattern as _frame_
-# version.txt/NGA_MSNA_2026_cluster_status_v13.csv elsewhere in this project.
+# version.txt/NGA_MSNA_2026_cluster_status_v14.csv elsewhere in this project.
 TARGET_REPR_LAST_RUN_CSV = SAMPLING_DIR + r"\resampling\output\target_sample_representativity_last_run.csv"
 MASTER_WARD_CSV = SAMPLING_DIR + r"\resampling\output\master_accessibility_status_ward_level.csv"
 GIS_WARD_CSV = SAMPLING_DIR + r"\resampling\output\gis\accessible_area_lga_ward_portions.csv"
@@ -156,7 +156,7 @@ TARGET_MOE_PCT = 10.0
 
 OUT_DIR = SAMPLING_DIR + r"\resampling\output"
 WORKBOOK_PATH = OUT_DIR + r"\NGA_MSNA_2026_accessibility_impact_workbook.xlsx"
-UPDATED_FRAME_CSV = OUT_DIR + r"\NGA_MSNA_2026_stage2_sampling_frame_v13_WORKING_with_accessibility.csv"
+UPDATED_FRAME_CSV = OUT_DIR + r"\NGA_MSNA_2026_stage2_sampling_frame_v14_WORKING_with_accessibility.csv"
 
 
 def _to_int(v):
@@ -980,14 +980,38 @@ def main():
         N_hh_accessible = N_hh * pct_pop_accessible / 100
 
         collected_full = collected_by_strata.get(strata_id, 0)
+        # FIX 2026-09-28 (Jack, partner/donor-facing bug caught via a ZOA
+        # email vs. workbook mismatch on Bodinga - traced by Resampling,
+        # fix ordered same night): this used to filter to `c["any_accessible"]`,
+        # which silently dropped real, already-collected interviews the
+        # moment their cluster's ward went Inaccessible - the exact
+        # "stranded achieved" pattern refresh_working_frame_daily.R /
+        # frame_status.R's compute_strata_achieved() already credits back
+        # for achieved_sample (2026-09-05), never ported here. A completed
+        # interview is permanent and never retroactively excluded by later
+        # accessibility loss (Jack's core principle, 2026-09-13) - this
+        # column and real_achieved_accessible below are DISPLAY figures a
+        # partner workbook/donor report reads directly, so the same
+        # principle applies. Verified before applying: summing over EVERY
+        # cluster in the stratum (not just currently-accessible ones)
+        # reproduces the raw matched_strata_id groupby exactly, 0 of 305
+        # covered strata mismatch either figure. Confirmed this does NOT
+        # touch primary_ceiling_accessible/moe_updated/moe_certainty/
+        # feasibility/additional_clusters_needed - none of those reference
+        # real_achieved_by_cluster or collected_by_cluster anywhere, so no
+        # verdict or draw/top-up sizing (tonight's or otherwise) was ever
+        # computed from the buggy figure. 139 of 305 covered strata were
+        # affected nationally, always undercounting, never the reverse.
         collected_accessible = sum(
-            collected_by_cluster.get(c["cluster_id"], 0) for c in clusters if c["any_accessible"]
+            collected_by_cluster.get(c["cluster_id"], 0) for c in clusters
         )
         # Real achieved so far (real field data, canonical is_achieved formula,
-        # deletion-log-adjusted) within accessible-area clusters - informational
-        # only (shows current fielding progress), added 2026-08-29.
+        # deletion-log-adjusted) - informational (shows current fielding
+        # progress), added 2026-08-29. See the stranded-achieved fix note above -
+        # this is a stratum total across every cluster ever assigned to it,
+        # not restricted to currently-accessible ones.
         real_achieved_accessible = sum(
-            real_achieved_by_cluster.get(c["cluster_id"], 0) for c in clusters if c["any_accessible"]
+            real_achieved_by_cluster.get(c["cluster_id"], 0) for c in clusters
         )
         # Achievable CEILING - what this stratum could reach if every currently-
         # assigned, accessible cluster's PRIMARY slots were fully completed.

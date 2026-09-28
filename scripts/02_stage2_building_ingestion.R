@@ -527,7 +527,8 @@ load_building_footprints <- function(
 
     buildings_list <- list()
 
-    batch_starts <- seq(1, length(cluster_bbox_wkt), by = batch_size)
+    # seq(1, 0, by = 40) errors (wrong sign); zero candidate clusters is a normal "nothing to fetch" outcome
+    batch_starts <- if(length(cluster_bbox_wkt) > 0) seq(1, length(cluster_bbox_wkt), by = batch_size) else integer(0)
     batch_starts <- batch_starts[batch_starts > last_completed_batch_end]
 
     # -------------------------------------------------------------------------

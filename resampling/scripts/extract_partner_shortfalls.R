@@ -51,7 +51,7 @@ s$additional_num <- suppressWarnings(as.numeric(s$Additional.clusters.needed.for
 # real draw (belt-and-suspenders: this is the earlier catch, that's the
 # last one, regardless of how the shortfalls CSV was generated).
 strata_sampling_method <- read_csv(
-  "output/data/data_collection/NGA_MSNA_2026_strata_level_sampling_frame_v13_WORKING.csv",
+  "output/data/data_collection/NGA_MSNA_2026_strata_level_sampling_frame_v14_WORKING.csv",
   show_col_types = FALSE, col_types = cols(.default = "c")
 ) %>% select(strata_id, sampling_method)
 s <- s %>% left_join(strata_sampling_method, by = c("Strata.ID" = "strata_id"))

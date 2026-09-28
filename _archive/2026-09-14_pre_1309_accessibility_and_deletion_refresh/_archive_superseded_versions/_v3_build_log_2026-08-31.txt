@@ -1,0 +1,32 @@
+Sub-floor strata (<10% population remaining): 12
+  non_idp_NG008023 | Borno / Mobbar | Non-IDP | 0.0% remaining
+  non_idp_NG021008 | Katsina / Dandume | Non-IDP | 6.5% remaining
+  non_idp_NG021013 | Katsina / Faskari | Non-IDP | 8.6% remaining
+  non_idp_NG021029 | Katsina / Musawa | Non-IDP | 3.9% remaining
+  non_idp_NG021031 | Katsina / Sabuwa | Non-IDP | 7.8% remaining
+  non_idp_NG022016 | Kebbi / Sakaba | Non-IDP | 9.0% remaining
+  idp_NG021008 | Katsina / Dandume | IDP | 0.0% remaining
+  idp_NG021013 | Katsina / Faskari | IDP | 0.0% remaining
+  idp_NG021019 | Katsina / Kankara | IDP | 0.0% remaining
+  idp_NG021028 | Katsina / Matazu | IDP | 0.0% remaining
+  idp_NG021029 | Katsina / Musawa | IDP | 0.0% remaining
+  idp_NG021031 | Katsina / Sabuwa | IDP | 0.0% remaining
+
+Clusters to revert (wrongly drawn, zero submissions): 39
+Strata restored to pre-FACT-merge values: non_idp_NG021008, non_idp_NG021013, non_idp_NG021029, non_idp_NG021031, non_idp_NG022016
+
+FULL v3 household-level: 110047 -> 109415 rows (removed 632)
+Strata-level FULL v3: restored 5 row(s), marked 12 row(s) excluded
+
+Using deletion log: revised_deletion_log_for_resampling_2026-08-30_v2.csv
+Real achieved (canonical, post-deletion): 10649 of 11906 submissions
+Non-IDP achieved survey_ids (exact join): 4753
+IDP clusters with achieved interviews (count-based removal): 383
+
+WORKING v3 candidate pool (covered, not excluded): 64739 rows
+Non-IDP: 38171 -> 33429 rows (dropped 4742 achieved)
+IDP: 26568 -> 20945 rows (dropped 5623 achieved, count-based)
+
+WORKING v3 final: 54374 rows, 3635 distinct clusters
+
+Wrote v3 files to C:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/1_sampling/output/data/data_collection

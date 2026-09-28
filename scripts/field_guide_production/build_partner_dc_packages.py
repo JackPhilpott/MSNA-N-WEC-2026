@@ -6,7 +6,7 @@
 # Reads:
 #   - input_data/boundaries/partner_coverage/Partnerscoverage.xlsx (which
 #     partner(s) cover which LGA - wide format, one column per partner)
-#   - output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v13_WORKING.csv
+#   - output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v14_WORKING.csv
 #     (household-level sampling frame, already restricted to covered LGAs)
 #   - output/data/data_collection/idp_camp_backup_points.csv (re-delineated
 #     backup GPS point for the 15 flagged large in-camp sites)
@@ -100,6 +100,8 @@ from dominant_ward import dominant_ward_key  # noqa: E402
 LGA_MAPS_DIR = PROJECT_DIR + r"\output\maps\lga_summary"
 STRATA_CSV = PROJECT_DIR + r"\_archive\2026-08-06_design_frame_post_nw_targeted_resample\strata_level_sampling_frame.csv"
 COVERAGE_XLSX = PROJECT_DIR + r"\input_data\boundaries\partner_coverage\Partnerscoverage.xlsx"
+if os.environ.get("BUILD_DC_COVERAGE_XLSX"):  # 2026-09-25: opt-in, stage a coverage change before the live Excel is edited
+    COVERAGE_XLSX = os.environ["BUILD_DC_COVERAGE_XLSX"]
 _LOCKED_FALLBACK_COPY = r"C:\Users\JACKPH~1\AppData\Local\Temp\claude\Partnerscoverage_copy.xlsx"
 if os.path.exists(_LOCKED_FALLBACK_COPY):
     # Source file was open/locked in Excel at run time - fall back to a
@@ -123,8 +125,8 @@ if os.path.exists(_LOCKED_FALLBACK_COPY):
         f"{_copy_age_s / 60:.0f}-minute-old fallback copy instead: {_LOCKED_FALLBACK_COPY}"
     )
     COVERAGE_XLSX = _LOCKED_FALLBACK_COPY
-STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v13_WORKING.csv"
-STAGE2_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v13_FULL.csv"
+STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v14_WORKING.csv"
+STAGE2_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v14_FULL.csv"
 # 2026-09-08 fix: was pointed at dashboard_app/data/ - the BUNDLED MIRROR
 # that only updates as a side effect of a full dashboard deploy, not the
 # canonical daily-refreshed source. Same bug class already found and fixed
@@ -182,6 +184,10 @@ print(exclusions_summary())
 # Moved 2026-08-06 by the user from "6. Outputs\partner_dc_files" - same
 # per-partner folder structure, new parent location.
 OUT_ROOT = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\3. External coordination\NGA MSNA 2026 Package"
+# 2026-09-25: opt-in staging root (env var, unset by default = live folder, behaviour unchanged) so a scoped
+# build can be reviewed before anything reaches a live partner folder. See BUILD_DC_ONLY_PCODES below.
+if os.environ.get("BUILD_DC_OUT_ROOT"):
+    OUT_ROOT = os.environ["BUILD_DC_OUT_ROOT"]
 
 IN_SCOPE_STATES = {
     "Adamawa", "Borno", "Yobe",
@@ -309,6 +315,17 @@ if _only_partner:
     partners_by_pcode = {pcode: partners for pcode, partners in partners_by_pcode.items() if partners}
     print(f"BUILD_DC_ONLY_PARTNER set - scoped to '{_only_partner}' only ({len(partners_by_pcode)} LGA(s)).")
 
+# 2026-09-25: opt-in LGA scoping (comma-separated adm2 pcodes), for handing a partner a few newly reassigned LGAs
+# without rebuilding the rest. An LGA-scoped run writes a PARTIAL partner workbook, so it must never target the
+# live folder: refuse unless BUILD_DC_OUT_ROOT points somewhere else.
+_only_pcodes = os.environ.get("BUILD_DC_ONLY_PCODES")
+if _only_pcodes:
+    if not os.environ.get("BUILD_DC_OUT_ROOT"):
+        raise SystemExit("BUILD_DC_ONLY_PCODES writes a partial partner workbook - set BUILD_DC_OUT_ROOT to a staging folder.")
+    _keep_pcodes = {p.strip() for p in _only_pcodes.split(",") if p.strip()}
+    partners_by_pcode = {pcode: partners for pcode, partners in partners_by_pcode.items() if pcode in _keep_pcodes}
+    print(f"BUILD_DC_ONLY_PCODES set - scoped to {len(partners_by_pcode)} LGA(s): {sorted(partners_by_pcode)}.")
+
 print(f"Partner coverage resolved for {len(partners_by_pcode)} LGAs.")
 
 # ---------------------------------------------------------------------------
@@ -394,10 +411,22 @@ for r in frame_rows_msna_light:
 # the exclusion decision was made at the whole-stratum level, a broader
 # judgment than any single row's own ward.
 POPULATION_THRESHOLD_EXCLUSION_REASON = "accessibility_loss_below_population_threshold"
+# 2026-09-23: idp_NG021024 (Mai'adua IDP) dropped whole-stratum on Save the
+# Children's own report that the IDP population is no longer present there -
+# a different reason than the accessibility/population-threshold mechanism
+# above, but the same "this stratum is genuinely gone, not just access-
+# blocked" shape, so it gets the same full-drop treatment (real achieved
+# credit preserved, target/achieved excluded from partner-level totals).
+# Named set, not a hardcoded stratum list, so the next such drop just adds
+# its own reason string here rather than needing new branching logic.
+DROPPED_STRATUM_EXCLUSION_REASONS = {
+    POPULATION_THRESHOLD_EXCLUSION_REASON,
+    "idp_population_no_longer_present_partner_reported",
+}
 
 
 def _population_threshold_excluded_stratum_row(r):
-    return r.get("coverage_status") == "excluded" and r.get("exclusion_reason") == POPULATION_THRESHOLD_EXCLUSION_REASON
+    return r.get("coverage_status") == "excluded" and r.get("exclusion_reason") in DROPPED_STRATUM_EXCLUSION_REASONS
 
 
 def _ward_accessible(r):
@@ -583,17 +612,17 @@ assert_plausible("unmatched-ward rows NOT flagged effectively-inaccessible", _n_
 # script's own pre-existing precedent of already zeroing "Target HHs
 # (primary)" for a population-threshold-excluded cluster - not a new
 # asymmetry introduced by this change.
-STRATA_LEVEL_V9_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v13_FULL.csv"
+STRATA_LEVEL_V9_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v14_FULL.csv"
 TARGET_SAMPLE_REPRESENTATIVITY_CSV = PROJECT_DIR + r"\resampling\output\target_sample_representativity_last_run.csv"
 
 with open(STRATA_LEVEL_V9_FULL_CSV, encoding="utf-8") as f:
-    _strata_v13_rows = list(csv.DictReader(f))
+    _strata_v14_rows = list(csv.DictReader(f))
 
 strata_target_sample = {}
 strata_partners_covering = {}
 strata_lga_key = {}   # strata_id -> (adm1_name, adm2_name)
 strata_pop_type = {}
-for _r in _strata_v13_rows:
+for _r in _strata_v14_rows:
     sid = _r["strata_id"]
     if _r.get("coverage_status") == "covered" and _r.get("exclusion_reason") == "none":
         strata_target_sample[sid] = float(_r["target_sample"]) if _r.get("target_sample") not in (None, "", "NA") else 0.0
@@ -2098,6 +2127,8 @@ for _p_dir in _checked_partner_dirs:
         })
 
 RECONCILIATION_REPORT_CSV = PROJECT_DIR + r"\resampling\output\dc_package_uuid_reconciliation_report.csv"
+if os.environ.get("BUILD_DC_OUT_ROOT"):  # staging run: never overwrite the national report
+    RECONCILIATION_REPORT_CSV = os.path.join(OUT_ROOT, "dc_package_uuid_reconciliation_report.csv")
 os.makedirs(os.path.dirname(RECONCILIATION_REPORT_CSV), exist_ok=True)
 with open(RECONCILIATION_REPORT_CSV, "w", encoding="utf-8-sig", newline="") as f:
     fieldnames = [

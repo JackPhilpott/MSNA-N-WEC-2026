@@ -132,11 +132,11 @@ source("scripts/shared/frame_status.R")
 source("scripts/shared/log_pipeline_change.R")
 
 SF_DIR <- "output/data/data_collection"
-FULL_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v13_FULL.csv")
-WORKING_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v13_WORKING.csv")
-STRATA_FULL_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v13_FULL.csv")
-STRATA_WORKING_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v13_WORKING.csv")
-CLUSTER_STATUS_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_cluster_status_v13.csv")
+FULL_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v14_FULL.csv")
+WORKING_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v14_WORKING.csv")
+STRATA_FULL_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v14_FULL.csv")
+STRATA_WORKING_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v14_WORKING.csv")
+CLUSTER_STATUS_CSV <- file.path(SF_DIR, "NGA_MSNA_2026_cluster_status_v14.csv")
 # CORRECTED 2026-09-08: was hardcoded to the dashboard_app/data/ mirror,
 # which only refreshes on a full deploy_dashboard.R run - flagged repeatedly
 # during the 2026-09-07 incident review as a real, live staleness risk
@@ -469,6 +469,28 @@ if (length(newly_covered_ids) > 0) {
       }, strata_id, achieved_sample, N_hh, ICC)
     )
   strata_working_new <- bind_rows(strata_working_new, newly_covered_rows)
+}
+
+# 2026-09-23 (mirror-image of the 2026-09-22 R6 gap above, found via
+# idp_NG021024/Mai'adua IDP's drop): the ADD fix above handles a stratum
+# newly covered in FULL but missing from WORKING - it has no counterpart for
+# a stratum that goes the OTHER way (covered -> excluded in FULL via a
+# one-off patch that, like exclude_idp_maiadua_2026-09-23.R, only touches
+# FULL, not strata-level WORKING directly). Without this, an excluded
+# stratum's WORKING row just sits there forever with its last-known
+# coverage_status="covered"/target_sample intact - household-level WORKING
+# correctly drops to 0 rows for it (that filter reads FULL's coverage_status
+# fresh every time), so the mismatch is silent: 0 achievable households
+# against a still-live-looking target. Found by inspecting the WORKING
+# export about to be sent externally (idp_NG021024 still read covered/
+# target_sample=60 hours after being excluded in FULL). Same self-deriving
+# fix shape as the ADD case: any strata_id current in strata_working_new but
+# no longer covered/exclusion_reason==none in FULL is dropped.
+now_excluded_ids <- setdiff(strata_working_new$strata_id, strata_full_covered$strata_id)
+if (length(now_excluded_ids) > 0) {
+  log_msg("Strata no longer covered in FULL but still present in strata-level WORKING - removing: %s",
+          paste(now_excluded_ids, collapse = ", "))
+  strata_working_new <- strata_working_new %>% filter(!(strata_id %in% now_excluded_ids))
 }
 
 # sampling_method is a live design-basis tag (which method a stratum

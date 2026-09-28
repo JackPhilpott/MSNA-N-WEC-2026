@@ -15,7 +15,7 @@
 # only via the full build_partner_dc_packages.py when the WORKING roster
 # itself actually changes, followed by an announced email (Jack's call each
 # time, never automatic). This is exactly why this script never loads
-# WORKING (NGA_MSNA_2026_stage2_sampling_frame_v13_WORKING.csv) at all -
+# WORKING (NGA_MSNA_2026_stage2_sampling_frame_v14_WORKING.csv) at all -
 # there is nothing in its own output that WORKING could change.
 #
 # Deliberately a standalone duplicate of build_partner_dc_packages.py's
@@ -46,6 +46,8 @@
 #   Optional env var BUILD_DC_ONLY_PARTNER, same convention as
 #   build_partner_dc_packages.py, scopes a run to one partner only - useful
 #   for testing a change against a single partner's live file.
+#   Optional env var BUILD_DC_OUT_ROOT (2026-09-25) redirects the workbook output to a staging folder (see
+#   LIVE_OUT_ROOT below); unset, the script behaves exactly as before.
 # ==============================================================================
 import copy
 import csv
@@ -97,7 +99,7 @@ if os.path.exists(_LOCKED_FALLBACK_COPY):
         f"{_copy_age_s / 60:.0f}-minute-old fallback copy instead: {_LOCKED_FALLBACK_COPY}"
     )
     COVERAGE_XLSX = _LOCKED_FALLBACK_COPY
-STAGE2_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v13_FULL.csv"
+STAGE2_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v14_FULL.csv"
 # Canonical (not the dashboard_app/ bundled mirror - see
 # build_partner_dc_packages.py's 2026-09-08 fix note for the identical bug
 # this avoids from the start).
@@ -110,6 +112,13 @@ REAL_SUBMISSIONS_CSV = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Da
 CONFIRMED_DELETIONS_OVERLAY_CSV = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\2_monitoring\data\CONFIRMED_DELETIONS_OVERLAY.csv"
 BACKUP_POINTS_CSV = PROJECT_DIR + r"\output\data\data_collection\idp_camp_backup_points.csv"
 OUT_ROOT = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\3. External coordination\NGA MSNA 2026 Package"
+LIVE_OUT_ROOT = OUT_ROOT
+# 2026-09-25 opt-in staging switch (unset = unchanged behaviour): BUILD_DC_OUT_ROOT redirects where workbooks are
+# written AND where an existing workbook is read back for "MSNA Light" sheet preservation, so seed the staging root
+# with copies of the live workbooks first. The map check still reads the LIVE KMLs (LIVE_OUT_ROOT) and, when staging,
+# writes its CSV inside the staging root so the shared daily_refresh_map_check.csv is never touched.
+if os.environ.get("BUILD_DC_OUT_ROOT"):
+    OUT_ROOT = os.environ["BUILD_DC_OUT_ROOT"]
 
 IN_SCOPE_STATES = {
     "Adamawa", "Borno", "Yobe",
@@ -230,10 +239,20 @@ print(f"Partner coverage resolved for {len(partners_by_pcode)} LGAs.")
 # already-completed field credit).
 # ---------------------------------------------------------------------------
 POPULATION_THRESHOLD_EXCLUSION_REASON = "accessibility_loss_below_population_threshold"
+# 2026-09-23: mirrors build_partner_dc_packages.py's own same-day edit -
+# idp_NG021024 (Mai'adua IDP) dropped whole-stratum on Save the Children's
+# report that the IDP population is no longer present, a distinct reason
+# from the accessibility/population-threshold mechanism but the same
+# "genuinely gone, not just access-blocked" shape, so it gets the same
+# full-drop treatment. Named set so the next such drop just adds its reason.
+DROPPED_STRATUM_EXCLUSION_REASONS = {
+    POPULATION_THRESHOLD_EXCLUSION_REASON,
+    "idp_population_no_longer_present_partner_reported",
+}
 
 
 def _population_threshold_excluded_stratum_row(r):
-    return r.get("coverage_status") == "excluded" and r.get("exclusion_reason") == POPULATION_THRESHOLD_EXCLUSION_REASON
+    return r.get("coverage_status") == "excluded" and r.get("exclusion_reason") in DROPPED_STRATUM_EXCLUSION_REASONS
 
 
 def _ward_accessible(r):
@@ -357,17 +376,17 @@ assert_plausible("rows of partner-reported-inaccessible / dropped clusters NOT t
 # note for the full reasoning. Kept in sync by hand, per this project's
 # standalone-script convention.
 # ---------------------------------------------------------------------------
-STRATA_LEVEL_V9_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v13_FULL.csv"
+STRATA_LEVEL_V9_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v14_FULL.csv"
 TARGET_SAMPLE_REPRESENTATIVITY_CSV = PROJECT_DIR + r"\resampling\output\target_sample_representativity_last_run.csv"
 
 with open(STRATA_LEVEL_V9_FULL_CSV, encoding="utf-8") as f:
-    _strata_v13_rows = list(csv.DictReader(f))
+    _strata_v14_rows = list(csv.DictReader(f))
 
 strata_target_sample = {}
 strata_partners_covering = {}
 strata_lga_key = {}
 strata_pop_type = {}
-for _r in _strata_v13_rows:
+for _r in _strata_v14_rows:
     sid = _r["strata_id"]
     if _r.get("coverage_status") == "covered" and _r.get("exclusion_reason") == "none":
         strata_target_sample[sid] = float(_r["target_sample"]) if _r.get("target_sample") not in (None, "", "NA") else 0.0
@@ -1251,7 +1270,7 @@ if failed_workbooks:
 #       last full rebuild. Normal; clears at the next full rebuild.
 # MAP_CHECK_PACKAGE_ROOT is where the KML files live - the same tree
 # OUT_ROOT writes to in normal use.
-MAP_CHECK_PACKAGE_ROOT = OUT_ROOT
+MAP_CHECK_PACKAGE_ROOT = LIVE_OUT_ROOT
 _map_rows = []
 for (partner_dir, partner_name) in partner_meta_rows:
     if partner_name in failed_workbooks:
@@ -1265,7 +1284,8 @@ for (partner_dir, partner_name) in partner_meta_rows:
         "map_only_non_idp": len(kml_non_idp - wb_non_idp), "map_only_idp": len(kml_idp - wb_idp),
         "workbook_only_examples": "; ".join(sorted((wb_non_idp - kml_non_idp) | (wb_idp - kml_idp))[:10]),
     })
-MAP_CHECK_CSV = PROJECT_DIR + r"\resampling\output\daily_refresh_map_check.csv"
+MAP_CHECK_CSV = (os.path.join(OUT_ROOT, "daily_refresh_map_check_STAGED.csv") if OUT_ROOT != LIVE_OUT_ROOT
+                 else PROJECT_DIR + r"\resampling\output\daily_refresh_map_check.csv")
 with open(MAP_CHECK_CSV, "w", encoding="utf-8-sig", newline="") as f:
     _w = csv.DictWriter(f, fieldnames=["partner", "workbook_only_non_idp", "workbook_only_idp",
                                        "map_only_non_idp", "map_only_idp", "workbook_only_examples"])

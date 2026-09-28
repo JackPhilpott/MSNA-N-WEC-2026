@@ -1,0 +1,49 @@
+=== WORKING frame refresh: 2026-09-13 23:29:36 ===
+Real-submissions source: c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/2_monitoring/data/real_submissions.csv (modified 2026-09-13 20:08:04)
+Confirmed-deletions overlay: 1277 rows (1267 confirmed, 10 contested/other).
+Real submissions: 19547 total, 16928 achieved (canonical formula).
+Non-IDP achieved survey_ids (exact join): 7858
+IDP (cluster, status) combinations with achieved interviews: 562
+FULL rows: 117031 | covered & not excluded: 71473 | ward-inaccessible rows dropped: 12050 | below-4-accessible-HH clusters (187 clusters) also dropped entirely: 4027 rows | in-scope pool: 55396
+Non-IDP: 30664 -> 23709 rows (dropped 6955 achieved)
+IDP: 24732 -> 16734 rows (dropped 7998 achieved, count-based)
+
+WORKING (household-level, new): 40443 rows, 2969 distinct clusters
+WORKING (household-level, previous): 40443 rows, 2969 distinct clusters
+Clusters now fully achieved/inaccessible and removed entirely from WORKING this run: 0
+Wrote output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v7_WORKING.csv (in place, no version bump).
+Stranded-achieved credit: 1181 real completed interview(s) sit in rows excluded from the accessible pool (ward-inaccessible or below-threshold) - added back into strata-level achieved_sample so the shortfall doesn't double-ask for them.
+
+Strata-level WORKING: 314 strata refreshed, 0 changed achieved_sample. 29 stratum/strata still show achieved_sample > target_sample after this fix (should be a small residual, not systemic).
+  non_idp_NG007006: target=102 achieved=107
+  non_idp_NG007013: target=102 achieved=103
+  non_idp_NG008003: target=102 achieved=106
+  non_idp_NG008004: target=102 achieved=107
+  non_idp_NG008008: target=102 achieved=106
+  non_idp_NG021015: target=102 achieved=104
+  non_idp_NG022001: target=102 achieved=108
+  non_idp_NG022011: target=102 achieved=113
+  non_idp_NG022012: target=102 achieved=107
+  non_idp_NG022014: target=102 achieved=103
+  non_idp_NG022020: target=102 achieved=107
+  non_idp_NG026011: target=102 achieved=107
+  non_idp_NG034022: target=102 achieved=106
+  non_idp_NG034023: target=102 achieved=103
+  non_idp_NG036002: target=102 achieved=106
+  non_idp_NG036013: target=102 achieved=104
+  non_idp_NG036015: target=102 achieved=104
+  non_idp_NG037002: target=102 achieved=108
+  non_idp_NG037003: target=102 achieved=104
+  non_idp_NG037007: target=102 achieved=106
+  non_idp_NG037009: target=102 achieved=105
+  non_idp_NG037010: target=102 achieved=104
+  idp_NG007013: target=102 achieved=107
+  idp_NG021012: target=96 achieved=114
+  idp_NG021014: target=96 achieved=140
+  idp_NG037002: target=96 achieved=138
+  non_idp_NG021010: target=102 achieved=106
+  non_idp_NG034004: target=102 achieved=105
+  idp_NG021003: target=102 achieved=108
+Wrote output/data/data_collection/NGA_MSNA_2026_strata_level_sampling_frame_v7_WORKING.csv (in place, no version bump).
+
+Per-cluster status (output/data/data_collection/NGA_MSNA_2026_cluster_status_v7.csv): 4121 clusters - completed=637, not_started_access_lost=1032, not_started_other=2271, partially_completed_access_lost=181

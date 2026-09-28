@@ -1,0 +1,20 @@
+=== WORKING frame refresh: 2026-09-04 22:16:52 ===
+Real-submissions source: c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/2_monitoring/dashboard_app/data/real_submissions.csv (modified 2026-09-04 17:11:43)
+Real submissions: 14587 total, 13096 achieved (canonical formula).
+Non-IDP achieved survey_ids (exact join): 5763
+IDP (cluster, status) combinations with achieved interviews: 463
+FULL rows: 110950 | covered & not excluded: 66274 | ward-inaccessible rows dropped: 7554 | below-4-accessible-HH clusters (145 clusters) also dropped entirely: 480 rows | in-scope pool: 58240
+Non-IDP: 32668 -> 27106 rows (dropped 5562 achieved)
+IDP: 25572 -> 18818 rows (dropped 6754 achieved, count-based)
+
+WORKING (household-level, new): 45924 rows, 3132 distinct clusters
+WORKING (household-level, previous): 46362 rows, 3276 distinct clusters
+Clusters now fully achieved/inaccessible and removed entirely from WORKING this run: 144
+Wrote output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v5_WORKING.csv (in place, no version bump).
+
+Strata-level WORKING: 314 strata refreshed, 55 changed achieved_sample. 4 stratum/strata still show achieved_sample > target_sample after this fix (should be a small residual, not systemic).
+  non_idp_NG008005: target=102 achieved=106
+  non_idp_NG008008: target=102 achieved=106
+  idp_NG021032: target=96 achieved=114
+  idp_NG037002: target=96 achieved=102
+Wrote output/data/data_collection/NGA_MSNA_2026_strata_level_sampling_frame_v5_WORKING.csv (in place, no version bump).

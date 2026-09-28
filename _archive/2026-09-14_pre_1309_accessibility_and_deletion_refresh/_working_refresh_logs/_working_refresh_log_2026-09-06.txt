@@ -1,0 +1,26 @@
+=== WORKING frame refresh: 2026-09-06 15:32:53 ===
+Real-submissions source: c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/2_monitoring/dashboard_app/data/real_submissions.csv (modified 2026-09-06 12:33:48)
+Real submissions: 15426 total, 13811 achieved (canonical formula).
+Non-IDP achieved survey_ids (exact join): 6143
+IDP (cluster, status) combinations with achieved interviews: 471
+FULL rows: 110950 | covered & not excluded: 66274 | ward-inaccessible rows dropped: 7554 | below-4-accessible-HH clusters (145 clusters) also dropped entirely: 480 rows | in-scope pool: 58240
+Non-IDP: 32668 -> 26729 rows (dropped 5939 achieved)
+IDP: 25572 -> 18591 rows (dropped 6981 achieved, count-based)
+
+WORKING (household-level, new): 45320 rows, 3130 distinct clusters
+WORKING (household-level, previous): 45924 rows, 3132 distinct clusters
+Clusters now fully achieved/inaccessible and removed entirely from WORKING this run: 2
+Wrote output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v5_WORKING.csv (in place, no version bump).
+Stranded-achieved credit: 150 Non-IDP + 194 IDP = 344 real completed interviews sit in rows excluded from the accessible pool (ward-inaccessible or below-threshold) - added back into strata-level achieved_sample so the shortfall doesn't double-ask for them.
+
+Strata-level WORKING: 314 strata refreshed, 2 changed achieved_sample. 9 stratum/strata still show achieved_sample > target_sample after this fix (should be a small residual, not systemic).
+  non_idp_NG008005: target=102 achieved=106
+  non_idp_NG008008: target=102 achieved=106
+  non_idp_NG022004: target=102 achieved=114
+  idp_NG021012: target=96 achieved=114
+  idp_NG021014: target=96 achieved=159
+  idp_NG021032: target=96 achieved=114
+  idp_NG037002: target=96 achieved=126
+  non_idp_NG022002: target=102 achieved=105
+  idp_NG021003: target=102 achieved=107
+Wrote output/data/data_collection/NGA_MSNA_2026_strata_level_sampling_frame_v5_WORKING.csv (in place, no version bump).

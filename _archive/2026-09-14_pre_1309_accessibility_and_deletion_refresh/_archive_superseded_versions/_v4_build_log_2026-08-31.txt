@@ -1,0 +1,38 @@
+Loaded v3 FULL: 109415 rows, 6198 distinct clusters
+
+BUG FIX 1: stale target/reserve label on expanded clusters
+  348 row(s) had target_households corrected, 348 row(s) had reserve_households corrected
+  across 29 cluster(s): idp_NG037007_14, idp_NG037007_8, idp_NG037010_11, idp_NG037010_14, idp_NG008007_4, idp_NG021020_4, idp_NG002001_12, idp_NG021001_13, idp_NG021003_7, idp_NG021007_8, idp_NG021012_1, idp_NG021012_10, idp_NG021012_16, idp_NG021014_6, idp_NG021017_1, idp_NG021017_11, idp_NG021017_14, idp_NG021017_3, idp_NG021025_10, idp_NG021025_6, idp_NG021025_8, idp_NG021032_10, idp_NG037002_12, idp_NG037002_14, idp_NG037002_6, idp_NG037009_13, idp_NG037009_7, idp_NG037011_12, idp_NG037011_5
+
+BUG FIX 2: joined current ward accessibility onto FULL v4 (new column: ward_accessible_status)
+  42365 row(s) had no matching ward in the accessibility table (left as NA, not stripped from WORKING - treated as accessible by default since status is genuinely unknown, not confirmed inaccessible)
+  9779 row(s) across 774 cluster(s) currently sit in a ward marked Inaccessible
+
+Wrote FULL v4: 109415 rows (row count unchanged from v3 - FULL keeps every row, accessibility is informational only)
+
+Using deletion log: revised_deletion_log_for_resampling_2026-08-30_v2.csv
+real_submissions.csv: 12522 rows (freshly rebuilt)
+Real achieved (canonical, post-deletion): 11232 of 12522 submissions
+Non-IDP achieved survey_ids (exact join): 5076
+IDP clusters with achieved interviews (count-based removal): 407
+
+WORKING v4 candidate pool: 57245 rows (dropped 7494 row(s) for sitting in an inaccessible ward)
+Non-IDP: 32609 -> 27680 rows (dropped 4929 achieved)
+IDP: 24636 -> 18883 rows (dropped 5753 achieved, count-based)
+
+WORKING v4 final: 46563 rows, 3192 distinct clusters
+
+Wrote v4 WORKING files to C:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/1_sampling/output/data/data_collection
+
+==== POST-BUILD AUDIT ====
+Clusters where WORKING v4 row count exceeds target+reserve capacity: 0
+Duplicate survey_ids in WORKING v4: 0
+Clusters with inconsistent target/reserve labels in WORKING v4: 0
+WORKING v4 rows still in an Inaccessible ward (should be 0): 0
+WORKING v4 rows belonging to an excluded/not-covered stratum (should be 0): 0
+Reverted FACT cluster rows still present in FULL v4 (should be 0): 0
+
+Strata marked 'covered' with ZERO rows left in WORKING v4 (flag for review, not auto-fixed): 1
+  idp_NG021014
+
+=== v4 BUILD + AUDIT COMPLETE ===
