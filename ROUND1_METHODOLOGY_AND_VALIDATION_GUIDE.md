@@ -244,7 +244,24 @@ final weight = base weights capped at 4 × stratum median (iteratively), each st
   - post-2 Sep sites: π = π_site;
   - each cluster stands for its own site's households.
 - **July-only strata:** the surveyed site stands in for its whole hex (cluster total = hex households / π_July).
-- **π_site (post-2 Sep site selection):** per batch, k_b × site households / pool households, combined as 1 − Π(1 − π_b). The pool is taken from the preserved site-frame snapshot nearest the batch: 3 Sep, 7 Sep, 21 Sep or current. The per-batch table is `idp_site_v2_pi2_per_batch_2026-10-02.csv` (Resampling). Where unavailable, a single-pool approximation is used. FACT-closed LGAs use the 21 Sep snapshot, and every cluster's basis is recorded in `first_stage_basis`.
+- **π_site (post-2 Sep site selection)**, per batch:
+  - π_b = min(1, k_b × site households / pool households);
+  - combined as π_site = 1 − Π(1 − π_b) over all of the stratum's batches.
+- **Each batch's pool** = accessible DTM sites in the LGA, in the preserved site-frame snapshot nearest the batch (3 Sep, 7 Sep, 21 Sep or current), minus sites within 30 m of an existing cluster.
+  - Table: `resampling/output/full_weighting_build_2026-09-28/idp_site_v2_pi2_per_batch_2026-10-02.csv`.
+  - Reliability grading: `idp_site_v2_pi2_strata_reliability_2026-10-02.csv`. Each drawn site must appear in its own batch's rebuilt pool.
+- **Per-batch probabilities are used for the 96 strata graded EXACT (73) or OK (23).**
+- **The other 26 strata use a single-pool approximation for all their post-2 Sep clusters:** min(1, all draws × site households / current pool). That covers:
+  - 23 "pool basis unreliable": draw-time accessibility not preserved;
+  - 3 "ambiguous": restaged or partly merged batches.
+- Each cluster's basis is recorded in `first_stage_basis`.
+- **Rules from the independent verification (2 Oct).** These came out of the Resampling session's verification and are applied:
+  - **July sites in mixed strata** use the same pools as their post-2 Sep neighbours: per-batch in EXACT/OK strata, single-pool otherwise, and the 21 Sep snapshot where the LGA closed afterwards. Their counterfactual pool includes the site itself: T2 + its households, because the real pools excluded it only because July had already fielded it.
+  - **July probabilities** use the stratum's cumulative July-mechanism draws: design draws plus post-6 Aug hex draws.
+  - **The IDP second stage is capped at 1**, as for Non-IDP. A cluster with more interviews than its recorded households stands for its interviews.
+  - **Non-IDP clusters known only from a draw staging record** use that record's own probability.
+  - **Cross-check:** the rebuilt probabilities of all 311 weighted July sites in mixed strata equal the verifier's independent computation exactly.
+- **Effect against using the approximation everywhere:** the median IDP weight changes 0.0% (90th percentile 0.3%). In mixed strata, the post-2 Sep share of weight moves by at most 11 points.
 - **Second stage:** realized (interviews / site households), using the DTM site-household estimate.
 - **Why Option 3:** in mixed strata, post-2 Sep sites stand for households the July design never surveyed. Without that, they'd be represented by a neighbouring camp. Full comparison: `resampling/output/full_weighting_build_2026-09-28/idp_psu_probability_decision_report_2026-10-02.md`.
 
@@ -255,10 +272,16 @@ final weight = base weights capped at 4 × stratum median (iteratively), each st
 ### 8.5 Effect of the cap (all 280 weighted strata)
 | | Kish weighting effect, median | 90th percentile |
 |---|---|---|
-| Uncapped | 1.23 | 1.93 |
-| Final (4× cap) | 1.22 | 1.49 |
+| Uncapped | 1.24 | 1.94 |
+| Final (4× cap) | 1.22 | 1.50 |
 
-The cap binds in 90 strata. No weight exceeds 4× its stratum median.
+The cap binds in 91 strata.
+
+**What drives most capping** (state these in the methodology note):
+- **The design-time raster MOS sometimes sits far below the household count actually found.** For example, Zurmi hex 92 had 11 households in the WorldPop raster against 4,429 in building footprints, so its selection probability is tiny and its weight huge.
+- **Thin clusters carry large populations.** For example, Tarmua's post-2 Sep site has 2 interviews.
+
+**Note: three Borno Non-IDP strata are Representative but have no weighted interviews.** Abadam, Guzamala and Nganzai are entirely MSNA Light, so weighted Borno aggregates omit them (476 interviews, about 9,000 accessible households). No weight exceeds 4× its stratum median.
 
 ### 8.6 Analysis design to declare (option b, decision 1 Oct)
 ```r
@@ -310,7 +333,10 @@ Here `<snapshot_dir>` = `resampling/output/round1_final_snapshot_v2_2026-10-02`.
 
 ## 10. Known limitations (state these in the methodology note)
 
-1. **Post-2 Sep pools are approximate.** The draw script saved no candidate pools, so IDP site-selection probabilities use the nearest preserved snapshot of the site frame (3 Sep, 7 Sep, 21 Sep or current), not the exact pool at each draw.
+1. **Post-2 Sep pools are reconstructed, not recorded.** The draw script saved no candidate pools.
+   - 96 strata use per-batch probabilities on the nearest preserved site-frame snapshot. 73 of them are exact and 23 snapshot-based, and all pass the check that each drawn site appears in its batch's pool.
+   - 26 strata use a single-pool approximation, because their draw-time accessibility was not preserved or their batch history is ambiguous.
+   - Weights are only mildly sensitive to this (section 8.3).
 2. **Co-located IDP sites in July-only strata** (no post-2 Sep draw) are represented by the surveyed site in their hex. That is a local substitution assumption, not a selection probability.
 3. **IDP second stage** uses the DTM provisional site-household estimate.
 4. **The selection probabilities for the 26 records-only Non-IDP hexes** use their draw-time MOS, while all other clusters use the cached grids. Both are the same population source.
@@ -333,5 +359,5 @@ The final weights script and this guide are committed with the hand-over.
 
 **Pending at hand-over** (status at time of writing; the MSNA team will update):
 - Partner workbooks and the live dashboard currently reflect 25,442. They are being refreshed to the final 25,447.
-- The per-batch IDP site-probability table is replacing the single-pool approximation in the weights (section 8.3).
+- Independent read-only verification of the final weights by the Resampling session (in progress at the time of writing).
 - Request to Posit support to purge an old dashboard bundle (12636193) that briefly contained a raw GPS extract. The bundle was not served by the app.

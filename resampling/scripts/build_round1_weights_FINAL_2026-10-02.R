@@ -19,7 +19,10 @@
 #            pi = pi_July + (1 - pi_July) x pi_site; post-2-Sep sites pi = pi_site. July-only strata: the
 #            surveyed site stands in for its whole hex (weight from hex households / pi_July).
 #            pi_site = per-batch table from Resampling when present (idp_site_v2_pi2_per_batch_2026-10-02.csv),
-#            else the documented single-pool approximation min(1, k2 x site households / pool households).
+#            for strata graded EXACT/OK; else the single-pool approximation min(1, k2 x site hh / pool hh).
+#            July sites in mixed strata use the SAME pools as their post-2-Sep neighbours, with the site added to
+#            its own counterfactual pool (T2 + hh). July probabilities use the stratum's cumulative July draws.
+#            (These four refinements - F1/F3/F4/F5 - and F2 below came from Resampling's independent verification.)
 # SECOND STAGE (realized, every unit): interviews / households in the unit (capped at 1).
 # INCLUDED: strata labelled Representative or Indicative in the Round 1 table - including strata that lost
 #   accessibility after collection, at their collection-period accessible population (Jack 2 Oct).
@@ -70,16 +73,19 @@ tot <- hex %>% group_by(adm2_pcode) %>% summarise(T_grid = sum(pop_hh, na.rm = T
 d6 <- st_drop_geometry(readRDS("_archive/2026-08-06_design_frame_post_nw_targeted_resample/selected_clusters_final.rds"))
 rec <- d6 %>% filter(pop_type == "non_idp") %>% transmute(cluster_id, MOS_rec = MOS, T_rec = total_MOS, rec_src = "6 Aug design archive")
 stg_files <- list.files("resampling/output/resample_runs", pattern = "^new_clusters\\.csv$", recursive = TRUE, full.names = TRUE)
-stg <- bind_rows(lapply(stg_files, function(f) tryCatch(read_csv(f, col_types = chr) %>% select(any_of(c("cluster_id", "uuid_hex", "MOS", "total_MOS"))) %>% mutate(src = f), error = function(e) NULL)))
+stg <- bind_rows(lapply(stg_files, function(f) tryCatch(read_csv(f, col_types = chr) %>% select(any_of(c("cluster_id", "uuid_hex", "MOS", "total_MOS", "psu_probability"))) %>% mutate(src = f), error = function(e) NULL)))
 cl <- cl %>% left_join(hex %>% select(uuid_hex, MOS = pop_hh), by = "uuid_hex") %>% left_join(tot, by = "adm2_pcode") %>% left_join(counts, by = "strata_id") %>%
   left_join(rec, by = "cluster_id")
 miss <- cl %>% filter(is.na(MOS)) %>% pull(cluster_id)
 stg_hit <- stg %>% filter(cluster_id %in% miss, !is.na(MOS)) %>% group_by(cluster_id) %>% slice(1) %>% ungroup() %>%
-  transmute(cluster_id, MOS_stg = as.numeric(MOS), T_stg = as.numeric(total_MOS), stg_src = src)
+  transmute(cluster_id, MOS_stg = as.numeric(MOS), T_stg = as.numeric(total_MOS), psu_stg = as.numeric(psu_probability), stg_src = src)
 cl <- cl %>% left_join(stg_hit, by = "cluster_id") %>% mutate(
   mos_basis = case_when(!is.na(MOS) ~ "cached hex grid", !is.na(MOS_rec) ~ "6 Aug design archive", !is.na(MOS_stg) ~ "draw staging record", TRUE ~ "NONE"),
   ratio = case_when(!is.na(MOS) ~ MOS / T_grid, !is.na(MOS_rec) ~ MOS_rec / T_rec, !is.na(MOS_stg) ~ MOS_stg / T_stg),
-  psu = ifelse(cert, 1, pmin(1, (k_design + n_supp) * ratio)))
+  # F2 (Resampling verification, 2 Oct): a staging record's total_MOS is that draw's OWN pool, drawn with its
+  # own k - so for these clusters use the record's own psu_probability, not the stratum's cumulative k x MOS/T.
+  # (6 Aug archive records keep the formula: their T equals the LGA grid total.)
+  psu = case_when(cert ~ 1, mos_basis == "draw staging record" ~ psu_stg, TRUE ~ pmin(1, (k_design + n_supp) * ratio)))
 cat("Non-IDP first-stage basis:", paste(names(table(cl$mos_basis)), table(cl$mos_basis), collapse = " | "), "\n")
 ni <- use %>% filter(pop_type == "non_idp") %>% inner_join(cl %>% select(cluster_id, uuid_hex, psu, hh, mos_basis), by = "cluster_id")
 stopifnot(all(!is.na(ni$psu)))
@@ -104,15 +110,26 @@ supp_n <- icl %>% filter(ver == "hex_v1", is.na(pi_july)) %>% count(strata_id, n
 icl <- icl %>% left_join(gm, by = "uuid_hex") %>% left_join(k1T1, by = "strata_id") %>% left_join(supp_n, by = "strata_id") %>%
   mutate(supp_hex = ver == "hex_v1" & is.na(pi_july),
          MOS_july = ifelse(supp_hex, MOS_g, MOS_july),
-         pi_july = ifelse(supp_hex, pmin(1, (k1s + n_supp_hex) * MOS_g / T1s), pi_july))
+         # F4 (Resampling verification, 2 Oct): every July-mechanism cluster in a stratum uses the stratum's
+         # CUMULATIVE July-mechanism draws (design + post-6-Aug hex draws), as Non-IDP does; design probability 1 stays 1
+         pi_july = ifelse(!supp_hex & pi_july >= 1, 1, pmin(1, (k1s + coalesce(n_supp_hex, 0L)) * MOS_july / T1s)))
 kind <- icl %>% filter(cluster_id %in% use$cluster_id) %>% group_by(strata_id) %>%
   summarise(kind = if (n_distinct(ver) == 2) "mixed" else paste0(first(ver), " only"), .groups = "drop")
 icl <- icl %>% left_join(kind, by = "strata_id")
 PI2 <- "resampling/output/full_weighting_build_2026-09-28/idp_site_v2_pi2_per_batch_2026-10-02.csv"
 if (file.exists(PI2)) {
-  pi2 <- read_csv(PI2, show_col_types = FALSE) %>% group_by(cluster_id) %>% summarise(pi_site = first(pi2), .groups = "drop")
-  icl <- icl %>% left_join(pi2, by = "cluster_id") %>% mutate(pi_site_basis = ifelse(is.na(pi_site), NA, "per-batch (Resampling table)"))
-  cat("IDP post-2-Sep probabilities: per-batch table found\n")
+  # Per-batch probabilities only for strata Resampling graded EXACT or OK (self-check passed); strata graded
+  # POOL BASIS UNRELIABLE or AMBIGUOUS use the single-pool fallback for ALL their post-2-Sep clusters, so each
+  # stratum uses one method (calibration is within stratum, so that is what keeps weights consistent).
+  rel <- read_csv(sub("_per_batch_", "_strata_reliability_", PI2), show_col_types = FALSE)
+  good <- rel$strata_id[grepl("^(EXACT|OK)", rel$reliability)]
+  pi2 <- read_csv(PI2, show_col_types = FALSE) %>% filter(strata_id %in% good, !is.na(pi2)) %>%
+    group_by(cluster_id) %>% summarise(pi_site = first(pi2), .groups = "drop")
+  icl <- icl %>% left_join(pi2, by = "cluster_id") %>%
+    left_join(rel %>% select(strata_id, reliability), by = "strata_id") %>%
+    mutate(pi_site_basis = ifelse(is.na(pi_site), NA, paste0("per-batch, nearest preserved snapshot (", sub(" .*", "", reliability), ")")))
+  cat(sprintf("IDP post-2-Sep probabilities: per-batch table found; used for %d strata graded EXACT/OK, fallback for the other %d\n",
+              length(good), nrow(rel) - length(good)))
 } else {
   icl$pi_site <- NA_real_; icl$pi_site_basis <- NA_character_
   cat("IDP post-2-Sep probabilities: per-batch table NOT found - single-pool approximation\n")
@@ -142,10 +159,33 @@ icl <- icl %>% left_join(T2, by = "adm2_pcode") %>% left_join(T2_0921, by = "adm
          pi_site = case_when(!is.na(pi_site) ~ pi_site,
                              use_0921 ~ pmin(1, k2 * hh / T2_0921),
                              !is.na(k2) & !is.na(T2) & T2 > 0 ~ pmin(1, k2 * hh / T2), TRUE ~ NA_real_))
-icl <- icl %>% mutate(
-  pi = case_when(ver == "hex_v1" & kind == "mixed" ~ pi_july + (1 - pi_july) * coalesce(pi_site, 0),
+# F1 + F5 (Resampling verification, 2 Oct): a July site's phase-2 term in a MIXED stratum is the probability it
+# would have been drawn post-2-Sep had July not selected it - so (F1) it uses the SAME pools as its post-2-Sep
+# neighbours (per-batch in EXACT/OK strata, single pool otherwise; 21 Sep snapshot where the LGA closed since),
+# and (F5) that counterfactual pool includes the site itself (T2 + its households): the real pools excluded it
+# only because July had already fielded it.
+pb <- if (file.exists(PI2)) read_csv(sub("_per_batch_", "_batches_", PI2), show_col_types = FALSE) %>%
+  filter(strata_id %in% good) %>% transmute(strata_id, k_b = as.numeric(k_b), T2_b = as.numeric(T2_b)) else
+  tibble(strata_id = character(), k_b = numeric(), T2_b = numeric())
+hex_mixed <- icl %>% filter(ver == "hex_v1", kind == "mixed") %>% select(cluster_id, strata_id, hh)
+pi_site_hex_pb <- hex_mixed %>% inner_join(pb, by = "strata_id", relationship = "many-to-many") %>%
+  group_by(cluster_id) %>% summarise(pi_site_hex = 1 - prod(1 - pmin(1, k_b * hh / (T2_b + hh))), .groups = "drop")
+icl <- icl %>% left_join(pi_site_hex_pb, by = "cluster_id") %>% mutate(
+  T2_fb = ifelse(!is.na(T2) & T2 > 0, T2, T2_0921),
+  pi_site_hex = case_when(ver != "hex_v1" | kind != "mixed" ~ NA_real_,
+                          !is.na(pi_site_hex) ~ pi_site_hex,
+                          !is.na(k2) & !is.na(T2_fb) & T2_fb > 0 ~ pmin(1, k2 * hh / (T2_fb + hh)),
+                          TRUE ~ NA_real_))
+stopifnot("every July site in a mixed stratum needs a phase-2 probability (F1)" = all(!is.na(icl$pi_site_hex[icl$ver == "hex_v1" & icl$kind %in% "mixed"])))
+n_by_cluster <- use %>% filter(pop_type == "idp") %>% count(cluster_id, name = "n_unit")
+icl <- icl %>% left_join(n_by_cluster, by = "cluster_id") %>% mutate(
+  pi = case_when(ver == "hex_v1" & kind == "mixed" ~ pi_july + (1 - pi_july) * pi_site_hex,
                  ver == "site_v2" ~ pi_site, TRUE ~ pi_july),
-  W_total = case_when(ver == "hex_v1" & kind == "mixed" ~ hh / pi, ver == "hex_v1" ~ MOS_july / pi_july, TRUE ~ hh / pi))
+  # F3 (Resampling verification, 2 Oct): second stage capped at 1, as for Non-IDP - a cluster with more interviews
+  # than its recorded households stands for its interviews (each interview weight = 1/pi), not for fewer households
+  W_total = case_when(ver == "hex_v1" & kind == "mixed" ~ pmax(hh, coalesce(n_unit, 0L)) / pi,
+                      ver == "hex_v1" ~ pmax(MOS_july, coalesce(n_unit, 0L)) / pi_july,
+                      TRUE ~ pmax(hh, coalesce(n_unit, 0L)) / pi))
 idp <- use %>% filter(pop_type == "idp") %>% inner_join(icl %>% select(cluster_id, ver, kind, pi, W_total, pi_site_basis), by = "cluster_id")
 noweight <- idp %>% filter(!is.finite(W_total) | W_total <= 0)
 if (nrow(noweight)) { cat("IDP interviews with no usable first stage (STOP - investigate):\n"); print(noweight %>% count(strata_id, cluster_id, pi_site_basis)); stop("unweighted IDP interviews") }
