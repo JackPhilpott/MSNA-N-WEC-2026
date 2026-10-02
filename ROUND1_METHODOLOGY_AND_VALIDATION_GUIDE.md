@@ -27,6 +27,7 @@ The standing check suite lives in `validity_checks/`. Line numbers are as of 2 O
 | Round 1 representativity | **216 Representative / 67 Indicative / 44 Dropped** strata; 121 / 44 / 12 LGAs; all 11 states Representative | section 7 |
 | Weighted interviews | **24,855** in 280 strata (+ 592 unweighted: 477 MSNA Light, 115 in Dropped strata) | section 8 |
 | Deletion & correction log for the DO | 6,528 rows: removals, corrections, flags kept | `2_monitoring/reports/partner_data_recovery/outputs/_round1_closeout/MSNA_N-WEC_2026_Round1_deletion_log_2026-10-02.xlsx` |
+| **Round 1 analysis coverage** (decision 2 Oct) | North-East (Adamawa, Borno, Yobe) and North-West (Katsina, Sokoto, Zamfara, Kaduna); Kebbi and North-Central excluded. **23,744 submissions, 21,705 achieved, 21,135 weighted in 233 strata.** In coverage: 188 / 48 / 33 strata and 101 / 27 / 10 LGAs Representative / Indicative / Dropped; all 7 states Representative | `2_monitoring/reports/round1_weighting_package_2026-10-02/` (weights, weighted dataset, README) |
 
 ---
 
@@ -56,6 +57,7 @@ All decisions were made by the MSNA lead (Jack Philpott) unless stated otherwise
 | 2 Oct | **No design-effect (Kish) term in the Round 1 gate** | Analysis-table MoEs carry the weighting effect; footnoted. |
 | 2 Oct | **MSNA Light interviews excluded from weighted tables** | They have no probability design. They stay in the counts and representativity. |
 | 2 Oct | **Duration rule:** remove for short duration only if the audit-trail duration rounded to one decimal is below 20.0 min (< 19.95) | Matches the DO's own check. Reinstated 5 interviews (25,442 → 25,447). |
+| 2 Oct | **Round 1 analysis coverage: North-East and North-West states only.** Kebbi and all North-Central states (Benue, Plateau, Nasarawa; Kogi and Niger have no data) are excluded from Round 1 analysis | Round 1 is a reduced-coverage analysis. No weight changes: weights are calibrated within each stratum, and strata lie inside states (verified in all 233 weighted strata in coverage). The data officer's package is `2_monitoring/reports/round1_weighting_package_2026-10-02/`. |
 
 ---
 
