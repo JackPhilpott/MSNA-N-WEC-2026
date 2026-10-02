@@ -359,5 +359,5 @@ The final weights script and this guide are committed with the hand-over.
 
 **Pending at hand-over** (status at time of writing; the MSNA team will update):
 - Partner workbooks and the live dashboard currently reflect 25,442. They are being refreshed to the final 25,447.
-- Independent read-only verification of the final weights by the Resampling session (in progress at the time of writing).
+- None for the weights. They are final and independently verified: 29 of 29 checks pass, via the verification script `resampling/scripts/one_off_analyses/verify_round1_weights_FINAL_2026-10-02.R`. md5: `ROUND1_WEIGHTS_FINAL_2026-10-02.csv` b3f261c8…, `_by_stratum` ff02fa08…, `ROUND1_UNWEIGHTED_interviews` ac0c5be2…; script at commit b3738d0.
 - Request to Posit support to purge an old dashboard bundle (12636193) that briefly contained a raw GPS extract. The bundle was not served by the app.
