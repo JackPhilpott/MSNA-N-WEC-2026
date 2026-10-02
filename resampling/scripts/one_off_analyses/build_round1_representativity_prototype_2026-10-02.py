@@ -91,6 +91,29 @@ def main():
                 and "partner_coverage_declined" not in (s.get("exclusion_reason") or ""))
 
     strata = [s for s in all_strata if is_covered(s) or is_excluded_in_scope(s)]
+
+    # 2026-10-02, Jack: "we always want to include any data collected wherever possible" - strata that LOST
+    # accessibility after their interviews were collected (FACT's 28 Sep 10-LGA closure, and the
+    # accessibility-loss exclusions) are assessed against the accessible population recorded during their
+    # collection period instead of being Dropped. Every such interview predates 26 Sep. Rule: the LARGER of
+    # the accessible shares in the 8 Sep and 26 Sep archived layers (larger denominator = higher MoE = never
+    # overstates representativity); never recorded accessible in either -> total households (same reasoning).
+    def layer_shares(path):
+        agg = defaultdict(lambda: [0.0, 0.0])
+        for r in m05.load_csv(path):
+            k = (r["adm2_pcode"], r["pop_type"])
+            p = float(r["pop_total"] or 0)
+            agg[k][0] += p
+            if r["accessible_status"] == "Accessible":
+                agg[k][1] += p
+        return {k: (100 * v[1] / v[0] if v[0] else 0) for k, v in agg.items()}
+    share_0908 = layer_shares(SAMPLING_DIR + r"\_archive\2026-09-08_pre_fact_return_ingest\accessible_area_lga_ward_portions.csv")
+    share_0926 = layer_shares(SAMPLING_DIR + r"\resampling\output\_archive_gis_pre_final_2026-09-26\accessible_area_lga_ward_portions.csv")
+
+    def lost_access_after_collection(s, pct_now):
+        reason = s.get("exclusion_reason") or ""
+        return ach_by_strata.get(s["strata_id"], 0) > 0 and (
+            (is_covered(s) and pct_now <= 0) or (not is_covered(s) and "accessibility_loss" in reason))
     out_of_scope_with_data = [(s["strata_id"], s["adm2_name"], s.get("exclusion_reason"), ach_by_strata.get(s["strata_id"], 0))
                               for s in all_strata if s not in strata and ach_by_strata.get(s["strata_id"], 0) > 0]
     print(f"universe: {len(strata)} strata ({sum(1 for s in strata if is_covered(s))} covered + "
@@ -103,9 +126,17 @@ def main():
     for s in strata:
         sid, pop_type = s["strata_id"], s["pop_type"]
         covered = is_covered(s)
-        frac = lga_fractions.get((s["adm2_pcode"], "Non-IDP" if pop_type == "non_idp" else "IDP"), {"pct_pop_accessible_gis": 0})
+        pt_label = "Non-IDP" if pop_type == "non_idp" else "IDP"
+        frac = lga_fractions.get((s["adm2_pcode"], pt_label), {"pct_pop_accessible_gis": 0})
         pct_acc = frac["pct_pop_accessible_gis"]
         N_hh = float(s["N_hh"] or 0)
+        basis = "current accessible population"
+        if lost_access_after_collection(s, pct_acc):
+            past = max(share_0908.get((s["adm2_pcode"], pt_label), 0), share_0926.get((s["adm2_pcode"], pt_label), 0))
+            pct_acc = past if past > 0 else 100.0
+            covered = True   # assessed like any covered stratum, against its collection-period population
+            basis = ("accessible population during collection (larger of 8 Sep / 26 Sep layers)" if past > 0
+                     else "total households (never recorded accessible - conservative)")
         N_acc = N_hh * pct_acc / 100
         n = ach_by_strata.get(sid, 0)
         cl = clusters_by_strata.get(sid, [])
@@ -146,7 +177,8 @@ def main():
         out_rows.append({
             "State": s["adm1_name"], "LGA": s["adm2_name"], "Pop type": "IDP" if pop_type == "idp" else "Non-IDP",
             "strata_id": sid, "adm2_pcode": s["adm2_pcode"], "Sampling method": s.get("sampling_method", ""),
-            "Covered in design": "Yes" if covered else "No",
+            "Covered in design": "Yes" if is_covered(s) else "No",
+            "Accessible-population basis": basis,
             "Households (N_hh)": round(N_hh), "% population accessible": round(pct_acc, 1),
             "Accessible households": round(N_acc, 1), "Achieved (Round 1)": n,
             "MoE Round 1 (deff=1) %": None if moe_simple is None else round(moe_simple, 2),
