@@ -546,7 +546,7 @@ def load_real_draw_shortfall_lookup():
                     delivered_by_stratum[r["strata_id"]] = int(float(r.get("new_clusters") or 0))
             except (csv.Error, KeyError, ValueError):
                 continue  # malformed summary file - skip this batch rather than guess
-        mtime = os.path.getmtime(batch_dir)
+        mtime = _batch_time(batch_dir)
         partner = os.path.basename(os.path.dirname(batch_dir))
         batch_label = partner + "/" + os.path.basename(batch_dir)
         # "genuinely exhausted" is the draw script's OWN conclusion (its
@@ -587,6 +587,32 @@ def load_real_draw_shortfall_lookup():
                                 "batch": batch_label, "partner": partner, "_mtime": mtime,
                                 "exhausted": batch_exhausted}
     return out
+
+
+def _batch_time(batch_dir):
+    """When a resample_runs batch ran, from the batch's OWN record, never the
+    filesystem. 2026-10-02: load_real_draw_shortfall_lookup() used to pick each
+    stratum's LATEST batch by os.path.getmtime(), and the 1 Oct OneDrive
+    recovery re-hydrated/pinned files, giving 7 and 14 Sep batches fresh 1 Oct
+    mtimes. They then outranked the 27 Sep final draws for Damboa/Kala-Balge/
+    Ngala NI, silently reverting those strata's verdict from "NOT recoverable
+    (pool exhausted per real draw)" back to "RECOVERABLE".
+    Order of preference: the draw script's own run_log.txt header timestamp
+    ("... run - 2026-09-27 22:53:50 ===="), then the YYYY-MM-DD prefix of the
+    batch folder name (copies of a shared batch often have no run_log.txt),
+    then mtime only as a last resort."""
+    import datetime
+    import re
+    log_path = os.path.join(batch_dir, "run_log.txt")
+    if os.path.exists(log_path):
+        with open(log_path, encoding="utf-8", errors="replace") as f:
+            m_ts = re.search(r"(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})", f.read(400))
+        if m_ts:
+            return datetime.datetime.strptime(f"{m_ts.group(1)} {m_ts.group(2)}", "%Y-%m-%d %H:%M:%S").timestamp()
+    m_date = re.match(r"(\d{4}-\d{2}-\d{2})", os.path.basename(batch_dir))
+    if m_date:
+        return datetime.datetime.strptime(m_date.group(1), "%Y-%m-%d").timestamp()
+    return os.path.getmtime(batch_dir)
 
 
 def load_csv(path):

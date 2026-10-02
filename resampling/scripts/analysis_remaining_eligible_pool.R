@@ -133,8 +133,33 @@ hexes <- readRDS(ACCESSIBLE_HEX_RDS) %>%
   st_transform(mycrs)
 hex_centroids <- st_centroid(hexes)
 
+# 2026-10-02 FIX (Coordinator instruction under Jack's approval): one row per
+# hex, enforced loudly. The pop_type split above stops a dual-eligible ward
+# double-counting, but NOT duplicate polygons within one pop_type: Tangaza
+# (NG034019) and Zuru (NG022021) are jointly covered (IRC + LHI), and the
+# layer carries every one of their Non-IDP ward portions twice, so st_join
+# counted each of their hexes twice in the pool. Same collapse rule as
+# refresh_idp_site_frame_accessibility.R (Inaccessible if ANY match says so).
+n_hex_in <- nrow(hex_centroids)
+hex_centroids$.rid <- seq_len(n_hex_in)
 hex_status <- st_join(hex_centroids, ward_layer_non_idp["accessible_status"], join = st_within)
+per_hex <- hex_status %>% st_drop_geometry() %>% group_by(.rid) %>%
+  summarise(n_match = n(),
+            n_distinct_status = n_distinct(accessible_status, na.rm = TRUE),
+            status = if (any(accessible_status == "Inaccessible", na.rm = TRUE)) "Inaccessible"
+                     else if (any(accessible_status == "Accessible", na.rm = TRUE)) "Accessible"
+                     else NA_character_,
+            .groups = "drop")
+cat(sprintf("  Non-IDP hexes matched by >1 ward polygon: %d | of which the matches DISAGREE on status: %d\n",
+            sum(per_hex$n_match > 1), sum(per_hex$n_distinct_status > 1)))
+hex_status <- hex_status[!duplicated(hex_status$.rid), ]
+hex_status <- hex_status[order(hex_status$.rid), ]
+hex_status$accessible_status <- per_hex$status[match(hex_status$.rid, per_hex$.rid)]
+if (nrow(hex_status) != n_hex_in || !identical(hex_status$.rid, seq_len(n_hex_in))) {
+  stop(sprintf("STOP: Non-IDP hex join produced %d rows for %d hexes - refusing to write the pool.", nrow(hex_status), n_hex_in))
+}
 hex_status <- resolve_ward_gaps(hex_status, ward_layer_non_idp, "Non-IDP hexes")
+hex_status$.rid <- NULL
 
 used_non_idp_hex <- working %>% filter(pop_type == "non_idp") %>% distinct(uuid_hex) %>% pull(uuid_hex)
 
@@ -184,6 +209,12 @@ cat("Processing IDP DTM site pool...\n")
 # figure IS what the draw will find. The raw DTM files are no longer read
 # here at all - the curation belongs in the frame builder, once.
 site_frame <- readRDS(IDP_SITE_FRAME_RDS) %>% st_transform(mycrs)
+# 2026-10-02: this pool counts site ROWS, so a duplicated site frame inflates it
+# silently (Tangaza read 640 candidate sites for 10 real ones until today).
+if (anyDuplicated(site_frame$uuid_site) > 0) {
+  stop(sprintf("STOP: IDP site frame has %d duplicate uuid_site row(s) - the pool would overcount. Deduplicate it first.",
+               sum(duplicated(site_frame$uuid_site))))
+}
 frame_mtime <- file.info(IDP_SITE_FRAME_RDS)$mtime
 shp_mtime <- file.info(file.path(GIS_OUT_DIR, "accessible_area_lga_ward_portions.shp"))$mtime
 if (!is.na(shp_mtime) && frame_mtime < shp_mtime) {
