@@ -49,6 +49,16 @@ log_msg("==== Merge %s resample into live frame - %s ====", PARTNER, format(Sys.
 log_msg("Partner LGAs (%d): %s", length(PARTNER_PCODES), paste(PARTNER_PCODES, collapse = ", "))
 
 # ---- Load live frame ----
+# 2026-10-02: never merge onto a frame with an OneDrive conflict copy next to
+# it, since the base could be the older version (it was on 1 Oct, when this
+# script's own Non-IDP extension was reverted too). See
+# scripts/shared/onedrive_conflict_guard.R.
+source("scripts/shared/onedrive_conflict_guard.R")
+stop_if_onedrive_conflict_copies(
+  DC_DIR,
+  list.files(DC_DIR, pattern = "^(NGA_MSNA_2026_.*\\.csv|_pipeline_changelog\\.csv|_frame_version\\.txt)$"),
+  sprintf("merge_partner_resample_batch.R (%s)", PARTNER)
+)
 full_hh    <- read_csv(file.path(DC_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v14_FULL.csv"), show_col_types = FALSE)
 working_hh <- read_csv(file.path(DC_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v14_WORKING.csv"), show_col_types = FALSE)
 full_sl    <- read_csv(file.path(DC_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v14_FULL.csv"), show_col_types = FALSE)

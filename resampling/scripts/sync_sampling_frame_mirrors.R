@@ -26,6 +26,7 @@ MONITORING_DIR <- "c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSN
 DC_DIR <- file.path(PROJECT_DIR, "output", "data", "data_collection")
 setwd(PROJECT_DIR)
 suppressPackageStartupMessages(library(tools))
+source(file.path(PROJECT_DIR, "scripts", "shared", "onedrive_conflict_guard.R"))
 
 MIRROR_DIRS <- c(
   file.path(MONITORING_DIR, "input_data", "sampling_frame"),
@@ -70,9 +71,27 @@ sync_sampling_frame_mirrors <- function() {
   changelog_present <- file.exists(file.path(DC_DIR, changelog_file))
   sync_files <- if (changelog_present) c(src_files, changelog_file) else src_files
 
+  # 2026-10-02: never mirror a frame that has an OneDrive conflict copy next
+  # to it. On 1 Oct this sync propagated a silently reverted frame - see
+  # scripts/shared/onedrive_conflict_guard.R.
+  stop_if_onedrive_conflict_copies(DC_DIR, sync_files, "sync_sampling_frame_mirrors()")
+
   for (mirror_dir in MIRROR_DIRS) {
     dir.create(mirror_dir, showWarnings = FALSE, recursive = TRUE)
-    existing <- list.files(mirror_dir, pattern = "^(NGA_MSNA_2026_.*\\.csv|_frame_version\\.txt|_pipeline_changelog\\.csv)$", full.names = FALSE)
+    # Conflict copies inside a MIRROR are safe to archive, since a mirror is a
+    # pure copy of the canonical frame that just passed the check above. But
+    # say so loudly: before 2026-10-02 they were swept into the archive
+    # silently along with ordinary stale files (and the changelog's never
+    # matched the pattern below at all).
+    mirror_conflicts <- find_onedrive_conflict_copies(mirror_dir, sync_files)
+    if (length(mirror_conflicts) > 0) {
+      warning(sprintf("sync_sampling_frame_mirrors(): archiving %d OneDrive conflict cop%s found in mirror %s: %s",
+                      length(mirror_conflicts), if (length(mirror_conflicts) == 1) "y" else "ies",
+                      mirror_dir, paste(mirror_conflicts, collapse = ", ")),
+              call. = FALSE, immediate. = TRUE)
+    }
+    existing <- union(list.files(mirror_dir, pattern = "^(NGA_MSNA_2026_.*\\.csv|_frame_version\\.txt|_pipeline_changelog\\.csv)$", full.names = FALSE),
+                      mirror_conflicts)
     stale <- setdiff(existing, sync_files)
     if (length(stale) > 0) {
       archive_dir <- file.path(mirror_dir, paste0("_archive_", format(Sys.Date(), "%Y-%m-%d"), "_pre_", version_tag, "_sync"))

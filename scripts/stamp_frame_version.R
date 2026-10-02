@@ -26,6 +26,17 @@ suppressPackageStartupMessages(library(tools))
 
 DATA_COLLECTION_DIR <- "output/data/data_collection"
 
+# 2026-10-02: refuse to stamp while an OneDrive conflict copy sits next to
+# any frame file, because the stamp would certify whichever version happens
+# to hold the main name. On 1 Oct that was the older one. See
+# scripts/shared/onedrive_conflict_guard.R.
+source("scripts/shared/onedrive_conflict_guard.R")
+stop_if_onedrive_conflict_copies(
+  DATA_COLLECTION_DIR,
+  list.files(DATA_COLLECTION_DIR, pattern = "^(NGA_MSNA_2026_.*\\.csv|_pipeline_changelog\\.csv|_frame_version\\.txt)$"),
+  "stamp_frame_version.R"
+)
+
 # The _archive/YYYY-MM-DD_.../ folder that output/data/data_collection/'s
 # GEOMETRY (selected_clusters_final.rds — the household/strata CSVs here
 # don't carry geometry) is currently based on. Can't be auto-detected
