@@ -902,6 +902,40 @@ add_supplementary_clusters <- function(
 
   new_households_raw <- draw_households_from_files(final_building_files, clusters_lookup, mycrs)
 
+  # FIX 2026-09-29 (found live during the negligible-gap dry-run batch,
+  # Gwoza/Shani/Kalgo): when EVERY newly-drawn cluster in this batch turns
+  # out to have zero real eligible buildings on this final fetch (rare -
+  # the Stage B2 building-validation check upstream already required each
+  # candidate hex to clear >=6 accessible/unclaimed buildings before it was
+  # even eligible to be drawn, so this is a genuine last-mile discrepancy,
+  # not the normal case), draw_households_from_files() ends with
+  # dplyr::bind_rows(list()) on an empty list, which returns a genuinely
+  # COLUMNLESS 0x0 tibble - not just 0 rows. finalize_households() then
+  # crashes trying to left_join() on a cluster_id column that doesn't
+  # exist at all ("Join columns in x must be present in the data").
+  # select_stage2_households() already has an established, graceful pattern
+  # for "some clusters got zero real buildings" (zero_building_clusters,
+  # warning + those clusters simply contribute nothing) - this mirrors
+  # that, one level up, for the case where that's true of EVERY cluster in
+  # THIS specific batch. Never silently drops a real result: a cluster
+  # that DID get real households is untouched either way.
+  zero_building_new_clusters <- new_clusters$cluster_id[
+    nrow(new_households_raw) == 0 | !new_clusters$cluster_id %in% new_households_raw$cluster_id
+  ]
+  if (length(zero_building_new_clusters) > 0) {
+    warning(
+      length(zero_building_new_clusters), " newly-drawn supplementary cluster(s) had ZERO real ",
+      "eligible buildings on final fetch (despite passing Stage B2 building validation) and ",
+      "produced no households: ", paste(zero_building_new_clusters, collapse = ", ")
+    )
+    new_clusters <- new_clusters[!new_clusters$cluster_id %in% zero_building_new_clusters, ]
+  }
+
+  if (nrow(new_clusters) == 0) {
+    message("All newly-drawn supplementary cluster(s) this round had zero real eligible buildings - nothing to add.")
+    return(list(new_clusters = NULL, new_households = NULL, unresolved = unresolved))
+  }
+
   new_households <- finalize_households(new_households_raw, new_clusters, wards, admin3, mycrs)
 
   if(anyDuplicated(new_households$survey_id) > 0) {

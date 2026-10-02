@@ -93,6 +93,20 @@ new_clusters_idp      <- read_or_empty(file.path(STAGING, "new_clusters_idp.csv"
 new_hh_idp            <- if (nrow(new_clusters_idp) > 0) read_or_empty(file.path(STAGING, "new_households_idp.csv")) %>% filter(cluster_id %in% new_clusters_idp$cluster_id) else tibble()
 target_increases_idp  <- read_or_empty(file.path(STAGING, "existing_cluster_target_increases_idp.csv"))
 additions_idp         <- if (nrow(target_increases_idp) > 0) read_or_empty(file.path(STAGING, "existing_cluster_household_additions_idp.csv")) %>% filter(cluster_id %in% target_increases_idp$cluster_id) else tibble()
+# 2026-09-30 (Coordinator/Jack-approved, scoped 30 Sep - see project memory
+# project_nonidp_topup_mechanism_scoping_2026-09-30.md): Non-IDP equivalent
+# of the pair above. Same file-pair convention, same downstream handling -
+# added as a parallel path alongside the tested IDP one rather than a
+# refactor into one shared variable, to keep this diff minimal and easy to
+# verify line-by-line against the already-tested IDP behaviour on a script
+# that performs live, irreversible writes. Schema, the /6L selection_count
+# constant (m_used confirmed uniformly 6 for both pop_types nationally) and
+# the accessible-primary threshold filter's ordering were all checked
+# directly beforehand, not assumed - see that memory file for the full trace
+# (including the is_certainty consumer check: nothing Non-IDP-relevant reads
+# it, so no Odobu-style exclusion is needed on this side).
+target_increases_non_idp <- read_or_empty(file.path(STAGING, "existing_cluster_target_increases_non_idp.csv"))
+additions_non_idp        <- if (nrow(target_increases_non_idp) > 0) read_or_empty(file.path(STAGING, "existing_cluster_household_additions_non_idp.csv")) %>% filter(cluster_id %in% target_increases_non_idp$cluster_id) else tibble()
 
 # Site-level IDP batch (Option B, draw_supplementary_idp_sites_batch.R,
 # decided 2026-09-02 - see project memory "IDP site-level PSU redesign").
@@ -104,12 +118,13 @@ additions_idp         <- if (nrow(target_increases_idp) > 0) read_or_empty(file.
 new_clusters_idp_site <- read_or_empty(file.path(STAGING, "new_clusters_idp_sitelevel.csv"))
 new_hh_idp_site       <- if (nrow(new_clusters_idp_site) > 0) read_or_empty(file.path(STAGING, "new_households_idp_sitelevel.csv")) %>% filter(cluster_id %in% new_clusters_idp_site$cluster_id) else tibble()
 
-log_msg("Loaded: %d new Non-IDP cluster(s)/%d hh, %d new IDP cluster(s) [hex_v1]/%d hh, %d new IDP cluster(s) [site_v2]/%d hh, %d existing IDP cluster(s) to expand/%d additional hh.",
+log_msg("Loaded: %d new Non-IDP cluster(s)/%d hh, %d new IDP cluster(s) [hex_v1]/%d hh, %d new IDP cluster(s) [site_v2]/%d hh, %d existing IDP cluster(s) to expand/%d additional hh, %d existing Non-IDP cluster(s) to expand/%d additional hh.",
         nrow(new_clusters_nonidp), nrow(new_hh_nonidp), nrow(new_clusters_idp), nrow(new_hh_idp),
         nrow(new_clusters_idp_site), nrow(new_hh_idp_site),
-        nrow(target_increases_idp), nrow(additions_idp))
+        nrow(target_increases_idp), nrow(additions_idp),
+        nrow(target_increases_non_idp), nrow(additions_non_idp))
 
-if (nrow(new_hh_nonidp) == 0 && nrow(new_hh_idp) == 0 && nrow(new_hh_idp_site) == 0 && nrow(additions_idp) == 0) {
+if (nrow(new_hh_nonidp) == 0 && nrow(new_hh_idp) == 0 && nrow(new_hh_idp_site) == 0 && nrow(additions_idp) == 0 && nrow(additions_non_idp) == 0) {
   log_msg("==== DONE. Nothing to merge for %s - all staged batches were empty. ====", PARTNER)
   quit(save = "no", status = 0)
 }
@@ -119,8 +134,9 @@ stopifnot(
   "New Non-IDP cluster_ids already exist live" = !any(new_clusters_nonidp$cluster_id %in% live_cluster_ids),
   "New IDP cluster_ids already exist live" = !any(new_clusters_idp$cluster_id %in% live_cluster_ids),
   "New site-level IDP cluster_ids already exist live" = !any(new_clusters_idp_site$cluster_id %in% live_cluster_ids),
-  "New survey_ids collide with the live frame" = !any(c(new_hh_nonidp$survey_id, new_hh_idp$survey_id, new_hh_idp_site$survey_id, additions_idp$survey_id) %in% live_survey_ids),
-  "Existing clusters to expand are NOT currently live" = all(target_increases_idp$cluster_id %in% live_cluster_ids)
+  "New survey_ids collide with the live frame" = !any(c(new_hh_nonidp$survey_id, new_hh_idp$survey_id, new_hh_idp_site$survey_id, additions_idp$survey_id, additions_non_idp$survey_id) %in% live_survey_ids),
+  "Existing IDP clusters to expand are NOT currently live" = all(target_increases_idp$cluster_id %in% live_cluster_ids),
+  "Existing Non-IDP clusters to expand are NOT currently live" = all(target_increases_non_idp$cluster_id %in% live_cluster_ids)
 )
 log_msg("Pre-flight checks passed: no ID collisions with the live frame.")
 
@@ -180,12 +196,13 @@ harmonize_types <- function(df, reference) {
   }
   df
 }
-new_hh_nonidp   <- harmonize_types(new_hh_nonidp, working_hh)
-new_hh_idp      <- harmonize_types(new_hh_idp, working_hh)
-new_hh_idp_site <- harmonize_types(new_hh_idp_site, working_hh)
-additions_idp   <- harmonize_types(additions_idp, working_hh)
+new_hh_nonidp     <- harmonize_types(new_hh_nonidp, working_hh)
+new_hh_idp        <- harmonize_types(new_hh_idp, working_hh)
+new_hh_idp_site   <- harmonize_types(new_hh_idp_site, working_hh)
+additions_idp     <- harmonize_types(additions_idp, working_hh)
+additions_non_idp <- harmonize_types(additions_non_idp, working_hh)
 
-all_new_rows <- bind_rows(new_hh_nonidp, new_hh_idp, new_hh_idp_site, additions_idp)
+all_new_rows <- bind_rows(new_hh_nonidp, new_hh_idp, new_hh_idp_site, additions_idp, additions_non_idp)
 if (nrow(all_new_rows) > 0) {
   # tier2_fallback_used/site_radius_m were added to the LIVE frame via a
   # one-off patch script (patch_site_radius_and_tier2_flag.R), never folded
@@ -388,10 +405,18 @@ working_hh_new <- bind_rows(working_hh, working_new_rows)
 # cluster - old and newly-templated alike - still holds the same pre-
 # increase baseline value at this point, before this function has touched
 # any of them.
+# 2026-09-30: combines target_increases_idp and target_increases_non_idp -
+# same increase formula for both (verified directly beforehand, not assumed:
+# m_used is uniformly 6 for both pop_types nationally, so the /6L constant
+# is the real design cluster size either way, not an IDP-specific artefact -
+# see project_nonidp_topup_mechanism_scoping_2026-09-30.md). A cluster_id is
+# never in both files at once (they're disjoint by pop_type already), so a
+# plain bind_rows is safe - no need to reconcile overlapping keys.
+target_increases_all <- bind_rows(target_increases_idp, target_increases_non_idp)
 apply_target_increase <- function(hh_df) {
-  if (nrow(target_increases_idp) == 0) return(hh_df)
+  if (nrow(target_increases_all) == 0) return(hh_df)
   hh_df %>%
-    left_join(target_increases_idp %>% select(cluster_id, increase_target, increase_reserve), by = "cluster_id") %>%
+    left_join(target_increases_all %>% select(cluster_id, increase_target, increase_reserve), by = "cluster_id") %>%
     mutate(
       target_households = if_else(!is.na(increase_target), target_households + increase_target, target_households),
       reserve_households = if_else(!is.na(increase_reserve), reserve_households + increase_reserve, reserve_households),
@@ -401,8 +426,8 @@ apply_target_increase <- function(hh_df) {
 }
 full_hh_new    <- apply_target_increase(full_hh_new)
 working_hh_new <- apply_target_increase(working_hh_new)
-if (nrow(target_increases_idp) > 0) {
-  log_msg("Updated target_households/reserve_households/selection_count uniformly across all rows (existing + newly-appended) for %d expanded cluster(s) (both FULL and WORKING).", nrow(target_increases_idp))
+if (nrow(target_increases_all) > 0) {
+  log_msg("Updated target_households/reserve_households/selection_count uniformly across all rows (existing + newly-appended) for %d expanded cluster(s) (both FULL and WORKING).", nrow(target_increases_all))
 }
 
 # ---- Verification, not assumed ----

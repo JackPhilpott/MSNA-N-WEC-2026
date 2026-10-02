@@ -1,0 +1,292 @@
+{
+  "idp_NG002010": {
+    "lga": "Madagali",
+    "partner": "Street Child of Nigeria",
+    "buffered_target": 329,
+    "achieved": 65,
+    "alloc": [
+      [
+        "idp_NG002010_15",
+        5
+      ],
+      [
+        "idp_NG002010_16",
+        5
+      ],
+      [
+        "idp_NG002010_17",
+        5
+      ],
+      [
+        "idp_NG002010_supp4",
+        5
+      ],
+      [
+        "idp_NG002010_supp5",
+        5
+      ]
+    ],
+    "total": 25,
+    "moe_after": 11.525982681684292,
+    "fully_allocated": false
+  },
+  "idp_NG008020": {
+    "lga": "Magumeri",
+    "partner": "INTERSOS",
+    "buffered_target": 147,
+    "achieved": 6,
+    "alloc": [
+      [
+        "idp_NG008020_3",
+        57
+      ],
+      [
+        "idp_NG008020_supp1",
+        5
+      ],
+      [
+        "idp_NG008020_supp2",
+        54
+      ],
+      [
+        "idp_NG008020_supp3",
+        5
+      ],
+      [
+        "idp_NG008020_supp4",
+        5
+      ],
+      [
+        "idp_NG008020_supp5",
+        5
+      ],
+      [
+        "idp_NG008020_supp6",
+        5
+      ],
+      [
+        "idp_NG008020_supp7",
+        5
+      ]
+    ],
+    "total": 141,
+    "moe_after": 12.336669615873596,
+    "fully_allocated": true
+  },
+  "idp_NG021025": {
+    "lga": "Malumfashi",
+    "partner": "FACT",
+    "buffered_target": 260,
+    "achieved": 52,
+    "alloc": [
+      [
+        "idp_NG021025_8",
+        76
+      ],
+      [
+        "idp_NG021025_10",
+        91
+      ],
+      [
+        "idp_NG021025_supp4",
+        30
+      ]
+    ],
+    "total": 197,
+    "moe_after": 9.854933931828134,
+    "fully_allocated": false
+  },
+  "idp_NG026005": {
+    "lga": "Keana",
+    "partner": "CARE",
+    "buffered_target": 390,
+    "achieved": 0,
+    "alloc": [
+      [
+        "idp_NG026005_1",
+        380
+      ],
+      [
+        "idp_NG026005_14",
+        5
+      ],
+      [
+        "idp_NG026005_15",
+        5
+      ]
+    ],
+    "total": 390,
+    "moe_after": 11.170285353698805,
+    "fully_allocated": true
+  },
+  "idp_NG032002": {
+    "lga": "Bassa",
+    "partner": "CRS",
+    "buffered_target": 113,
+    "achieved": 85,
+    "alloc": [
+      [
+        "idp_NG032002_1",
+        4
+      ],
+      [
+        "idp_NG032002_2",
+        12
+      ],
+      [
+        "idp_NG032002_supp1",
+        12
+      ]
+    ],
+    "total": 28,
+    "moe_after": 9.402592733316611,
+    "fully_allocated": true
+  },
+  "idp_NG034016": {
+    "lga": "Sokoto North",
+    "partner": "DRC",
+    "buffered_target": 217,
+    "achieved": 108,
+    "alloc": [
+      [
+        "idp_NG034016_1",
+        21
+      ],
+      [
+        "idp_NG034016_14",
+        22
+      ],
+      [
+        "idp_NG034016_supp1",
+        22
+      ],
+      [
+        "idp_NG034016_supp2",
+        22
+      ],
+      [
+        "idp_NG034016_supp3",
+        22
+      ]
+    ],
+    "total": 109,
+    "moe_after": 9.722071126445595,
+    "fully_allocated": true
+  },
+  "idp_NG034018": {
+    "lga": "Tambuwal",
+    "partner": "ZOA",
+    "buffered_target": 142,
+    "achieved": 110,
+    "alloc": [
+      [
+        "idp_NG034018_10",
+        5
+      ],
+      [
+        "idp_NG034018_15",
+        5
+      ],
+      [
+        "idp_NG034018_16",
+        4
+      ],
+      [
+        "idp_NG034018_supp1",
+        5
+      ],
+      [
+        "idp_NG034018_supp2",
+        5
+      ],
+      [
+        "idp_NG034018_supp4",
+        8
+      ]
+    ],
+    "total": 32,
+    "moe_after": 9.788044936172087,
+    "fully_allocated": true
+  },
+  "idp_NG037004": {
+    "lga": "Bukkuyum",
+    "partner": "FACT",
+    "buffered_target": 179,
+    "achieved": 83,
+    "alloc": [
+      [
+        "idp_NG037004_6",
+        5
+      ],
+      [
+        "idp_NG037004_7",
+        22
+      ],
+      [
+        "idp_NG037004_10",
+        21
+      ],
+      [
+        "idp_NG037004_12",
+        21
+      ],
+      [
+        "idp_NG037004_supp1",
+        6
+      ],
+      [
+        "idp_NG037004_supp2",
+        21
+      ]
+    ],
+    "total": 96,
+    "moe_after": 10.190510055952958,
+    "fully_allocated": true
+  },
+  "idp_NG037005": {
+    "lga": "Bungudu",
+    "partner": "Save the Children",
+    "buffered_target": 564,
+    "achieved": 93,
+    "alloc": [
+      [
+        "idp_NG037005_1",
+        5
+      ],
+      [
+        "idp_NG037005_2",
+        163
+      ],
+      [
+        "idp_NG037005_6",
+        298
+      ],
+      [
+        "idp_NG037005_16",
+        5
+      ]
+    ],
+    "total": 471,
+    "moe_after": 15.284940413884451,
+    "fully_allocated": true
+  },
+  "idp_NG037009": {
+    "lga": "Maradun",
+    "partner": "FACT",
+    "buffered_target": 413,
+    "achieved": 97,
+    "alloc": [
+      [
+        "idp_NG037009_7",
+        216
+      ],
+      [
+        "idp_NG037009_13",
+        100
+      ]
+    ],
+    "total": 316,
+    "moe_after": 9.30574389004006,
+    "fully_allocated": true
+  }
+}

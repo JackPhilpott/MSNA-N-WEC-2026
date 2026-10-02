@@ -50,6 +50,7 @@
 # stratum's target).
 # ==============================================================================
 import csv
+import glob
 import math
 import os
 from collections import defaultdict
@@ -100,6 +101,11 @@ MASTER_WARD_CSV = SAMPLING_DIR + r"\resampling\output\master_accessibility_statu
 GIS_WARD_CSV = SAMPLING_DIR + r"\resampling\output\gis\accessible_area_lga_ward_portions.csv"
 POOL_NON_IDP_CSV = SAMPLING_DIR + r"\resampling\output\gis\remaining_eligible_pool_non_idp.csv"
 POOL_IDP_CSV = SAMPLING_DIR + r"\resampling\output\gis\remaining_eligible_pool_idp.csv"
+# 2026-09-28 (pool-validation gap, Jack via Coordinator - factual correction,
+# not a methodology change; see project memory project_pool_validation_gap_
+# 2026-09-27): where real draw scripts have already run against a stratum,
+# their own recorded outcome.
+RESAMPLE_RUNS_DIR = SAMPLING_DIR + r"\resampling\output\resample_runs"
 # 2026-09-08 audit fix: was the dashboard_app/data/ bundled mirror, only
 # refreshed as a side effect of a full dashboard deploy - same bug class
 # already fixed in refresh_working_frame_daily.R/build_partner_dc_packages.py/
@@ -206,8 +212,25 @@ def realized_moe_unequal(achieved_sample, N_hh, cluster_sizes, ICC, Z=1.64485362
     sizes = [s for s in cluster_sizes if s is not None and s > 0]
     if not sizes:
         return None
-    if achieved_sample <= 0 or N_hh <= achieved_sample:
+    if achieved_sample <= 0:
         return None
+    if N_hh <= achieved_sample:
+        # 2026-09-30 (Jack, via Coordinator - Binji IDP idp_NG034001, real
+        # case): achieved >= the accessible-population estimate is a real,
+        # valid boundary, not an error state - it means the estimate has
+        # been fully (or over-) enumerated, same situation a certainty
+        # site hits when n_i >= N_i, which realized_moe_certainty_aware()
+        # already handles by flooring its own FPC term at 0
+        # (fpc = max(0.0, 1 - n_i/N_i)), not by refusing to compute. This
+        # mirrors that exact convention at the whole-stratum level: FPC
+        # floored at 0 -> the finite-population-corrected variance is 0 ->
+        # MoE reads as fully saturated (0.0%), not "Not computable". Was
+        # previously `return None`, which fed straight into a "Not
+        # computable (accessible population too small)" verdict even for a
+        # stratum that had, if anything, over-collected - Binji read 126
+        # achieved against a 112 population estimate and came back N/A
+        # instead of Representative.
+        return 0.0
     m_bar = sum(sizes) / len(sizes)
     if len(sizes) > 1 and m_bar > 0:
         variance = sum((s - m_bar) ** 2 for s in sizes) / (len(sizes) - 1)
@@ -446,9 +469,175 @@ def load_pool_lookup(path, pool_field):
     return {r["adm2_pcode"]: int(float(r[pool_field])) for r in rows}
 
 
+def load_last_interview_date_lookup():
+    """strata_id -> (last_interview_date, days_since_last_interview) from Dashboard's own
+    stratum_collection_facts_*.csv (the newest one present) - the only source for this,
+    2026-09-28 (Jack via Coordinator: wanted on the Partner Reference sheet, wasn't there
+    before). Read-only, cross-project (2_monitoring owns this file, not 1_sampling) - if
+    the folder is absent or empty, returns {} and the new columns just read blank rather
+    than erroring the whole workbook build over a file from a different project."""
+    facts_dir = PROJECT_DIR + r"\2_monitoring\_working_files"
+    if not os.path.isdir(facts_dir):
+        return {}
+    files = sorted(glob.glob(os.path.join(facts_dir, "stratum_collection_facts_*.csv")), key=os.path.getmtime)
+    if not files:
+        return {}
+    # utf-8-sig, not load_csv()'s plain utf-8 - this Dashboard-produced file carries a
+    # BOM (confirmed directly), which would otherwise land inside the first column's
+    # key ("﻿strata_id") and silently break every lookup.
+    with open(files[-1], encoding="utf-8-sig") as f:
+        rows = list(csv.DictReader(f))
+    return {r["strata_id"]: (r.get("last_interview_date", ""), r.get("days_since_last_interview", "")) for r in rows}
+
+
+def load_complete_not_representative_lookup():
+    """strata_id -> dict from model_complete_not_representative_redistribution_2026-09-29.py's
+    own output CSV (a point-in-time snapshot, NOT recomputed here - that script reuses
+    build_representativity_review.py's topup_search() greedy search, real machinery this
+    module has no reason to duplicate). Returns {} if the CSV doesn't exist yet or is
+    missing - callers must treat "not in this lookup" as "N/A", never guess. Re-run that
+    script directly (not this one) to refresh the numbers behind this column."""
+    path = SAMPLING_DIR + r"\resampling\output\complete_not_representative_2026-09-29\complete_not_representative_redistribution_model.csv"
+    if not os.path.exists(path):
+        return {}
+    with open(path, encoding="utf-8-sig") as f:
+        return {r["strata_id"]: r for r in csv.DictReader(f)}
+
+
+def load_real_draw_shortfall_lookup():
+    """strata_id -> dict(requested, delivered, batch, partner) from the LATEST
+    real supplementary-draw batch that attempted that stratum - built by
+    joining each resample_runs/<partner>/<batch>/ folder's own shortfalls CSV
+    (requested = additional_clusters_needed, the draw's own input) against its
+    summary_by_stratum.csv (delivered = new_clusters actually merged; a
+    stratum absent from - or the whole file absent/empty in - a batch that DID
+    request it means 0 delivered, not skipped). Both files are written by the
+    real draw scripts themselves (merge_partner_resample_batch.R and its
+    callers), never estimated here. A batch folder missing its shortfalls CSV
+    is skipped outright - nothing to join. "Latest" = the batch folder with
+    the newest mtime among every batch that named a given stratum, since a
+    stratum can appear in many historical batches and only the most recent
+    reflects the CURRENT pool's real yield.
+
+    Feeds ONLY a factual caveat on the existing "RECOVERABLE via supplementary
+    draw" verdict at this file's verdict-computation site below - it does NOT
+    change the pool count, the Feasibility computation, or Additional
+    clusters needed, all of which stay the raw-hex-count-based figures they
+    always were (that IS the still-open, bigger fix - porting real building-
+    validation logic into the pool computation itself - see project memory
+    project_pool_validation_gap_2026-09-27, not done here). This lookup only
+    surfaces, factually, what a real draw already found when one has actually
+    been run - "RECOVERABLE" stops being asserted un-caveated once a real
+    attempt has already come up short."""
+    out = {}
+    if not os.path.isdir(RESAMPLE_RUNS_DIR):
+        return out
+    for batch_dir in sorted(glob.glob(os.path.join(RESAMPLE_RUNS_DIR, "*", "*"))):
+        if not os.path.isdir(batch_dir):
+            continue
+        shortfall_files = glob.glob(os.path.join(batch_dir, "*shortfall*.csv"))
+        if not shortfall_files:
+            continue
+        summary_file = os.path.join(batch_dir, "summary_by_stratum.csv")
+        delivered_by_stratum = {}
+        if os.path.exists(summary_file) and os.path.getsize(summary_file) > 0:
+            try:
+                for r in load_csv(summary_file):
+                    delivered_by_stratum[r["strata_id"]] = int(float(r.get("new_clusters") or 0))
+            except (csv.Error, KeyError, ValueError):
+                continue  # malformed summary file - skip this batch rather than guess
+        mtime = os.path.getmtime(batch_dir)
+        partner = os.path.basename(os.path.dirname(batch_dir))
+        batch_label = partner + "/" + os.path.basename(batch_dir)
+        # "genuinely exhausted" is the draw script's OWN conclusion (its
+        # words, not inferred) that Tier 2 (repeat draws allowed) still
+        # couldn't close a stratum - real evidence, not a projection. Only
+        # trusted here when the batch's shortfall file names exactly ONE
+        # stratum, so the log line's "1 stratum/strata" is unambiguous about
+        # which one it means; a multi-stratum batch's exhaustion line isn't
+        # attributed per-stratum in the log, so it's left unused rather than
+        # guessed at (delivered < requested still surfaces as a caveat either
+        # way - see below).
+        log_path = os.path.join(batch_dir, "run_log.txt")
+        batch_exhausted = False
+        try:
+            all_shortfall_rows = [r for sf in shortfall_files for r in load_csv(sf)]
+        except csv.Error:
+            all_shortfall_rows = []
+        if len({r.get("strata_id") for r in all_shortfall_rows}) == 1 and os.path.exists(log_path):
+            with open(log_path, encoding="utf-8", errors="replace") as f:
+                batch_exhausted = "genuinely exhausted" in f.read()
+        for sf in shortfall_files:
+            try:
+                rows = load_csv(sf)
+            except csv.Error:
+                continue
+            for r in rows:
+                sid = r.get("strata_id")
+                req = r.get("additional_clusters_needed")
+                if not sid or req in (None, ""):
+                    continue
+                try:
+                    req = int(float(req))
+                except ValueError:
+                    continue
+                prev = out.get(sid)
+                if prev is None or mtime > prev["_mtime"]:
+                    out[sid] = {"requested": req, "delivered": delivered_by_stratum.get(sid, 0),
+                                "batch": batch_label, "partner": partner, "_mtime": mtime,
+                                "exhausted": batch_exhausted}
+    return out
+
+
 def load_csv(path):
     with open(path, encoding="utf-8") as f:
         return list(csv.DictReader(f))
+
+
+def compute_representativity_verdict(moe_certainty, feasibility, not_computable_label, strata_id, real_draw_shortfalls):
+    """The single source of the 'Representativity (10% MoE threshold)' verdict string - extracted 2026-09-28 (pool-
+    validation-gap factual correction) so build_representativity_review.py's own reproduction check (build_strata(),
+    which independently recomputes this same verdict from feasibility/moe_certainty to cross-check against this
+    file's own output) calls this EXACT function instead of maintaining a second copy that would silently drift the
+    moment this one changes - see that script's load_m05()/verdict_label(). Does not depend on any module-level
+    state; real_draw_shortfalls is load_real_draw_shortfall_lookup()'s output, passed in explicitly."""
+    if moe_certainty is None:
+        return not_computable_label
+    if moe_certainty <= TARGET_MOE_PCT:
+        return "Representative (<= 10% MoE at full completion)"
+    if feasibility.startswith("Closeable via extra interviews at a certainty site"):
+        return "Indicative now - RECOVERABLE via extra interviews at a certainty site"
+    if feasibility.startswith("Closeable"):
+        representativity = "Indicative now - RECOVERABLE via supplementary draw"
+        # 2026-09-28 factual correction (see load_real_draw_shortfall_
+        # lookup()'s docstring): the pool figure driving "Closeable" is a raw
+        # hex count, not building-validated. Where a real draw has ALREADY
+        # run against this exact stratum, its own recorded outcome is
+        # stronger evidence than the pool count. additional_clusters_needed/
+        # Feasibility/moe_certainty are untouched either way - only this
+        # label changes.
+        rd = real_draw_shortfalls.get(strata_id)
+        if rd is not None and rd.get("exhausted") and rd["delivered"] < rd["requested"]:
+            # The draw script's OWN words already concluded "genuinely
+            # exhausted, even repeat draws can't close this" for this exact
+            # stratum - "RECOVERABLE" is simply no longer true, not just
+            # optimistic, so the verdict itself changes (same vocabulary as
+            # the "Not closeable" branch below, so every existing "NOT
+            # recoverable"/short_verdict() consumer keeps working unchanged).
+            return (
+                f"Indicative - NOT recoverable (pool exhausted per real draw: {rd['partner']}, "
+                f"{rd['batch']}, requested {rd['requested']} delivered {rd['delivered']}), justify to donors"
+            )
+        if rd is not None and rd["delivered"] < rd["requested"]:
+            representativity += (
+                f" [CAUTION: a real draw ({rd['partner']}, {rd['batch']}) already requested "
+                f"{rd['requested']} cluster(s) here and delivered only {rd['delivered']} after "
+                f"building validation - this pool figure has already proven optimistic for this stratum]"
+            )
+        return representativity
+    if feasibility.startswith("Not closeable"):
+        return "Indicative - NOT recoverable (pool insufficient), justify to donors"
+    return "Indicative now - gap negligible"
 
 
 def load_ward_status_lookup():
@@ -659,7 +848,7 @@ def write_last_run_targets(new_targets):
             w.writerow({"strata_id": strata_id, **vals})
 
 
-def build_cluster_level(household_rows, provenance_lookup, cluster_status_lookup):
+def build_cluster_level(household_rows, provenance_lookup, cluster_status_lookup, real_achieved_by_cluster):
     """One row per cluster_id: strata_id, pop_type, any_accessible (bool -
     at least one PRIMARY household accessible), all_accessible (bool - every
     primary household accessible), primary/reserve counts, state/lga/wards
@@ -732,8 +921,30 @@ def build_cluster_level(household_rows, provenance_lookup, cluster_status_lookup
         any_row = rows[0]
         cs = cluster_status_lookup.get(cid, {"n_accessible_primary_post_threshold": 0, "status": None, "n_achieved": 0})
         n_primary_accessible = cs["n_accessible_primary_post_threshold"]
+        # FIX 2026-09-28 (Jack, traced from a Strata-Level-sheet consistency
+        # question on Bunza NI/non_idp_NG022007): this used cs["n_achieved"]
+        # (cluster_status.csv, written by frame_status.R's compute_cluster_
+        # status()) as the "real achieved" side of the max() - but that
+        # column is DELIBERATELY a capacity-flavored metric, not a real-
+        # interview count (same documented family as achieved_sample - see
+        # project memory feedback_achieved_sample_is_design_capacity_not_
+        # real), and using it here silently undercounted real over-collection
+        # at 372 of 1,647 completed/partially_completed_access_lost clusters
+        # nationally (110 strata, 1,365 real achieved households missing from
+        # the ceiling, always an undercount, never the reverse - verified
+        # directly against real_submissions.csv before applying this).
+        # Concrete proof: non_idp_NG022007_8 read n_achieved=36 here vs the
+        # canonical is_achieved() count of 53 - a real 17-household gap.
+        # Switched to real_achieved_by_cluster (load_real_achieved()'s own
+        # canonical, is_achieved()-based count, Jack's own "single source of
+        # truth... don't re-derive it differently" formula - see that
+        # function's docstring) - the SAME source real_achieved_accessible/
+        # collected_accessible/the 2026-09-28 achieved-figure fix already use
+        # elsewhere in this file, so this ceiling formula now agrees with
+        # every other "real achieved" figure in the workbook instead of
+        # quietly disagreeing with them.
         n_primary_ceiling_contribution = (
-            max(n_primary_accessible, cs["n_achieved"])
+            max(n_primary_accessible, real_achieved_by_cluster.get(cid, 0))
             if cs["status"] in ("completed", "partially_completed_access_lost")
             else n_primary_accessible
         )
@@ -892,7 +1103,13 @@ def main():
     household_rows = classify_households(ward_status)
     print("Loading per-cluster status (post-threshold accessible-primary counts)...")
     cluster_status_lookup = load_cluster_status()
-    cluster_rows = build_cluster_level(household_rows, provenance_lookup, cluster_status_lookup)
+    # 2026-09-28: moved ahead of build_cluster_level() (was loaded further down,
+    # after cluster_rows) so its canonical per-cluster achieved counts can feed
+    # n_primary_ceiling_contribution directly - see build_cluster_level()'s own
+    # comment on this fix for why.
+    print("Loading real achieved samples for resampling decisions (canonical formula + deletion log)...")
+    real_achieved_by_strata, real_achieved_by_cluster = load_real_achieved()
+    cluster_rows = build_cluster_level(household_rows, provenance_lookup, cluster_status_lookup, real_achieved_by_cluster)
     cluster_by_id = {c["cluster_id"]: c for c in cluster_rows}
 
     # 2026-09-22 (R6, Jack approved directly, INTERSOS-triggered review):
@@ -909,8 +1126,8 @@ def main():
     # the same day and the reasoning trail is otherwise lost.
     print("Loading real submissions (collected samples)...")
     collected_by_strata, collected_by_cluster, min_submission_date = load_collected_samples()
-    print("Loading real achieved samples for resampling decisions (canonical formula + deletion log)...")
-    real_achieved_by_strata, real_achieved_by_cluster = load_real_achieved()
+    # real_achieved_by_strata/real_achieved_by_cluster now loaded earlier, ahead of
+    # build_cluster_level() - see that call site's comment.
 
     # 2026-09-14 gap found via a Jack question, not an audit: this pool CSV
     # (analysis_remaining_eligible_pool.R's own output) had gone stale
@@ -936,6 +1153,9 @@ def main():
         )
     pool_non_idp = load_pool_lookup(POOL_NON_IDP_CSV, "accessible_unselected_hexes")
     pool_idp = load_pool_lookup(POOL_IDP_CSV, "accessible_unselected_sites")
+    real_draw_shortfalls = load_real_draw_shortfall_lookup()
+    last_interview_lookup = load_last_interview_date_lookup()
+    complete_not_repr_lookup = load_complete_not_representative_lookup()
 
     print("Loading strata frame and computing stratum-level summary...")
     strata_rows = load_csv(STRATA_CSV)
@@ -1222,7 +1442,7 @@ def main():
                         feasibility = f"Closeable via extra interviews at a certainty site (+{k} at {where})"
                         additional_clusters_needed = 0
 
-        summary_rows.append({
+        summary_row = {
             "State": s["adm1_name"], "LGA": s["adm2_name"], "Pop type": "Non-IDP" if pop_type == "non_idp" else "IDP",
             "Strata ID": strata_id,
             "Partners covering": s["partners_covering"],
@@ -1246,7 +1466,7 @@ def main():
             "[UPDATED AREA] Achieved samples (real, post-deletion, progress-to-date)": real_achieved_accessible,
             "[UPDATED AREA] Achievable ceiling (primary+reserve, reference only - NOT the decision basis, see README)": capacity_ceiling_accessible,
             "Realized MoE % (full frame, existing)": s["realized_moe_pct"],
-            "Realized MoE % (updated area, rigorous Kish formula, reference only since 2026-09-21)": round(moe_updated, 2) if moe_updated is not None else "N/A (sample >= N_hh or 0 accessible)",
+            "Realized MoE % (updated area, rigorous Kish formula, reference only since 2026-09-21)": round(moe_updated, 2) if moe_updated is not None else "N/A (0 accessible)",
             "Realized MoE % (certainty-PSU-aware, DRIVES Feasibility/Representativity since 2026-09-21)": round(moe_certainty, 2) if moe_certainty is not None else "N/A",
             "Target sample (representativity, incl. 5% operational margin)": target_repr_display if target_repr_display is not None else "N/A",
             "Remaining eligible pool (accessible, unselected)": pool,
@@ -1254,7 +1474,8 @@ def main():
             "Feasibility": feasibility,
             "Reported by": strata_reported_by,
             "Last reported date": strata_last_date,
-        })
+        }
+        summary_rows.append(summary_row)
 
         # Task 6 (2026-09-13, NEW): a single consolidated reference sheet for
         # Jack's own use in partner conversations - not an automated partner
@@ -1303,18 +1524,110 @@ def main():
             if primary_ceiling_accessible == 0
             else "Not computable (accessible population too small)"
         )
-        if moe_certainty is None:
-            representativity = not_computable_label
-        elif moe_certainty <= TARGET_MOE_PCT:
-            representativity = "Representative (<= 10% MoE at full completion)"
-        elif feasibility.startswith("Closeable via extra interviews at a certainty site"):
-            representativity = "Indicative now - RECOVERABLE via extra interviews at a certainty site"
-        elif feasibility.startswith("Closeable"):
-            representativity = "Indicative now - RECOVERABLE via supplementary draw"
-        elif feasibility.startswith("Not closeable"):
-            representativity = "Indicative - NOT recoverable (pool insufficient), justify to donors"
+        representativity = compute_representativity_verdict(
+            moe_certainty, feasibility, not_computable_label, strata_id, real_draw_shortfalls
+        )
+        # ---- 2026-09-28 (Jack via Coordinator): four-bucket completion
+        # classification, added directly to THIS sheet (not a separate
+        # artifact - the original ask built a standalone S8_completion_
+        # buckets.csv in build_representativity_review.py, but Jack wanted
+        # it on the Partner Reference sheet he already opens daily). Reuses
+        # this script's OWN realized_moe_certainty_aware()/realized_moe_
+        # unequal() - same functions representativity above is built from,
+        # not a reimplementation. Bucket (c)'s reason is deliberately the
+        # already-computed `feasibility` text, not the review script's
+        # richer route-analysis label (build_representativity_review.py's
+        # build_s8_buckets(), which needs real draw dry-runs) - that keeps
+        # this sheet fast and dependency-free; see S8_completion_buckets.csv
+        # if the fuller reason is needed. Bucket (d) - excluded/not-covered
+        # strata - is added as separate rows after this loop, below.
+        real_cl = [dict(c, n_primary_ceiling_contribution=real_achieved_by_cluster.get(c["cluster_id"], 0)) for c in clusters]
+        real_ceiling = sum(c["n_primary_ceiling_contribution"] for c in real_cl)
+        if real_ceiling > 0 and N_hh_accessible > 0:
+            moe_real_certainty = realized_moe_certainty_aware(real_cl, N_hh_accessible, m_used, pop_type, ICC=0.06)
+            moe_real = moe_real_certainty if moe_real_certainty is not None else realized_moe_unequal(
+                real_ceiling, N_hh_accessible, [c["n_primary_ceiling_contribution"] for c in real_cl], ICC=0.06
+            )
         else:
-            representativity = "Indicative now - gap negligible"
+            moe_real = None
+        interviews_left_on_assigned_points = sum(
+            max(0, c["n_primary_ceiling_contribution"] - real_achieved_by_cluster.get(c["cluster_id"], 0))
+            for c in clusters if c["n_primary_accessible"] > 0
+        )
+        if representativity.startswith("Representative"):
+            if moe_real is not None and moe_real <= TARGET_MOE_PCT:
+                completion_bucket = "(a) Representative now"
+                completion_reason = "10% MoE already reached on real interviews"
+            else:
+                completion_bucket = "(b) Will be Representative at full completion (not yet on real interviews)"
+                completion_reason = f"{interviews_left_on_assigned_points} interview(s) left on assigned accessible primary points to reach it"
+        else:
+            completion_bucket = "(c) Will only reach Indicative at full completion"
+            completion_reason = feasibility
+        last_interview_date, days_since_last_interview = last_interview_lookup.get(strata_id, ("", ""))
+        # 2026-09-29 (Jack via Coordinator, Round 1 close): "Round 1 inclusion" (3 fixed
+        # categories) + "Reason" (finer breakdown), Strata Level only. Category 1 reuses
+        # bucket (a)'s own definition exactly - no new logic. "Not computable" (zero/near-
+        # zero accessible population - this now includes the 18 strata dropped by
+        # yesterday's FACT 10-LGA closure) is folded into "Dropped" here per Jack's own
+        # framing ("LGA/strata is dropped covers this"), even though it's a DIFFERENT
+        # underlying reason than bucket (d)'s excluded/not-covered - both read "Dropped -
+        # LGA/strata excluded or inaccessible" on this column specifically, since that's
+        # the distinction Jack asked this column to make (shareable vs not), not the
+        # reason a stratum isn't shareable. real_achieved_accessible (already computed
+        # above, same figure the "Achieved (real, field-collected)" column shows) is the
+        # >=20 threshold's basis, not a new count.
+        if completion_bucket == "(a) Representative now":
+            round1_inclusion, round1_reason = "Representative", "Representative"
+        elif representativity.startswith("Not computable"):
+            round1_inclusion, round1_reason = "Dropped", "Dropped - LGA/strata excluded or inaccessible"
+        elif real_achieved_accessible >= 20:
+            round1_inclusion, round1_reason = "Indicative - meets reporting threshold", "Indicative - meets reporting threshold (>=20 samples achieved)"
+        else:
+            round1_inclusion, round1_reason = "Dropped", "Dropped - Indicative but <20 samples achieved"
+        # 2026-09-29 (Jack via Coordinator): "Recollection recoverable" - reads a point-in-
+        # time snapshot from model_complete_not_representative_redistribution_2026-09-29.py
+        # (the "Complete but not Representative" reserve-redistribution model, 76 strata:
+        # achieved >= target but moe_real > 10%, greedy-fills real WORKING reserve rows into
+        # the thinnest clusters, models the resulting MoE via this project's own topup_search()/
+        # realized_moe_unequal()) - NOT recomputed here, that machinery belongs to the review
+        # script, not this one. "N/A" for every stratum outside that 76 (Representative
+        # already, genuinely not Complete yet, or Dropped) - never silently blank.
+        cnr = complete_not_repr_lookup.get(strata_id)
+        if cnr is None:
+            recollection_recoverable, recollection_detail = "N/A", ""
+        elif cnr["group"].startswith("(a)"):
+            recollection_recoverable = "Yes - closes via reserve redistribution"
+            recollection_detail = (
+                f"+{cnr['additional_interviews_needed']} interview(s) across {cnr['clusters_touched']} "
+                f"cluster(s) ({cnr['target_clusters_and_amounts']}) -> projected MoE {cnr['projected_moe_pct_after']}%"
+            )
+        else:
+            recollection_recoverable = "No - reserve capacity insufficient"
+            recollection_detail = (
+                f"best achievable via reserve alone: {cnr['moe_if_reserve_fully_exhausted_pct']}% MoE "
+                f"({cnr['total_reserve_supply_in_stratum']} reserve row(s) across the stratum) - needs a real draw or is structurally capped"
+            )
+        # 2026-09-28 (Jack, direct follow-up): same 5 columns onto Strata Level too -
+        # that's the sheet he actually works from, Partner Reference was the wrong
+        # target. Mutates the SAME dict already appended into summary_rows above
+        # (same per-stratum loop iteration) - no recomputation, values are identical
+        # to what Partner Reference gets below. "Remaining needed" added the same way
+        # (2nd follow-up, Jack caught it missing from this sheet entirely) - reuses
+        # the same remaining_needed already computed above for Partner Reference/
+        # status_label, not recomputed.
+        summary_row.update({
+            "Completion bucket": completion_bucket,
+            "Completion bucket reason": completion_reason,
+            "Current MoE % on real interviews": round(moe_real, 2) if moe_real is not None else "N/A",
+            "Last interview date": last_interview_date,
+            "Days since last interview": days_since_last_interview,
+            "Remaining needed": remaining_needed,
+            "Round 1 inclusion": round1_inclusion,
+            "Reason": round1_reason,
+            "Recollection recoverable": recollection_recoverable,
+            "Recollection detail": recollection_detail,
+        })
         if moe_updated is None:
             representativity_rigorous_only = not_computable_label
         elif moe_updated <= TARGET_MOE_PCT:
@@ -1338,9 +1651,60 @@ def main():
             "Achieved (real, field-collected)": real_achieved_accessible,
             "Remaining needed": remaining_needed,
             "Status": status_label,
+            "Completion bucket": completion_bucket,
+            "Completion bucket reason": completion_reason,
+            "Current MoE % on real interviews": round(moe_real, 2) if moe_real is not None else "N/A",
+            "Last interview date": last_interview_date,
+            "Days since last interview": days_since_last_interview,
         })
 
     print(f"Built {len(summary_rows)} stratum-level rows.")
+
+    # ---- Completion bucket (d): excluded strata, as their own rows on the SAME sheet
+    # (2026-09-28 addition) - read directly from this script's own STRATA_CSV
+    # (unfiltered), not from Dashboard's facts file, since coverage_status/
+    # exclusion_reason are frame-native columns 05 already has full access to. Every
+    # key below matches the covered-row dict above exactly (same set, same names) so
+    # the CSV/xlsx writers' shared fieldnames stay valid - "N/A (excluded)" fills the
+    # columns that only make sense for a covered stratum.
+    #
+    # SCOPE, checked directly against Dashboard's own tracked universe before writing
+    # this (they track 327 strata total: 305 covered + 22 excluded - not 571, the
+    # full STRATA_CSV row count). The other 245 non-covered STRATA_CSV rows all carry
+    # exclusion_reason "partner_coverage_declined" (alone or combined with another
+    # reason) - a partner was simply never assigned there, not a stratum that was
+    # active and then got dropped, which is what Jack's "fully dropped/excluded"
+    # bucket means. Filtering out any row whose reason mentions partner_coverage_
+    # declined reproduces Dashboard's exact 22-stratum universe (verified: 19
+    # accessibility_loss_below_population_threshold + 1 insecurity_related_
+    # inaccessibility + 1 certainty_stratum_below_moe_threshold + 1 idp_population_
+    # no_longer_present_partner_reported = 22, 0 mismatches).
+    excluded_strata_rows = [
+        s for s in load_csv(STRATA_CSV)
+        if s.get("coverage_status") != "covered"
+        and s.get("exclusion_reason") not in ("none", "", None)
+        and "partner_coverage_declined" not in s.get("exclusion_reason", "")
+    ]
+    for s in excluded_strata_rows:
+        reason = s.get("coverage_status") or "?"
+        if s.get("exclusion_reason") not in (None, "", "none"):
+            reason += f" ({s['exclusion_reason']})"
+        last_interview_date, days_since_last_interview = last_interview_lookup.get(s["strata_id"], ("", ""))
+        partner_reference_rows.append({
+            "State": s["adm1_name"], "LGA": s["adm2_name"], "Pop type": "Non-IDP" if s["pop_type"] == "non_idp" else "IDP",
+            "Strata ID": s["strata_id"],
+            "Partners covering": s.get("partners_covering") or s.get("original_partner_covering") or "",
+            "Representativity (10% MoE threshold)": "N/A (excluded)", "Projected MoE % (certainty-PSU-aware, DRIVES the verdict above)": "N/A",
+            "Projected MoE % (rigorous Kish formula, reference only since 2026-09-21)": "N/A", "Certainty-PSU treatment applied": "N/A",
+            "Rigorous-only verdict (reference, pre-2026-09-21 basis)": "N/A (excluded)", "Feasibility": "N/A (excluded)",
+            "Additional clusters needed": "N/A", "Remaining eligible pool": "N/A", "Current accessible N_hh": "N/A",
+            "Target sample (true requirement, incl. 5% margin)": "N/A", "Achieved (real, field-collected)": "N/A",
+            "Remaining needed": "N/A", "Status": "Excluded / not covered",
+            "Completion bucket": "(d) Fully dropped / excluded", "Completion bucket reason": reason,
+            "Current MoE % on real interviews": "N/A",
+            "Last interview date": last_interview_date, "Days since last interview": days_since_last_interview,
+        })
+    print(f"Added {len(excluded_strata_rows)} excluded/not-covered stratum row(s) to the Partner Reference sheet (bucket d).")
 
     # ---- Output-plausibility gate (2026-09-08 audit, pass 4) ----
     # Bulletproof, data-independent invariants - a percentage is always in
@@ -1432,17 +1796,59 @@ def main():
                               "and look, don't reflexively comment this out")
     write_last_run_targets(new_run_targets)
 
-    reporting_stats = compute_reporting_stats()
-    write_workbook(summary_rows, cluster_rows, ward_status, provenance_lookup, min_submission_date, reporting_stats, partner_reference_rows)
+    # Strata Level sheet's own bucket-(d) rows (2026-09-28, Jack's direct follow-up:
+    # he works from Strata Level, not Partner Reference - same 5 columns, same 22
+    # strata, no recomputation, reuses excluded_strata_rows/last_interview_lookup
+    # already built above). Built as a SEPARATE list, not appended into summary_rows
+    # itself - write_workbook() below has several OTHER numeric consumers of
+    # summary_rows (write_readme()'s own plausibility/snapshot logic) that assume
+    # every row's percentage/count columns are real numbers; mixing "N/A" filler rows
+    # into that shared list broke exactly that (found by running it, not guessed at -
+    # see the fix). Only the actual Strata Level SHEET gets the excluded rows, via
+    # its own summary_rows_with_excluded list built inside write_workbook(). Column
+    # set: every non-identifying column is taken from summary_rows[0]'s ACTUAL keys
+    # and filled "N/A" (that sheet has at least one per-stratum-formatted key - the
+    # "Additional clusters needed for N% MoE (at m=...)" column name embeds that
+    # stratum's own m_used - so a fixed key would be wrong for some rows).
+    excluded_summary_rows = []
+    summary_template_keys = list(summary_rows[0].keys()) if summary_rows else []
+    for s in excluded_strata_rows:
+        reason = s.get("coverage_status") or "?"
+        if s.get("exclusion_reason") not in (None, "", "none"):
+            reason += f" ({s['exclusion_reason']})"
+        last_interview_date, days_since_last_interview = last_interview_lookup.get(s["strata_id"], ("", ""))
+        identifying = {
+            "State": s["adm1_name"], "LGA": s["adm2_name"], "Pop type": "Non-IDP" if s["pop_type"] == "non_idp" else "IDP",
+            "Strata ID": s["strata_id"], "Partners covering": s.get("partners_covering") or s.get("original_partner_covering") or "",
+        }
+        bucket_cols = {
+            "Completion bucket": "(d) Fully dropped / excluded", "Completion bucket reason": reason,
+            "Current MoE % on real interviews": "N/A",
+            "Last interview date": last_interview_date, "Days since last interview": days_since_last_interview,
+            "Round 1 inclusion": "Dropped", "Reason": "Dropped - LGA/strata excluded or inaccessible",
+            "Recollection recoverable": "N/A", "Recollection detail": "",
+        }
+        excluded_summary_rows.append({k: bucket_cols.get(k, identifying.get(k, "N/A")) for k in summary_template_keys})
+    print(f"{len(excluded_summary_rows)} excluded/not-covered stratum row(s) ready for the Strata Level sheet (bucket d).")
 
     # 2026-09-21: the per-stratum Representative/Indicative verdict, also as
     # a flat CSV so 2_monitoring / partner-prioritisation work can read it
     # without opening the workbook. Same rows as the Partner Reference sheet.
+    # 2026-09-28: moved ahead of write_workbook() - the xlsx save can fail on
+    # a PermissionError if someone (Jack) has the workbook open, and this CSV
+    # is the machine-readable canonical artifact other scripts/checks depend
+    # on; it shouldn't be gated behind whether the human-facing xlsx happens
+    # to be closed at run time.
     repr_csv = os.path.join(OUT_DIR, "strata_representativity_status.csv")
     with open(repr_csv, "w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=list(partner_reference_rows[0].keys()))
         writer.writeheader()
         writer.writerows(partner_reference_rows)
+
+    reporting_stats = compute_reporting_stats()
+    write_workbook(summary_rows, cluster_rows, ward_status, provenance_lookup, min_submission_date, reporting_stats,
+                    partner_reference_rows, excluded_summary_rows)
+
     n_repr = sum(1 for r in partner_reference_rows if r["Representativity (10% MoE threshold)"].startswith("Representative"))
     n_recov = sum(1 for r in partner_reference_rows if "RECOVERABLE" in r["Representativity (10% MoE threshold)"])
     n_not = sum(1 for r in partner_reference_rows if "NOT recoverable" in r["Representativity (10% MoE threshold)"])
@@ -1886,13 +2292,18 @@ def write_readme(wb, summary_rows, min_submission_date, reporting_stats):
     readme.sheet_view.showGridLines = False
 
 
-def write_workbook(summary_rows, cluster_rows, ward_status, provenance_lookup, min_submission_date, reporting_stats, partner_reference_rows):
+def write_workbook(summary_rows, cluster_rows, ward_status, provenance_lookup, min_submission_date, reporting_stats,
+                    partner_reference_rows, excluded_summary_rows=()):
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
 
     write_readme(wb, summary_rows, min_submission_date, reporting_stats)
 
-    write_sheet(wb, "Strata Level", summary_rows)
+    # excluded_summary_rows appended HERE only, after write_readme() (its plausibility/
+    # snapshot logic needs summary_rows' real numeric columns, not "N/A" filler) - see
+    # main()'s own comment on excluded_summary_rows for why these aren't mixed into
+    # summary_rows itself.
+    write_sheet(wb, "Strata Level", list(summary_rows) + list(excluded_summary_rows))
 
     # Task 6 (2026-09-13, NEW) - see the README's own section above for the
     # "no new resampling" vs "partner can stop" distinction this sheet
