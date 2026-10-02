@@ -286,15 +286,33 @@ if (file.exists(PENDING_ADHOC_PROPOSALS_CSV)) {
 # global.R splits on. Normalized to semicolons here so covering_partners has
 # one consistent separator regardless of which of the two sources filled it
 # - otherwise the comma-joined fallback silently fails to split downstream.
+# 2026-10-02 FIX (Jack's own go): ONE lookup row per (adm2_pcode, pop_type).
+# A jointly covered LGA can carry more than one partners_covering string in
+# WORKING - Tangaza (IDP + Non-IDP) and Zuru (Non-IDP) have "IRC, LHI" for
+# joint rows AND "IRC" for draws done under IRC alone - so distinct() kept two
+# lookup rows per key and the left_join below doubled every ward portion of
+# those keys. That doubling then fed every reader of this layer (the IDP site
+# frame compounded it to 64 copies; the pool step double-counted hexes). The
+# union of the strings ("IRC; LHI") is the same value the joint rows already
+# had, so nothing downstream sees a new format. WORKING's own
+# partners_covering is deliberately left untouched (partner attribution).
 lga_covering_lookup <- working %>%
   mutate(pop_type_label = if_else(pop_type == "non_idp", "Non-IDP", "IDP")) %>%
   distinct(adm2_pcode, pop_type_label, partners_covering) %>%
-  transmute(
-    pop_type = pop_type_label,
-    adm2_pcode = adm2_pcode,
-    lga_covering_partners = gsub(",\\s*", "; ", partners_covering)
-  )
+  group_by(adm2_pcode, pop_type_label) %>%
+  summarise(
+    lga_covering_partners = {
+      p <- trimws(unlist(strsplit(partners_covering[!is.na(partners_covering)], ",")))
+      p <- sort(unique(p[p != ""]))
+      if (length(p) == 0) NA_character_ else paste(p, collapse = "; ")
+    },
+    .groups = "drop"
+  ) %>%
+  transmute(pop_type = pop_type_label, adm2_pcode = adm2_pcode, lga_covering_partners)
+stopifnot("lga_covering_lookup must be one row per (adm2_pcode, pop_type)" =
+            !anyDuplicated(lga_covering_lookup[c("adm2_pcode", "pop_type")]))
 
+n_layer_before_join <- nrow(final_layer)
 final_layer <- final_layer %>%
   left_join(lga_covering_lookup, by = c("adm2_pcode", "pop_type")) %>%
   mutate(covering_partners = if_else(
@@ -302,6 +320,10 @@ final_layer <- final_layer %>%
     ward_covering_partners, lga_covering_partners
   )) %>%
   select(-ward_covering_partners, -lga_covering_partners)
+if (nrow(final_layer) != n_layer_before_join) {
+  stop(sprintf("STOP: the covering-partner join changed the layer from %d to %d rows - refusing to write.",
+               n_layer_before_join, nrow(final_layer)))
+}
 
 st_write(final_layer, file.path(GIS_OUT_DIR, "accessible_area_lga_ward_portions.shp"),
          delete_layer = TRUE, quiet = TRUE)
