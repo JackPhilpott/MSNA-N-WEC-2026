@@ -156,6 +156,13 @@ achieved = interview_outcome == "completed"
 
 **Round 1 membership.** `2_monitoring/data/ROUND1_MEMBERSHIP.csv` holds the 28,046 uuids. Every Round 1 output is guarded to exactly this set; the standing check is `three_way_reconciliation`.
 
+**Duplicate flags on settled deletions (decision 27 Sep).** `prep_real_submissions.R` recomputes `is_duplicate` from the claim keys on every run. A pair of functions in [2_monitoring/cleaning/real/preserve_duplicate_history.R](../2_monitoring/cleaning/real/preserve_duplicate_history.R) then puts back the previous value on interviews that were already settled deletions before and after the run, so their historical flag does not change from run to run:
+- `snapshot_duplicate_history()` runs before prep;
+- `restore_duplicate_history()` runs after `refresh_deletion_columns()`;
+- both are called from `deploy_dashboard.R` (lines 116 and 202).
+
+If you re-run prep without that pair, about 26 cells differ on settled deletions, in `is_duplicate` and `any_quality_flag` only. No status, count or Achieved figure is affected. The full chain reproduces the frozen file byte for byte (verified 2 Oct: md5 `24db61ae…`).
+
 **Recovery closeout (1–2 Oct).**
 - Partner recovery workbooks were resolved into one final value per interview and field: `2_monitoring/data/ROUND1_CORRECTIONS.csv`, applied in `prep_real_submissions.R` section 3b ([2_monitoring/cleaning/real/prep_real_submissions.R:506](../2_monitoring/cleaning/real/prep_real_submissions.R#L506)).
 - 19 CRS interviews unmatched in the field were placed by device GPS, and 1 was deleted.
@@ -304,8 +311,22 @@ Rscript run_all_checks.R --module three_way_reconciliation
 - **Results:** every run writes a CSV to `validity_checks/run_history/`.
 - **`three_way_reconciliation`** (new, 2 Oct) compares, stratum by stratum, the dashboard's figures, a canonical recompute from the submissions and deletions overlay, and every partner workbook's Strata Summary.
 - **Staged builds:** set the env var `MSNA_PKG_ROOT` to point the package checks at a staged partner-package build instead of the live folder.
+- **File dates are not evidence of freshness.** In the shared OneDrive folder, a file that is rewritten can keep its previous modification date. This was seen on 2 Oct for the WORKING frame and 7 partner workbooks, whose content and checksums had changed. Judge freshness by checksum (MD5) or content, never by date.
+  - The suite's date-based check ("every partner workbook was written after the submissions file") can therefore fail while the content is current.
+  - The per-row content checks beside it (Achieved, Target, Still Needed) are the real test.
 
-**Result on the live state, 2 Oct 03:23: 81 pass / 4 warn / 0 fail.** All 4 warnings are explained:
+**Final result on the live state, 2 Oct 15:51, after the last refresh and the dashboard deploy: 79 pass / 4 warn / 2 fail** (`validity_checks/run_history/run_2026-10-02_155136.csv`).
+
+Every check on figures passes:
+- Achieved per stratum: dashboard = recompute;
+- partner workbooks = dashboard on all 308 rows;
+- Round 1 membership 28,046;
+- the deployed app's submissions copy = canonical;
+- frame mirrors byte-identical.
+
+The 2 failures are housekeeping. Since 2 Oct, the dashboard's app folder holds only the files the deployed app reads (a bundle allowlist). It no longer carries a WORKING-frame copy, the accessibility shapefile set or their version stamps, and the app reads none of these. Two older mirror checks still expect the full set and are to be updated.
+
+All 4 warnings are explained:
 1. 18 zero-population strata have no 05 representativity target, by design.
 2. The feasibility sheet's 327 rows include 22 excluded strata, by design.
 3. The latest draw folder is a merge-staging folder.
@@ -326,6 +347,15 @@ Here `<snapshot_dir>` = `resampling/output/round1_final_snapshot_v2_2026-10-02`.
 ### 9.3 Independent checks already performed (2 Oct)
 - Deletion log against the overlay and membership (section 6).
 - Achieved, target and remaining identical across dashboard, canonical recompute and all 17 partner workbooks (308 rows, 0 differences).
+- Partner packages were checked before going live:
+  - the final build (607 files) passed all 22 package and reconciliation checks in a staging folder (2 Oct, 15:02);
+  - the 606 files published to partners are byte-identical to the checked build;
+  - the 607th file is a build report and is not published;
+  - every replaced file was backed up first (`1_sampling/resampling/output/_pkgbak/2026-10-02_v2_replaced/`, with a checksum manifest).
+- Frame refresh to the final data:
+  - the household WORKING frame lost exactly 2 points (one Kankia IDP household, one Bayo reserve point), both now achieved;
+  - no other row changed;
+  - the pre-refresh frame is archived in `1_sampling/output/data/data_collection/_archive/2026-10-02_pre_round1_v2_refresh/`.
 - Dashboard toggle against the representativity CSVs (exact).
 - Weights: Non-IDP + IDP weighted + unweighted = 25,447; calibration exact in every stratum.
 
@@ -352,12 +382,26 @@ Here `<snapshot_dir>` = `resampling/output/round1_final_snapshot_v2_2026-10-02`.
 ## 11. Code versions and files
 
 **Git**
-- `1_sampling`: eb76349 (accessibility-layer fix), 7be4797, 8d51f06 (prototypes), e09e72a (OneDrive conflict guard).
+- `1_sampling` (branch `master`):
+
+  | Commit | What it holds |
+  |---|---|
+  | e09e72a | OneDrive conflict guard |
+  | 8d51f06 | Representativity and weighting prototypes |
+  | 7be4797 | Pool and verdict fixes (duplicate polygons, stale file dates) |
+  | eb76349 | Accessibility-layer fix: one coverage row per jointly covered LGA |
+  | 4c78016 | Final weights, the closed-after-collection rule, and the first version of this guide |
+  | b3738d0 | Per-batch IDP pools and verification fixes F1–F5 (the weights script used for the final outputs) |
+  | 5156434 | This guide: verified weights and their checksums |
+  | a42a050 | Site-level π₂ build and the independent weights verification script |
+  | eb7d9c9 | Partner-package push script: explicit staging and backup folders |
 - `2_monitoring`: 6511280 (duration rule, allowlist), 1521f8a (Round 1 closeout).
 
-The final weights script and this guide are committed with the hand-over.
+**State at hand-over (2 Oct, 16:00)**
+- The partner workbooks, partner maps and live dashboard all reflect the final 25,447.
+  - The dashboard is shinyapps.io bundle 12638875, deployed 15:34.
+  - Its data files are byte-identical to the frozen snapshot: submissions `24db61ae…`, deletions overlay `2636cefa…`.
 
-**Pending at hand-over** (status at time of writing; the MSNA team will update):
-- Partner workbooks and the live dashboard currently reflect 25,442. They are being refreshed to the final 25,447.
+**Pending at hand-over** (the MSNA team will update):
 - None for the weights. They are final and independently verified: 29 of 29 checks pass, via the verification script `resampling/scripts/one_off_analyses/verify_round1_weights_FINAL_2026-10-02.R`. md5: `ROUND1_WEIGHTS_FINAL_2026-10-02.csv` b3f261c8…, `_by_stratum` ff02fa08…, `ROUND1_UNWEIGHTED_interviews` ac0c5be2…; script at commit b3738d0.
 - Request to Posit support to purge an old dashboard bundle (12636193) that briefly contained a raw GPS extract. The bundle was not served by the app.
