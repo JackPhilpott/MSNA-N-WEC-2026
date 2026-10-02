@@ -15,6 +15,10 @@
 # then verify live == staged by MD5. Never deletes anything live (leftovers
 # from a no-longer-produced LGA/cluster are a morning item).
 # Writes a manifest CSV next to the backup folder.
+#
+# Reused for the 2 Oct afternoon re-run on the snapshot-v2 submissions (Jack's own
+# go): --stage DIR and --bak DIR override the night's folders, and a real push
+# STOPs if the backup folder already holds an earlier push's files.
 # ==============================================================================
 import csv
 import hashlib
@@ -22,11 +26,25 @@ import os
 import shutil
 import sys
 
-STAGE = r"C:\Users\JACKPH~1\AppData\Local\Temp\msna_pkg_stage_20261002"
+
+def _arg(flag, default):
+    if flag not in sys.argv:
+        return default
+    i = sys.argv.index(flag)
+    if i + 1 >= len(sys.argv):
+        raise SystemExit(f"STOP: {flag} needs a folder")
+    return sys.argv[i + 1]
+
+
+STAGE = _arg("--stage", r"C:\Users\JACKPH~1\AppData\Local\Temp\msna_pkg_stage_20261002")
 LIVE = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\3. External coordination\NGA MSNA 2026 Package"
-BAK = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling\resampling\output\_pkgbak\2026-10-02_replaced"
+BAK = _arg("--bak", r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling\resampling\output\_pkgbak\2026-10-02_replaced")
 SKIP_ROOT_FILES = {"dc_package_uuid_reconciliation_report.csv"}
 DRY_RUN = "--dry-run" in sys.argv
+if not os.path.isdir(STAGE):
+    raise SystemExit(f"STOP: staging folder not found: {STAGE}")
+if not DRY_RUN and os.path.isdir(BAK) and any(os.scandir(BAK)):
+    raise SystemExit(f"STOP: backup folder already holds an earlier push's files: {BAK} - pass a new --bak")
 
 
 def md5(p):
