@@ -26,7 +26,7 @@ The standing check suite lives in `validity_checks/`. Line numbers are as of 2 O
 | Strata (LGA × population group) | 327 in scope (305 covered + 22 excluded) | `1_sampling/output/data/data_collection/NGA_MSNA_2026_strata_level_sampling_frame_v14_FULL.csv` |
 | Round 1 representativity | **216 Representative / 67 Indicative / 44 Dropped** strata; 121 / 44 / 12 LGAs; all 11 states Representative | section 7 |
 | Weighted interviews | **24,855** in 280 strata (+ 592 unweighted: 477 MSNA Light, 115 in Dropped strata) | section 8 |
-| Deletion & correction log for the DO | 6,528 rows: removals, corrections, flags kept | `2_monitoring/reports/partner_data_recovery/outputs/_round1_closeout/MSNA_N-WEC_2026_Round1_deletion_log_2026-10-02.xlsx` |
+| Deletion & correction log for the DO | 6,533 rows: 2,599 removals (`remove_survey`), 2,981 corrections (`change_response`), 953 flags kept (`no_action`) | `2_monitoring/reports/partner_data_recovery/outputs/_round1_closeout/MSNA_N-WEC_2026_Round1_deletion_log_2026-10-02.xlsx` |
 | **Round 1 analysis coverage** (decision 2 Oct) | North-East (Adamawa, Borno, Yobe) and North-West (Katsina, Sokoto, Zamfara, Kaduna); Kebbi and North-Central excluded. **23,744 submissions, 21,705 achieved, 21,135 weighted in 233 strata.** In coverage: 188 / 48 / 33 strata and 101 / 27 / 10 LGAs Representative / Indicative / Dropped; all 7 states Representative | `2_monitoring/reports/round1_weighting_package_2026-10-02/` (weights, weighted dataset, README) |
 
 ---

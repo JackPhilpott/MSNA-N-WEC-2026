@@ -218,6 +218,55 @@ write_csv(by_s %>% select(State, LGA, pop_type, strata_id, label, n, units, N_ac
 write_csv(bind_rows(excl_light %>% mutate(reason = "MSNA Light - excluded from weighted tables (Jack 2 Oct)"),
                     excl_dropped %>% mutate(reason = "stratum Dropped in Round 1 (<20 achieved)")) %>% select(submission_uuid, strata_id, cluster_id, reason),
           file.path(OUT, "ROUND1_UNWEIGHTED_interviews_2026-10-02.csv"))
+
+# ------------------- cluster table (added 2 Oct for the data officer's own weight checks) -------------------
+# One row per weighting unit (the cluster that carries the weight). It holds every input of the unit's design
+# weight, the interviews collected, and the weights that resulted. It only reads objects computed above, so the
+# three files written above are unchanged by it.
+r1x <- read_csv(R1_STRATA, show_col_types = FALSE) %>%
+  transmute(strata_id, stratum_households = `Households (N_hh)`, stratum_accessible_households = `Accessible households`)
+unit_w <- allw %>% group_by(unit_id) %>%
+  summarise(cluster_records = paste(sort(unique(cluster_id)), collapse = "; "), interviews_weighted = n(),
+            design_weight = first(base_weight), final_weight = mean(weight), final_weight_min = min(weight),
+            final_weight_max = max(weight), weight_capped = any(capped), .groups = "drop")
+ni_tab <- ni_units %>% mutate(unit_id = paste(strata_id, uuid_hex, sep = "|")) %>%
+  left_join(cl %>% group_by(strata_id, uuid_hex) %>%
+              summarise(selection_size_hh = first(coalesce(MOS, MOS_rec, MOS_stg)),
+                        stratum_selection_total_hh = first(case_when(!is.na(MOS) ~ T_grid, !is.na(MOS_rec) ~ T_rec, TRUE ~ T_stg)),
+                        clusters_drawn_in_stratum = first(k_design + n_supp), certainty_stratum = first(cert),
+                        selection_basis = first(mos_basis), .groups = "drop"),
+            by = c("strata_id", "uuid_hex")) %>%
+  transmute(unit_id, strata_id, pop_type = "non_idp", cluster_type = "Non-IDP hexagon (PPS)",
+            selection_size_hh, stratum_selection_total_hh, clusters_drawn_in_stratum, certainty_stratum, selection_basis,
+            pi_july = NA_real_, pi_site = NA_real_, first_stage_probability = psu,
+            cluster_households = hh, interviews_collected = n_unit, second_stage_probability = ssu, repeat_draw_records = records)
+idp_tab <- icl %>% filter(cluster_id %in% idp$cluster_id) %>%
+  transmute(unit_id = cluster_id, strata_id, pop_type = "idp",
+            cluster_type = case_when(ver == "hex_v1" & kind == "mixed" ~ "IDP July site in a mixed stratum (two-phase)",
+                                     ver == "hex_v1" ~ "IDP July hexagon (the surveyed site stands for its hexagon)",
+                                     TRUE ~ "IDP site (PPS, from 2 Sep)"),
+            selection_size_hh = ifelse(ver == "hex_v1", MOS_july, hh),
+            stratum_selection_total_hh = ifelse(ver == "hex_v1", T1s, coalesce(ifelse(use_0921, T2_0921, T2), T2_0921)),
+            clusters_drawn_in_stratum = ifelse(ver == "hex_v1", k1s + coalesce(n_supp_hex, 0L), k2),
+            certainty_stratum = NA, selection_basis = trimws(paste(ver, kind, coalesce(pi_site_basis, ""))),
+            pi_july = ifelse(ver == "hex_v1", pi_july, NA_real_),
+            pi_site = ifelse(ver == "site_v2", pi_site, ifelse(kind == "mixed", pi_site_hex, NA_real_)),
+            first_stage_probability = pi,
+            cluster_households = ifelse(ver == "hex_v1" & kind != "mixed", MOS_july, hh),
+            interviews_collected = n_unit, second_stage_probability = pmin(1, n_unit / cluster_households),
+            repeat_draw_records = 1L)
+cluster_table <- bind_rows(ni_tab, idp_tab) %>%
+  left_join(unit_w, by = "unit_id") %>%
+  left_join(r1 %>% select(strata_id, State, LGA), by = "strata_id") %>%
+  left_join(r1x, by = "strata_id") %>%
+  group_by(strata_id) %>% mutate(stratum_clusters_weighted = n(), stratum_interviews_weighted = sum(interviews_weighted)) %>% ungroup() %>%
+  relocate(State, LGA, strata_id, pop_type, unit_id, cluster_records, cluster_type) %>% arrange(strata_id, unit_id)
+stopifnot(nrow(cluster_table) == n_distinct(allw$unit_id),
+          sum(cluster_table$interviews_weighted) == nrow(allw),
+          all(cluster_table$interviews_weighted == cluster_table$interviews_collected),
+          all(abs(1 / (cluster_table$first_stage_probability * cluster_table$second_stage_probability) / cluster_table$design_weight - 1) < 1e-9))
+write_csv(cluster_table, file.path(OUT, "ROUND1_CLUSTER_TABLE_2026-10-02.csv"), na = "")
+cat(sprintf("cluster table: %d weighting units; design weight == 1 / (first stage x second stage) in every one\n", nrow(cluster_table)))
 cat(sprintf("\nweighted %d interviews in %d strata (%d Non-IDP, %d IDP) | calibration exact: TRUE | every stratum max weight <= %dx median: TRUE\n",
             nrow(allw), nrow(by_s), sum(allw$pop_type == "non_idp"), sum(allw$pop_type == "idp"), CAP_K))
 cat(sprintf("Kish median uncapped %.2f -> final %.2f | 90th %.2f -> %.2f | strata where the cap binds: %d\n",

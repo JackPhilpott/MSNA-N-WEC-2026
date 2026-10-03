@@ -145,6 +145,13 @@ write_csv(w_cov, file.path(PKG, "01_weights/R1_weights_by_interview_NE_NW.csv"),
 write_csv(bs_cov, file.path(PKG, "01_weights/R1_weights_by_stratum_NE_NW.csv"), na = "")
 uw_cov <- uw %>% filter(state_of_stratum(strata_id) %in% covered_states)
 write_csv(uw_cov, file.path(PKG, "01_weights/R1_unweighted_interviews_NE_NW.csv"), na = "")
+# cluster table (added 3 Oct at the data officer's request): one row per weighting unit with every input of its
+# design weight - written by the final weights script itself, so it cannot drift from the weights
+ct <- rd(file.path(WDIR, "ROUND1_CLUSTER_TABLE_2026-10-02.csv"))
+ct_cov <- ct %>% filter(State %in% covered_states)
+stopifnot(sum(as.integer(ct_cov$interviews_weighted)) == nrow(w_cov),
+          setequal(paste(w_cov$strata_id, w_cov$weighting_unit), paste(ct_cov$strata_id, ct_cov$unit_id)))
+write_csv(ct_cov, file.path(PKG, "01_weights/R1_cluster_table_NE_NW.csv"), na = "")
 
 write_csv(r1s %>% filter(State %in% covered_states), file.path(PKG, "03_representativity/R1_representativity_strata_NE_NW.csv"), na = "")
 write_csv(r1l %>% filter(State %in% covered_states), file.path(PKG, "03_representativity/R1_representativity_lga_NE_NW.csv"), na = "")
@@ -184,5 +191,7 @@ if (!SKIP_DATASET) {
 
 # ---- checksums --------------------------------------------------------------------
 files <- setdiff(list.files(PKG, recursive = TRUE), "MD5SUMS.txt")
-writeLines(sprintf("%s  %s", unname(tools::md5sum(file.path(PKG, files))), files), file.path(PKG, "MD5SUMS.txt"))
+con <- file(file.path(PKG, "MD5SUMS.txt"), open = "wb")   # binary: LF line endings, so `md5sum -c` works too
+writeLines(sprintf("%s  %s", unname(tools::md5sum(file.path(PKG, files))), files), con, sep = "\n")
+close(con)
 cat("\nDone:", PKG, "\n")
