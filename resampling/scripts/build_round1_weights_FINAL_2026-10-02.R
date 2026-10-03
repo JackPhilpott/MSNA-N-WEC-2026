@@ -229,11 +229,18 @@ unit_w <- allw %>% group_by(unit_id) %>%
   summarise(cluster_records = paste(sort(unique(cluster_id)), collapse = "; "), interviews_weighted = n(),
             design_weight = first(base_weight), final_weight = mean(weight), final_weight_min = min(weight),
             final_weight_max = max(weight), weight_capped = any(capped), .groups = "drop")
+# a records-only cluster takes its own draw's probability (F2), so show that draw's k as recorded in its staging
+# file (`clusters`, the draws made in that run) - then k x size / total reproduces the row (checked below)
+stg_k <- bind_rows(lapply(unique(stg_hit$stg_src), function(f)
+  read_csv(f, col_types = chr) %>% select(cluster_id, clusters) %>% mutate(src = f))) %>%
+  inner_join(stg_hit %>% select(cluster_id, stg_src), by = c("cluster_id", "src" = "stg_src")) %>%
+  transmute(cluster_id, k_stg = as.numeric(clusters))
 ni_tab <- ni_units %>% mutate(unit_id = paste(strata_id, uuid_hex, sep = "|")) %>%
-  left_join(cl %>% group_by(strata_id, uuid_hex) %>%
+  left_join(cl %>% left_join(stg_k, by = "cluster_id") %>% group_by(strata_id, uuid_hex) %>%
               summarise(selection_size_hh = first(coalesce(MOS, MOS_rec, MOS_stg)),
                         stratum_selection_total_hh = first(case_when(!is.na(MOS) ~ T_grid, !is.na(MOS_rec) ~ T_rec, TRUE ~ T_stg)),
-                        clusters_drawn_in_stratum = first(k_design + n_supp), certainty_stratum = first(cert),
+                        clusters_drawn_in_stratum = first(ifelse(mos_basis == "draw staging record", k_stg, k_design + n_supp)),
+                        certainty_stratum = first(cert),
                         selection_basis = first(mos_basis), .groups = "drop"),
             by = c("strata_id", "uuid_hex")) %>%
   transmute(unit_id, strata_id, pop_type = "non_idp", cluster_type = "Non-IDP hexagon (PPS)",
@@ -255,8 +262,17 @@ idp_tab <- icl %>% filter(cluster_id %in% idp$cluster_id) %>%
             cluster_households = ifelse(ver == "hex_v1" & kind != "mixed", MOS_july, hh),
             interviews_collected = n_unit, second_stage_probability = pmin(1, n_unit / cluster_households),
             repeat_draw_records = 1L)
+# deletion accounting per unit: completed interviews matched to it, those removed by the deletion log, and the rest
+pre_unit <- subs %>% filter(interview_outcome == "completed", !is.na(matched_survey_id), matched_survey_id != "NA") %>%
+  transmute(cluster_id = matched_cluster_id, strata_id = matched_strata_id, deleted = submission_uuid %in% del_uuids) %>%
+  left_join(cl %>% select(cluster_id, hex_ni = uuid_hex), by = "cluster_id") %>%
+  mutate(unit_id = ifelse(grepl("^non_idp_", strata_id), paste(strata_id, hex_ni, sep = "|"), cluster_id)) %>%
+  group_by(unit_id) %>%
+  summarise(interviews_completed_before_deletions = n(), interviews_removed_by_deletion_log = sum(deleted), .groups = "drop")
 cluster_table <- bind_rows(ni_tab, idp_tab) %>%
   left_join(unit_w, by = "unit_id") %>%
+  left_join(pre_unit, by = "unit_id") %>%
+  mutate(interviews_kept_after_deletions = interviews_completed_before_deletions - interviews_removed_by_deletion_log) %>%
   left_join(r1 %>% select(strata_id, State, LGA), by = "strata_id") %>%
   left_join(r1x, by = "strata_id") %>%
   group_by(strata_id) %>% mutate(stratum_clusters_weighted = n(), stratum_interviews_weighted = sum(interviews_weighted)) %>% ungroup() %>%
@@ -264,7 +280,20 @@ cluster_table <- bind_rows(ni_tab, idp_tab) %>%
 stopifnot(nrow(cluster_table) == n_distinct(allw$unit_id),
           sum(cluster_table$interviews_weighted) == nrow(allw),
           all(cluster_table$interviews_weighted == cluster_table$interviews_collected),
+          all(cluster_table$interviews_kept_after_deletions == cluster_table$interviews_weighted),
           all(abs(1 / (cluster_table$first_stage_probability * cluster_table$second_stage_probability) / cluster_table$design_weight - 1) < 1e-9))
+# every Non-IDP first stage outside certainty strata must be reproducible from the row's own columns
+ni_bad <- cluster_table %>% filter(pop_type == "non_idp", certainty_stratum %in% FALSE) %>%
+  mutate(pi1_from_row = pmin(1, clusters_drawn_in_stratum * selection_size_hh / stratum_selection_total_hh)) %>%
+  filter(is.na(pi1_from_row) | abs(pi1_from_row - first_stage_probability) >= 1e-6)
+if (nrow(ni_bad)) {
+  print(ni_bad %>% select(unit_id, cluster_records, selection_basis, clusters_drawn_in_stratum, selection_size_hh,
+                          stratum_selection_total_hh, first_stage_probability, pi1_from_row) %>% as.data.frame())
+  stop("cluster table: a Non-IDP first stage is not reproducible from its own row")
+}
+cluster_table <- cluster_table %>% select(-interviews_collected, -interviews_weighted) %>%
+  relocate(interviews_completed_before_deletions, interviews_removed_by_deletion_log, interviews_kept_after_deletions,
+           .before = second_stage_probability)
 write_csv(cluster_table, file.path(OUT, "ROUND1_CLUSTER_TABLE_2026-10-02.csv"), na = "")
 cat(sprintf("cluster table: %d weighting units; design weight == 1 / (first stage x second stage) in every one\n", nrow(cluster_table)))
 cat(sprintf("\nweighted %d interviews in %d strata (%d Non-IDP, %d IDP) | calibration exact: TRUE | every stratum max weight <= %dx median: TRUE\n",

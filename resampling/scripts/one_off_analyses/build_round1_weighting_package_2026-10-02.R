@@ -149,7 +149,7 @@ write_csv(uw_cov, file.path(PKG, "01_weights/R1_unweighted_interviews_NE_NW.csv"
 # design weight - written by the final weights script itself, so it cannot drift from the weights
 ct <- rd(file.path(WDIR, "ROUND1_CLUSTER_TABLE_2026-10-02.csv"))
 ct_cov <- ct %>% filter(State %in% covered_states)
-stopifnot(sum(as.integer(ct_cov$interviews_weighted)) == nrow(w_cov),
+stopifnot(sum(as.integer(ct_cov$interviews_kept_after_deletions)) == nrow(w_cov),
           setequal(paste(w_cov$strata_id, w_cov$weighting_unit), paste(ct_cov$strata_id, ct_cov$unit_id)))
 write_csv(ct_cov, file.path(PKG, "01_weights/R1_cluster_table_NE_NW.csv"), na = "")
 
