@@ -25,10 +25,14 @@ SKIP_DATASET <- "--skip-dataset" %in% commandArgs(trailingOnly = TRUE)
 
 WS     <- normalizePath("..", winslash = "/")
 S1     <- file.path(WS, "1_sampling")
-PKG    <- file.path(WS, "2_monitoring/reports/round1_weighting_package_2026-10-02")
-SNAP   <- file.path(S1, "resampling/output/round1_final_snapshot_v2_2026-10-02")
-WDIR   <- file.path(S1, "resampling/output/full_weighting_build_2026-09-28/round1_FINAL_2026-10-02")
-RDIR   <- file.path(S1, "resampling/output/round1_representativity_prototype_2026-10-02")
+# Inputs default to the frozen v2 build; env vars R1_PKG_OUT / R1_SNAP / R1_WDIR / R1_RDIR (paths relative to the
+# workspace) point the builder at another build, e.g. the candidate aligned to the DO's cleaned dataset (4 Oct).
+envp <- function(v, default) { x <- Sys.getenv(v, ""); if (nzchar(x)) file.path(WS, x) else default }
+PKG    <- envp("R1_PKG_OUT", file.path(WS, "2_monitoring/reports/round1_weighting_package_2026-10-02"))
+SNAP   <- envp("R1_SNAP", file.path(S1, "resampling/output/round1_final_snapshot_v2_2026-10-02"))
+WDIR   <- envp("R1_WDIR", file.path(S1, "resampling/output/full_weighting_build_2026-09-28/round1_FINAL_2026-10-02"))
+RDIR   <- envp("R1_RDIR", file.path(S1, "resampling/output/round1_representativity_prototype_2026-10-02"))
+CANDIDATE <- nzchar(Sys.getenv("R1_SNAP", ""))
 FRAME  <- file.path(S1, "output/data/data_collection/NGA_MSNA_2026_strata_level_sampling_frame_v14_FULL.csv")
 EXPORT <- file.path(WS, "2_monitoring/cleaning/MSNA_Data_Cleaning/output/anonymised_data/NGA2605_MSNA_anonymised_2026-10-01.xlsx")
 GUIDE  <- file.path(S1, "ROUND1_METHODOLOGY_AND_VALIDATION_GUIDE.md")
@@ -42,8 +46,11 @@ md5 <- function(p) unname(tools::md5sum(p))
 
 # ---- inputs, checked against the frozen record ------------------------------
 stopifnot(md5(file.path(SNAP, "real_submissions.csv")) == "24db61ae699e6de4bc6890f346a3b774")
-stopifnot(startsWith(md5(file.path(WDIR, "ROUND1_WEIGHTS_FINAL_2026-10-02.csv")), "b3f261c8"))
+if (!CANDIDATE) stopifnot(startsWith(md5(file.path(WDIR, "ROUND1_WEIGHTS_FINAL_2026-10-02.csv")), "b3f261c8"))
 rs  <- rd(file.path(SNAP, "real_submissions.csv"))
+# settled deletions come from the snapshot's own overlay (identical to real_submissions' deletion_status in v2; a
+# candidate snapshot adds its extra removals to the overlay only)
+ov  <- rd(file.path(SNAP, "CONFIRMED_DELETIONS_OVERLAY.csv")) %>% filter(status %in% c("confirmed", "contested"))
 w   <- rd(file.path(WDIR, "ROUND1_WEIGHTS_FINAL_2026-10-02.csv"))
 uw  <- rd(file.path(WDIR, "ROUND1_UNWEIGHTED_interviews_2026-10-02.csv"))
 bs  <- rd(file.path(WDIR, "ROUND1_WEIGHTS_FINAL_by_stratum_2026-10-02.csv"))
@@ -70,19 +77,22 @@ state_of_stratum <- function(sid) {
 # ---- household key: one row per Round 1 submission ---------------------------
 stopifnot(nrow(rs) == 28046, !anyDuplicated(rs$submission_uuid), setequal(rs$submission_uuid, mem_uuid))
 w <- w %>% mutate(weight_num = as.numeric(weight))
-stopifnot(nrow(w) == 24855, nrow(uw) == 592, !anyDuplicated(c(w$submission_uuid, uw$submission_uuid)))
+if (!CANDIDATE) stopifnot(nrow(w) == 24855, nrow(uw) == 592)
+stopifnot(!anyDuplicated(c(w$submission_uuid, uw$submission_uuid)), !anyDuplicated(ov$uuid))
+if (!CANDIDATE) stopifnot(setequal(ov$uuid, rs$submission_uuid[rs$deletion_status %in% c("confirmed", "contested")]))
 
 key <- rs %>%
   transmute(
     uuid = submission_uuid,
-    deleted = deletion_status %in% c("confirmed", "contested"),
+    deleted = submission_uuid %in% ov$uuid,
     completed = interview_outcome == "completed",
     matched = !blank(matched_survey_id),
     r1_strata_id = ifelse(blank(matched_strata_id), NA, matched_strata_id),
     r1_cluster_id = ifelse(blank(matched_cluster_id), NA, matched_cluster_id),
     r1_pop_type = case_when(grepl("^non_idp_", r1_strata_id) ~ "non_idp", grepl("^idp_", r1_strata_id) ~ "idp", TRUE ~ NA_character_),
     admin1 = admin1,
-    deletion_reason = ifelse(deleted, flagged_deletion_reason, NA)
+    deletion_reason = ifelse(deleted, coalesce(ifelse(blank(flagged_deletion_reason), NA, flagged_deletion_reason),
+                                               ov$reason[match(submission_uuid, ov$uuid)]), NA)
   ) %>%
   mutate(
     r1_status = case_when(deleted ~ "removed (settled deletion)",
@@ -94,7 +104,7 @@ key <- rs %>%
     r1_in_analysis_coverage = r1_state %in% covered_states
   )
 
-stopifnot(sum(key$r1_status == "achieved") == 25447)
+stopifnot(sum(key$r1_status == "achieved") == if (CANDIDATE) nrow(w) + nrow(uw) else 25447)
 stopifnot(setequal(c(w$submission_uuid, uw$submission_uuid), key$uuid[key$r1_status == "achieved"]))
 chk <- w %>% inner_join(key %>% select(uuid, r1_strata_id), by = c("submission_uuid" = "uuid"))
 stopifnot(nrow(chk) == nrow(w), all(chk$strata_id == chk$r1_strata_id))
