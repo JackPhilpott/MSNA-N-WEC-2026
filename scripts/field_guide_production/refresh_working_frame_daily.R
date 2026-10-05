@@ -430,7 +430,14 @@ strata_working_old <- read_csv(STRATA_WORKING_CSV, show_col_types = FALSE, col_t
 # contribute here, same reasoning as the aggregation below - both are now
 # one shared call (scripts/shared/frame_status.R's compute_strata_achieved()),
 # not separately-maintained logic.
-strata_result <- compute_strata_achieved(full_df, achieved_lookup, accessibility, filter_ward_accessible = TRUE)
+# 2026-10-05 (Jack's go in Resampling's window): UNUSED spare clusters add no design capacity (they stay in WORKING).
+source("scripts/shared/spare_clusters.R")
+spare_register <- load_spare_register(path = file.path(SF_DIR, SPARE_REGISTER_NAME))
+unused_spares <- unused_spare_ids(spare_register, achieved_by_cluster(subs, deletion_excluded_uuids(deletions_overlay)))
+log_msg("Spare clusters: %d registered, %d unused - left out of strata achieved_clusters/achieved_sample/realized_moe_pct.",
+        nrow(spare_register), length(unused_spares))
+strata_result <- compute_strata_achieved(full_df, achieved_lookup, accessibility, filter_ward_accessible = TRUE,
+                                         exclude_cluster_ids = unused_spares)
 log_msg(
   "Stranded-achieved credit: %d real completed interview(s) sit in rows excluded from the accessible pool (ward-inaccessible or below-threshold) - added back into strata-level achieved_sample so the shortfall doesn't double-ask for them.",
   nrow(strata_result$stranded_rows)

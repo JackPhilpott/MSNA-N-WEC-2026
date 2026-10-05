@@ -570,6 +570,9 @@ deletions_overlay <- read_csv(CONFIRMED_DELETIONS_OVERLAY_CSV, show_col_types = 
 REAL_SUBMISSIONS_CSV <- "c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/2_monitoring/data/real_submissions.csv"
 subs <- read_csv(REAL_SUBMISSIONS_CSV, show_col_types = FALSE, col_types = cols(.default = "c"))
 achieved_lookup <- compute_achieved_lookup(subs, deletions_overlay)
+# 2026-10-05 (Jack's go in Resampling's window): UNUSED spare clusters add no design capacity (they stay in WORKING).
+source("scripts/shared/spare_clusters.R")
+unused_spares <- unused_spare_ids(load_spare_register(path = file.path(DC_DIR, SPARE_REGISTER_NAME)), achieved_by_cluster(subs, deletion_excluded_uuids(deletions_overlay)))
 achieved_non_idp_survey_ids <- achieved_lookup$non_idp_survey_ids
 achieved_idp_counts <- achieved_lookup$idp_counts
 
@@ -599,7 +602,8 @@ recompute_strata <- function(sl_df, hh_df, filter_ward_accessible = FALSE) {
 
   if (filter_ward_accessible) {
     accessibility <- compute_cluster_accessibility(base, NON_IDP_MIN_ACCESSIBLE_PRIMARY_HH)
-    result <- compute_strata_achieved(base, achieved_lookup, accessibility, filter_ward_accessible = TRUE)
+    result <- compute_strata_achieved(base, achieved_lookup, accessibility, filter_ward_accessible = TRUE,
+                                      exclude_cluster_ids = unused_spares)
     if (nrow(result$stranded_rows) > 0) {
       log_msg("  Stranded-achieved credit added back for this merge's affected strata: %d.", nrow(result$stranded_rows))
     }
@@ -614,7 +618,8 @@ recompute_strata <- function(sl_df, hh_df, filter_ward_accessible = FALSE) {
       left_join(agg, by = "strata_id") %>%
       mutate(achieved_clusters_new = coalesce(achieved_clusters_new, 0L), achieved_sample_new = coalesce(achieved_sample_new, 0L))
   } else {
-    result <- compute_strata_achieved(base, achieved_lookup, filter_ward_accessible = FALSE)
+    result <- compute_strata_achieved(base, achieved_lookup, filter_ward_accessible = FALSE,
+                                      exclude_cluster_ids = unused_spares)
     agg <- result$agg %>% rename(achieved_clusters_new = achieved_clusters, achieved_sample_new = achieved_sample)
     cluster_sizes <- result$cluster_sizes
   }

@@ -284,9 +284,12 @@ compute_cluster_accessibility <- function(full_df, non_idp_min_accessible_primar
 #'   cluster_sizes = tibble(strata_id, cluster_id, n) for Task 4's
 #'   distribution-aware DEFF, stranded_rows)
 compute_strata_achieved <- function(full_df, achieved_lookup, accessibility = NULL,
-                                     filter_ward_accessible) {
+                                     filter_ward_accessible, exclude_cluster_ids = character(0)) {
+  # 2026-10-05 (Jack's go in Resampling's window): exclude_cluster_ids = the UNUSED spare clusters
+  # (scripts/shared/spare_clusters.R's unused_spare_ids()). An unused spare adds no design capacity, so it is left out
+  # of achieved_clusters / achieved_sample and of the cluster sizes behind realized_moe_pct. It stays in WORKING.
   if (!filter_ward_accessible) {
-    eligible <- full_df %>% filter(status == "primary")
+    eligible <- full_df %>% filter(status == "primary", !(cluster_id %in% exclude_cluster_ids))
     agg <- eligible %>% group_by(strata_id) %>%
       summarise(achieved_clusters = n_distinct(cluster_id), achieved_sample = n(), .groups = "drop")
     cluster_sizes <- eligible %>% count(strata_id, cluster_id, name = "n")
@@ -331,7 +334,7 @@ compute_strata_achieved <- function(full_df, achieved_lookup, accessibility = NU
   eligible <- bind_rows(
     covered_accessible %>% filter(status == "primary"),
     stranded_rows
-  )
+  ) %>% filter(!(cluster_id %in% exclude_cluster_ids))
   agg <- eligible %>% group_by(strata_id) %>%
     summarise(achieved_clusters = n_distinct(cluster_id), achieved_sample = n(), .groups = "drop")
   cluster_sizes <- eligible %>% count(strata_id, cluster_id, name = "n")
