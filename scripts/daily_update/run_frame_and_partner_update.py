@@ -157,6 +157,34 @@ def md5(path):
     return h.hexdigest()
 
 
+# SharePoint writes its own document-library metadata into Office files it stores (customXml items, custom
+# properties, [trash] parts, and the matching relationship / content-type entries) and OneDrive syncs that version
+# back down. Found 5 Oct on the first publish into a synced partner folder: 10 partner summary workbooks differed
+# from staging only in those parts. Byte equality would then call every such file "changed" every day and fail the
+# post-publish check, so an Office file counts as the same when every CONTENT part (sheets, strings, styles, media)
+# is identical. Anything else must still match byte for byte.
+_OFFICE_EXT = (".xlsx", ".xlsm", ".docx", ".pptx")
+_SP_META = ("customXml/", "[trash]/", "docProps/", "[Content_Types].xml")
+
+
+def _office_content(path):
+    import zipfile
+    with zipfile.ZipFile(path) as z:
+        return {i.filename: i.CRC for i in z.infolist() if not i.filename.startswith(_SP_META) and not i.filename.endswith(".rels")}
+
+
+def same_content(live_path, staged_md5, staged_path=None):
+    """True if live_path has staged_md5, or (Office files, staged_path given) the same content parts."""
+    if md5(live_path) == staged_md5:
+        return True
+    if staged_path and live_path.lower().endswith(_OFFICE_EXT):
+        try:
+            return _office_content(live_path) == _office_content(staged_path)
+        except Exception:
+            return False
+    return False
+
+
 def read_table(path):
     with open(path, encoding="utf-8-sig", newline="") as f:
         r = csv.reader(f)
@@ -594,7 +622,7 @@ def publish_plan(run):
         live = os.path.join(run.live_pkg_root, rel)
         if not os.path.isfile(live):
             plan["new"].append(rel)
-        elif md5(live) != s:
+        elif not same_content(live, s, os.path.join(run.stage, rel)):
             plan["changed"].append(rel)
         else:
             plan["identical"].append(rel)
@@ -673,6 +701,12 @@ def publish(run, plan):
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
                 shutil.move(src, dst)
                 done.append(("moved", rel, dst))
+        # whole-set check (5 Oct: it used to run after this try block, so a mismatch found here left the files
+        # published, nothing recorded, and a false "partners keep their last good files" message)
+        wrong = [rel for rel, s in plan["staged"].items()
+                 if not same_content(os.path.join(run.live_pkg_root, rel), s, os.path.join(run.stage, rel))]
+        if wrong:
+            raise RunError(f"after publish, {len(wrong)} live file(s) differ from staging, e.g. {wrong[:3]}")
     except Exception as e:
         run.log(f"  publish failed ({e}) - rolling back {len(done)} step(s)")
         problems = []
@@ -689,9 +723,6 @@ def publish(run, plan):
                 problems.append(f"{rel}: {e2}")
         run.actions.append(f"publish ROLLED BACK ({len(done)} steps undone)" + (f"; {len(problems)} problem(s): {problems[:3]}" if problems else ""))
         raise RunError(f"publish failed and was rolled back: {e}" + (f" - ROLLBACK PROBLEMS: {problems[:3]}" if problems else ""))
-    wrong = [rel for rel, s in plan["staged"].items() if md5(os.path.join(run.live_pkg_root, rel)) != s]
-    if wrong:
-        raise RunError(f"after publish, {len(wrong)} live file(s) differ from staging, e.g. {wrong[:3]}")
     with open(os.path.join(run.state_dir_ws, "last_published_manifest.csv"), "w", encoding="utf-8", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(["rel_path", "md5"])
@@ -699,8 +730,9 @@ def publish(run, plan):
     run.summary["packages"]["published"] = True
     run.summary["packages"]["backup_dir"] = bak
     run.actions.append(f"published: {len(plan['changed'])} changed + {len(plan['new'])} new file(s); "
-                       f"{len(plan['leftover'])} no-longer-produced file(s) archived beside themselves; backups in {bak}")
-    run.log(f"  done: {len(plan['changed'])} changed, {len(plan['new'])} new, {len(plan['leftover'])} archived; all {len(plan['staged'])} md5-verified")
+                       f"{len(plan['leftover'])} no-longer-produced file(s) " + ("archived beside themselves" if run.cfg["archive_leftover_package_files"] else "left in place (archive off)") + f"; backups in {bak}")
+    run.log(f"  done: {len(plan['changed'])} changed, {len(plan['new'])} new, {len(plan['leftover'])} no-longer-produced "
+            + ("archived" if run.cfg["archive_leftover_package_files"] else "left in place (archive off)") + f"; all {len(plan['staged'])} verified")
 
 
 def run_05(run):
@@ -897,7 +929,7 @@ def main():
                 run_05(run)
             run.summary["message"] = (f"OK - WORKING {run.summary['frame']['working_rows_before']} -> {run.summary['frame']['working_rows_after']} rows;"
                                       f" partners: {len(plan['changed'])} changed + {len(plan['new'])} new file(s) published,"
-                                      f" {len(plan['leftover'])} no-longer-produced archived")
+                                      f" {len(plan['leftover'])} no-longer-produced " + ("archived" if run.cfg["archive_leftover_package_files"] else "left in place"))
         status, exit_code = "OK", EXIT_OK
     except Blocked as e:
         status, exit_code = "BLOCKED", EXIT_BLOCKED

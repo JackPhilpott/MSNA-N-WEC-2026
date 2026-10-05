@@ -108,6 +108,13 @@ conflict copies when sync resumes), or on a night where one publish should go ou
 the end. The frame is accepted as usual; the next normal run rebuilds and publishes
 (it never reports NO_CHANGE because of a held publish).
 
+**SharePoint-synced partner folders (5 Oct).** SharePoint writes its own library metadata
+into Office files it stores (customXml parts, custom properties), and OneDrive syncs that
+version back. So an Office file (`.xlsx`, `.docx`, `.pptx`) counts as unchanged when all of
+its content parts match: sheets, strings, styles and media. Every other file must match
+byte for byte. The final check after publishing runs inside the all-or-nothing block: a
+real mismatch rolls the whole publish back, and partners keep yesterday's files.
+
 **A structural night (e.g. a partner reallocation), built 4 Oct.** When partners lose
 LGAs, their old files stop being produced, so the "no-longer-produced" guard blocks
 (correctly). For that one run, pass a config with three settings:

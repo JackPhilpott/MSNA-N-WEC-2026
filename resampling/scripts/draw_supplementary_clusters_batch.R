@@ -381,7 +381,14 @@ saveRDS(tier1, file.path(STAGING_DIR, "tier1_result.rds"))
 log_msg("Stage C complete - tier1_result.rds saved.")
 
 # ---- Stage D: Tier 2 (repeat-draw fallback) for whatever Tier 1 left unresolved ----
-if (!is.null(tier1$unresolved) && nrow(tier1$unresolved) > 0) {
+# 2026-10-05: DRAW_TIER1_ONLY=1 skips Tier 2 (spare clusters: a repeat draw sits in the same hex as an existing
+# cluster, so it would fail for the same reason the cluster it should replace failed - Jack, 4-5 Oct).
+TIER1_ONLY <- identical(Sys.getenv("DRAW_TIER1_ONLY"), "1")
+if (TIER1_ONLY && !is.null(tier1$unresolved) && nrow(tier1$unresolved) > 0) {
+  log_msg("Stage D: SKIPPED (DRAW_TIER1_ONLY=1) - %d stratum/strata stay short after Tier 1: %s", nrow(tier1$unresolved),
+          paste(tier1$unresolved$strata_key, collapse = ", "))
+}
+if (!TIER1_ONLY && !is.null(tier1$unresolved) && nrow(tier1$unresolved) > 0) {
   log_msg("Stage D: Tier 2 draw (repeat draws allowed) for %d unresolved stratum/strata...", nrow(tier1$unresolved))
 
   tier2_shortfalls <- tier1$unresolved %>%
@@ -483,8 +490,8 @@ if (!is.null(tier1$unresolved) && nrow(tier1$unresolved) > 0) {
     log_msg("  Of Tier 2's %d new clusters, %d are genuine repeat draws (same hex as an existing cluster).", n_tier2_clusters, sum(is_repeat))
   }
 } else {
-  log_msg("Stage D: nothing unresolved after Tier 1 - no Tier 2 needed.")
-  tier2 <- list(new_clusters = NULL, new_households = NULL, unresolved = NULL)
+  if (!TIER1_ONLY) log_msg("Stage D: nothing unresolved after Tier 1 - no Tier 2 needed.")
+  tier2 <- list(new_clusters = NULL, new_households = NULL, unresolved = if (TIER1_ONLY) tier1$unresolved else NULL)
 }
 
 # ---- Stage E: combine Tier 1 + Tier 2, fix cluster-ID collisions, write staged output ----
