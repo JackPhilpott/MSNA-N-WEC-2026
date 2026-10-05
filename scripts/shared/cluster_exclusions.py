@@ -32,11 +32,16 @@
 import csv
 import os
 import re
+import sys
 from xml.sax.saxutils import unescape
 
 import openpyxl
 
-PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling"
+# Portable paths (4 Oct 2026): msna_paths.py sits beside this module.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import msna_paths  # noqa: E402
+
+PROJECT_DIR = msna_paths.sampling_dir()
 CLUSTER_ACCESSIBILITY_OVERLAY_CSV = PROJECT_DIR + r"\resampling\output\cluster_accessibility_overlay.csv"
 TARGET_CORRECTION_DROPPED_CLUSTERS_CSV = PROJECT_DIR + r"\resampling\output\target_correction_dropped_clusters.csv"
 

@@ -20,9 +20,33 @@
 # Usage: Rscript sync_accessibility_mirrors.R
 # (Called automatically via assert_fresh(mode="auto") wherever a mirror
 # copy is read - see e.g. dashboard_app/global.R.)
+# Portable paths (4 Oct 2026): find 1_sampling/scripts/shared/msna_paths.R from
+# MSNA_WORKSPACE, this script's own location or the working directory (see that
+# file). 2_monitoring/deploy_dashboard.R sources this script, so the setwd()
+# below stays exactly as before.
 # ==============================================================================
-PROJECT_DIR <- "c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/1_sampling"
-MONITORING_DIR <- "c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/2_monitoring"
+local({
+  starts <- c(Sys.getenv("MSNA_WORKSPACE"),
+              sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)),
+              unlist(lapply(sys.frames(), function(f) f$ofile)), getwd())
+  helper <- NA_character_
+  for (s in starts[nzchar(starts)]) {
+    d <- normalizePath(s, winslash = "/", mustWork = FALSE)
+    while (is.na(helper)) {
+      h <- file.path(d, "1_sampling", "scripts", "shared", "msna_paths.R")
+      if (file.exists(h)) helper <- h
+      p <- dirname(d)
+      if (identical(p, d)) break
+      d <- p
+    }
+    if (!is.na(helper)) break
+  }
+  if (is.na(helper)) stop("Cannot find 1_sampling/scripts/shared/msna_paths.R - set MSNA_WORKSPACE.", call. = FALSE)
+  assign(".msna_paths_file", helper, envir = globalenv())
+  source(helper)
+})
+PROJECT_DIR <- msna_sampling_dir()
+MONITORING_DIR <- msna_monitoring_dir()
 setwd(PROJECT_DIR)
 suppressPackageStartupMessages(library(tools))
 

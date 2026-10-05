@@ -156,7 +156,13 @@ log_msg("Pre-flight checks passed: no ID collisions with the live frame.")
 # same values, not recomputed.
 add_coverage_cols <- function(df) {
   if (nrow(df) == 0) return(df)
-  df %>% mutate(coverage_status = "covered", exclusion_reason = "none", partners_covering = PARTNER)
+  # 2026-10-05: partners_covering comes from the row's OWN stratum in the strata frame, not from the batch's partner
+  # name. They differ for a shared stratum: Bama's 4 Oct draw ran in the "PLAN" batch and its 60 new rows got "PLAN"
+  # instead of the stratum's "PLAN, FACT" (found by the Coordinator). PARTNER is only the fallback for a stratum the
+  # strata frame lacks, and the guard below stops the merge if any appended row disagrees with its stratum.
+  pc <- setNames(as.character(full_sl$partners_covering), full_sl$strata_id)
+  df %>% mutate(coverage_status = "covered", exclusion_reason = "none",
+                partners_covering = dplyr::coalesce(unname(pc[strata_id]), PARTNER))
 }
 new_hh_nonidp   <- add_coverage_cols(new_hh_nonidp)
 new_hh_idp      <- add_coverage_cols(new_hh_idp)
@@ -267,6 +273,33 @@ if (nrow(all_new_rows) > 0) {
     all_new_rows$original_partner_covering <- all_new_rows$partners_covering
   }
   all_new_rows <- all_new_rows %>% select(all_of(names(working_hh)))
+}
+# 2026-10-05: in a stratum that has been reallocated, a new row carries the stratum's own audit trail
+# (original_partner_covering, coverage_reallocated_on), like every existing row of that stratum.
+if (all(c("original_partner_covering", "coverage_reallocated_on") %in% names(full_sl)) && nrow(all_new_rows) > 0) {
+  realloc <- full_sl %>% filter(!is.na(coverage_reallocated_on) & coverage_reallocated_on != "") %>%
+    transmute(strata_id, .orig = as.character(original_partner_covering), .on = as.character(coverage_reallocated_on))
+  hit <- all_new_rows$strata_id %in% realloc$strata_id
+  if (any(hit)) {
+    m <- match(all_new_rows$strata_id[hit], realloc$strata_id)
+    all_new_rows$original_partner_covering[hit] <- realloc$.orig[m]
+    # keep the live frame's column type (readr reads this column as Date), or bind_rows() below would refuse
+    if (inherits(full_hh$coverage_reallocated_on, "Date")) {
+      all_new_rows$coverage_reallocated_on <- as.Date(all_new_rows$coverage_reallocated_on)
+      all_new_rows$coverage_reallocated_on[hit] <- as.Date(realloc$.on[m])
+    } else {
+      all_new_rows$coverage_reallocated_on <- as.character(all_new_rows$coverage_reallocated_on)
+      all_new_rows$coverage_reallocated_on[hit] <- realloc$.on[m]
+    }
+  }
+}
+# GUARD (2026-10-05): every appended row's partners_covering must equal its stratum's in the strata frame.
+.pc_stratum <- setNames(as.character(full_sl$partners_covering), full_sl$strata_id)[all_new_rows$strata_id]
+.pc_bad <- which(is.na(.pc_stratum) | as.character(all_new_rows$partners_covering) != .pc_stratum)
+if (length(.pc_bad) > 0) {
+  stop(sprintf("STOP: %d appended row(s) have partners_covering different from their stratum's in the strata frame, e.g. %s - nothing written.",
+               length(.pc_bad), paste(head(sprintf("%s (%s vs %s)", all_new_rows$survey_id[.pc_bad], all_new_rows$partners_covering[.pc_bad],
+                                                   .pc_stratum[.pc_bad]), 3), collapse = "; ")))
 }
 
 if (anyDuplicated(all_new_rows$survey_id) > 0) stop("Duplicate survey_id within the new-rows batch itself.")

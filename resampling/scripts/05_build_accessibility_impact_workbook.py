@@ -61,7 +61,24 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026"
+# Portable paths (4 Oct 2026): find 1_sampling/scripts/shared/msna_paths.py from
+# MSNA_WORKSPACE, this file's location or the working directory (see that module).
+def _msna_shared_dir():
+    for start in (os.environ.get("MSNA_WORKSPACE", "").strip(), os.path.dirname(os.path.abspath(__file__)), os.getcwd()):
+        d = os.path.abspath(start) if start else ""
+        while d:
+            cand = os.path.join(d, "1_sampling", "scripts", "shared")
+            if os.path.isfile(os.path.join(cand, "msna_paths.py")):
+                return cand
+            parent = os.path.dirname(d)
+            d = "" if parent == d else parent
+    raise SystemExit("Cannot find 1_sampling/scripts/shared/msna_paths.py - set MSNA_WORKSPACE.")
+
+
+sys.path.insert(0, _msna_shared_dir())
+import msna_paths  # noqa: E402
+
+PROJECT_DIR = msna_paths.workspace()  # this script's PROJECT_DIR is the workspace root, not 1_sampling
 sys.path.insert(0, PROJECT_DIR + r"\1_sampling\scripts\shared")
 from assert_plausible import assert_plausible  # noqa: E402
 from assert_fresh import assert_fresh  # noqa: E402
@@ -1135,7 +1152,16 @@ def main():
     # comment on this fix for why.
     print("Loading real achieved samples for resampling decisions (canonical formula + deletion log)...")
     real_achieved_by_strata, real_achieved_by_cluster = load_real_achieved()
-    cluster_rows = build_cluster_level(household_rows, provenance_lookup, cluster_status_lookup, real_achieved_by_cluster)
+    # 2026-10-04: an UNUSED spare cluster (in the spare register, 0 real achieved) adds no planned capacity to any
+    # projection or verdict; a used one is an ordinary cluster (scripts/shared/spare_clusters.py). The annotated
+    # frame written by write_updated_frame() still keeps every row. No register = no change.
+    import spare_clusters
+    _spare_register = spare_clusters.load_register(SAMPLING_DIR)
+    _unused_spares = spare_clusters.unused_spare_ids(_spare_register, real_achieved_by_cluster)
+    if _spare_register:
+        print(spare_clusters.summary(_spare_register, _unused_spares))
+    cluster_rows = build_cluster_level([r for r in household_rows if r["cluster_id"] not in _unused_spares],
+                                       provenance_lookup, cluster_status_lookup, real_achieved_by_cluster)
     cluster_by_id = {c["cluster_id"]: c for c in cluster_rows}
 
     # 2026-09-22 (R6, Jack approved directly, INTERSOS-triggered review):

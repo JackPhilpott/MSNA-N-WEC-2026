@@ -28,15 +28,23 @@ cap_cal <- function(w, total, k = 4, iters = 100) {
   w
 }
 B <- "resampling/output/full_weighting_build_2026-09-28/"
-SNAP <- "resampling/output/round1_final_snapshot_v2_2026-10-02/"
+# 2026-10-04: optional arguments so the same checks can run on a candidate rebuild (defaults = the FINAL weights):
+#   --weights-dir DIR  --snapshot-dir DIR  --strata-csv FILE  --expect-md5 "<subs8>,<overlay8>" | none
+.args <- commandArgs(trailingOnly = TRUE)
+argval <- function(flag, default) { i <- match(flag, .args); if (is.na(i) || i == length(.args)) default else .args[i + 1] }
+WDIR <- argval("--weights-dir", paste0(B, "round1_FINAL_2026-10-02"))
+SNAP <- argval("--snapshot-dir", "resampling/output/round1_final_snapshot_v2_2026-10-02")
+R1_CSV <- argval("--strata-csv", "resampling/output/round1_representativity_prototype_2026-10-02/round1_strata.csv")
+EXPECT_MD5 <- argval("--expect-md5", "24db61ae,2636cefa")
+say("weights %s | snapshot %s | strata %s", WDIR, SNAP, R1_CSV)
 
-W <- read_csv(paste0(B, "round1_FINAL_2026-10-02/ROUND1_WEIGHTS_FINAL_2026-10-02.csv"), show_col_types = FALSE)
-U <- read_csv(paste0(B, "round1_FINAL_2026-10-02/ROUND1_UNWEIGHTED_interviews_2026-10-02.csv"), show_col_types = FALSE)
-BS <- read_csv(paste0(B, "round1_FINAL_2026-10-02/ROUND1_WEIGHTS_FINAL_by_stratum_2026-10-02.csv"), show_col_types = FALSE)
-r1 <- read_csv("resampling/output/round1_representativity_prototype_2026-10-02/round1_strata.csv", show_col_types = FALSE) %>%
+W <- read_csv(file.path(WDIR, "ROUND1_WEIGHTS_FINAL_2026-10-02.csv"), show_col_types = FALSE)
+U <- read_csv(file.path(WDIR, "ROUND1_UNWEIGHTED_interviews_2026-10-02.csv"), show_col_types = FALSE)
+BS <- read_csv(file.path(WDIR, "ROUND1_WEIGHTS_FINAL_by_stratum_2026-10-02.csv"), show_col_types = FALSE)
+r1 <- read_csv(R1_CSV, show_col_types = FALSE) %>%
   transmute(strata_id, State, LGA, label = `Round 1 label`, N_acc = `Accessible households`)
-subs <- read_csv(paste0(SNAP, "real_submissions.csv"), col_types = chr)
-dels <- read_csv(paste0(SNAP, "CONFIRMED_DELETIONS_OVERLAY.csv"), col_types = chr)
+subs <- read_csv(file.path(SNAP, "real_submissions.csv"), col_types = chr)
+dels <- read_csv(file.path(SNAP, "CONFIRMED_DELETIONS_OVERLAY.csv"), col_types = chr)
 full <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v14_FULL.csv", col_types = chr)
 d6 <- st_drop_geometry(readRDS("_archive/2026-08-06_design_frame_post_nw_targeted_resample/selected_clusters_final.rds"))
 p2 <- read_csv(paste0(B, "nonidp_realized_psu_probability_2026-09-28.csv"), show_col_types = FALSE)
@@ -45,9 +53,11 @@ rel <- read_csv(paste0(B, "idp_site_v2_pi2_strata_reliability_2026-10-02.csv"), 
 pb <- read_csv(paste0(B, "idp_site_v2_pi2_batches_2026-10-02.csv"), show_col_types = FALSE)
 sugg <- read_csv(paste0(B, "round1_FINAL_verification_2026-10-02/idp_hex_v1_mixed_strata_suggested_probabilities_2026-10-02.csv"), show_col_types = FALSE)
 
-md5 <- substr(unname(tools::md5sum(c(paste0(SNAP, "real_submissions.csv"), paste0(SNAP, "CONFIRMED_DELETIONS_OVERLAY.csv")))), 1, 8)
+md5 <- substr(unname(tools::md5sum(c(file.path(SNAP, "real_submissions.csv"), file.path(SNAP, "CONFIRMED_DELETIONS_OVERLAY.csv")))), 1, 8)
 say("== inputs ==")
-check(identical(md5, c("24db61ae", "2636cefa")), sprintf("submissions are snapshot v2 (real_submissions %s, overlay %s)", md5[1], md5[2]))
+if (EXPECT_MD5 != "none") {
+  check(identical(md5, strsplit(EXPECT_MD5, ",")[[1]]), sprintf("submissions are the expected snapshot (real_submissions %s, overlay %s)", md5[1], md5[2]))
+} else say("  inputs: real_submissions %s, overlay %s (no expected md5 given)", md5[1], md5[2])
 live <- full %>% group_by(cluster_id) %>% summarise(
   pop_type = first(pop_type), strata_id = first(strata_id), adm2_pcode = first(adm2_pcode), uuid_hex = first(uuid_hex),
   n_hex = n_distinct(uuid_hex), ver = first(psu_definition_version), hh = as.numeric(first(households_in_cluster)),
@@ -198,9 +208,10 @@ res <- w %>% group_by(group) %>% summarise(clusters = n(), interviews = sum(n_w)
 show(res)
 check(all(abs(w$fsp - w$pi_exp) < 1e-9), sprintf("IDP first-stage probability = final rule, all %d weighted clusters", nrow(w)))
 check(all(abs(w$base / w$base_exp - 1) < 1e-9), sprintf("IDP base weight = max(units, interviews)/pi/interviews, all %d weighted clusters", nrow(w)))
-sx <- w %>% inner_join(sugg %>% select(cluster_id, pi_total_F1_F4_F5), by = "cluster_id")
-check(nrow(sx) == nrow(sugg) && all(abs(sx$fsp - sx$pi_total_F1_F4_F5) < 1e-9),
-      sprintf("all %d July/post-6-Aug hex sites in mixed strata equal the values Resampling suggested", nrow(sugg)))
+hxw <- w %>% filter(ver == "hex_v1", kind == "mixed")
+sx <- hxw %>% inner_join(sugg %>% select(cluster_id, pi_total_F1_F4_F5), by = "cluster_id")
+check(nrow(sx) == nrow(hxw) && all(abs(sx$fsp - sx$pi_total_F1_F4_F5) < 1e-9),
+      sprintf("all %d weighted hex sites in mixed strata equal the values Resampling suggested (%d in that table)", nrow(hxw), nrow(sugg)))
 ov <- w %>% filter(n_w > size)
 check(all(abs(ov$base - 1 / ov$fsp) < 1e-9), sprintf("F3: the %d clusters with more interviews than units give each interview 1/pi", nrow(ov)))
 say("previously flagged clusters, now:")

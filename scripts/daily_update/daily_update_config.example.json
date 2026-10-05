@@ -1,0 +1,9 @@
+{
+  "guard_level": "strict",
+  "skip_if_unchanged": true,
+  "archive_leftover_package_files": true,
+  "run_05_after_publish": true,
+  "keep_runs": 0,
+  "keep_frame_archives": 0,
+  "keep_package_backups": 0
+}

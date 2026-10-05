@@ -91,7 +91,24 @@ from xml.sax.saxutils import escape
 
 import openpyxl
 
-PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling"
+# Portable paths (4 Oct 2026): find 1_sampling/scripts/shared/msna_paths.py from
+# MSNA_WORKSPACE, this file's location or the working directory (see that module).
+def _msna_shared_dir():
+    for start in (os.environ.get("MSNA_WORKSPACE", "").strip(), os.path.dirname(os.path.abspath(__file__)), os.getcwd()):
+        d = os.path.abspath(start) if start else ""
+        while d:
+            cand = os.path.join(d, "1_sampling", "scripts", "shared")
+            if os.path.isfile(os.path.join(cand, "msna_paths.py")):
+                return cand
+            parent = os.path.dirname(d)
+            d = "" if parent == d else parent
+    raise SystemExit("Cannot find 1_sampling/scripts/shared/msna_paths.py - set MSNA_WORKSPACE.")
+
+
+sys.path.insert(0, _msna_shared_dir())
+import msna_paths  # noqa: E402
+
+PROJECT_DIR = msna_paths.sampling_dir()
 sys.path.insert(0, PROJECT_DIR + r"\scripts\shared")
 from assert_plausible import assert_plausible  # noqa: E402
 from dominant_ward import dominant_ward_key  # noqa: E402
@@ -102,7 +119,8 @@ STRATA_CSV = PROJECT_DIR + r"\_archive\2026-08-06_design_frame_post_nw_targeted_
 COVERAGE_XLSX = PROJECT_DIR + r"\input_data\boundaries\partner_coverage\Partnerscoverage.xlsx"
 if os.environ.get("BUILD_DC_COVERAGE_XLSX"):  # 2026-09-25: opt-in, stage a coverage change before the live Excel is edited
     COVERAGE_XLSX = os.environ["BUILD_DC_COVERAGE_XLSX"]
-_LOCKED_FALLBACK_COPY = r"C:\Users\JACKPH~1\AppData\Local\Temp\claude\Partnerscoverage_copy.xlsx"
+# Same file as before on Jack's machine (%TEMP% = C:\Users\JACKPH~1\AppData\Local\Temp); %TEMP% on any other.
+_LOCKED_FALLBACK_COPY = os.path.join(os.environ.get("TEMP", r"C:\Users\JACKPH~1\AppData\Local\Temp"), "claude", "Partnerscoverage_copy.xlsx")
 if os.path.exists(_LOCKED_FALLBACK_COPY):
     # Source file was open/locked in Excel at run time - fall back to a
     # just-taken copy instead (2026-08-06). Hardened 2026-08-19: this
@@ -133,7 +151,7 @@ STAGE2_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_sta
 # in refresh_working_frame_daily.R the same day (see 1_sampling/CLAUDE.md's
 # rebuild section) - currently byte-identical by chance, but would silently
 # drift the next time canonical updates without an intervening deploy.
-REAL_SUBMISSIONS_CSV = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\2_monitoring\data\real_submissions.csv"
+REAL_SUBMISSIONS_CSV = os.path.join(msna_paths.monitoring_dir(), "data", "real_submissions.csv")
 # Confirmed-only deletion basis (2026-09-08 audit fix) - this script was the
 # last of 4 consumers still reading quality_exclusion_reason directly
 # (blank=OK, ANY non-blank excludes), which wrongly drops a still-pending/
@@ -144,7 +162,7 @@ REAL_SUBMISSIONS_CSV = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Da
 # before fixing: 0 rows currently affected (every non-blank
 # quality_exclusion_reason row today happens to already be confirmed), so
 # this closes a live gap rather than changing any number right now.
-CONFIRMED_DELETIONS_OVERLAY_CSV = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\2_monitoring\data\CONFIRMED_DELETIONS_OVERLAY.csv"
+CONFIRMED_DELETIONS_OVERLAY_CSV = os.path.join(msna_paths.monitoring_dir(), "data", "CONFIRMED_DELETIONS_OVERLAY.csv")
 BACKUP_POINTS_CSV = PROJECT_DIR + r"\output\data\data_collection\idp_camp_backup_points.csv"
 
 # 2026-09-19 fix - two overlay-exclusion files WORKING/KML already apply
@@ -183,7 +201,7 @@ from cluster_exclusions import (  # noqa: E402
 print(exclusions_summary())
 # Moved 2026-08-06 by the user from "6. Outputs\partner_dc_files" - same
 # per-partner folder structure, new parent location.
-OUT_ROOT = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\3. External coordination\NGA MSNA 2026 Package"
+OUT_ROOT = msna_paths.pkg_root()  # env MSNA_PKG_ROOT, else the package folder beside "4. Data"
 # 2026-09-25: opt-in staging root (env var, unset by default = live folder, behaviour unchanged) so a scoped
 # build can be reviewed before anything reaches a live partner folder. See BUILD_DC_ONLY_PCODES below.
 if os.environ.get("BUILD_DC_OUT_ROOT"):
@@ -741,6 +759,16 @@ for r in real_subs:
         cluster_achieved_n[cid] += 1
 print(f"Clusters with at least one collected submission: {len(cluster_collected_n)}")
 
+# 2026-10-04: spare (buffer) clusters - see scripts/shared/spare_clusters.py.
+# An UNUSED spare (0 achieved) is kept off every ordinary KML, sheet and count
+# below and goes only to spare_clusters.kml and the "Spare Clusters" sheet; a
+# used one is an ordinary cluster. No register file = no spares (no change).
+import spare_clusters  # noqa: E402
+
+SPARE_REGISTER = spare_clusters.load_register(PROJECT_DIR)
+UNUSED_SPARES = spare_clusters.unused_spare_ids(SPARE_REGISTER, cluster_achieved_n)
+print(spare_clusters.summary(SPARE_REGISTER, UNUSED_SPARES))
+
 # ---------------------------------------------------------------------------
 # 4. IDP camp backup GPS points - every in-camp cluster now has one (Part 3,
 #    2026-08-05: extended from the original 15 flagged-camp-only subset to
@@ -774,6 +802,7 @@ ICON_NON_IDP_PRIMARY = "http://maps.google.com/mapfiles/kml/paddle/grn-circle.pn
 ICON_NON_IDP_RESERVE = "http://maps.google.com/mapfiles/kml/paddle/ylw-circle.png"
 ICON_IDP_PRIMARY = "http://maps.google.com/mapfiles/kml/paddle/blu-circle.png"
 ICON_IDP_TIER2_BACKUP = "http://maps.google.com/mapfiles/kml/paddle/red-circle.png"
+ICON_SPARE = "http://maps.google.com/mapfiles/kml/paddle/wht-circle.png"  # 2026-10-04: spare clusters, both populations
 
 
 def write_kml(path, folder_name, placemarks, icon_href=None):
@@ -888,6 +917,14 @@ def idp_tier2_backup_placemark(cluster_id, r, backup_row):
         "description": desc,
         "lat": backup_row["backup_gps_lat"], "lon": backup_row["backup_gps_lon"],
     }
+
+
+def spare_placemark(pm, cluster_id):
+    """An ordinary placemark relabelled as a spare (2026-10-04): "SPARE - " name prefix and the
+    use-only-if instruction with the spare's rank first in the description."""
+    return dict(pm, name=spare_clusters.SPARE_PREFIX + pm["name"],
+                description=(f"{spare_clusters.SPARE_INSTRUCTION}\n"
+                             f"Spare Rank: {spare_clusters.spare_rank(SPARE_REGISTER, cluster_id)}\n" + pm["description"]))
 
 
 # ---------------------------------------------------------------------------
@@ -1423,7 +1460,7 @@ def build_strata_summary_table(cluster_rows, partner_name):
 
 
 def write_partner_workbook(partner_dir_path, partner_name, meta_rows, cluster_rows=None,
-                            meta_rows_msna_light=None, cluster_rows_msna_light=None):
+                            meta_rows_msna_light=None, cluster_rows_msna_light=None, spare_rows=None):
     meta_rows_msna_light = meta_rows_msna_light or []
     cluster_rows_msna_light = cluster_rows_msna_light or []
     if not meta_rows and not meta_rows_msna_light:
@@ -1443,7 +1480,7 @@ def write_partner_workbook(partner_dir_path, partner_name, meta_rows, cluster_ro
     r += 1
     ws_readme.cell(row=r, column=1, value=f"Last refreshed: {datetime.datetime.now().strftime('%d %b %Y %H:%M')} - regenerated regularly against your team's actual submitted interviews. If this looks out of date, ask your IMPACT focal point for a fresh copy.").font = openpyxl.styles.Font(italic=True, color="808080")
     r += 2
-    ws_readme.cell(row=r, column=1, value="Every GPS sampling point assigned to this partner, across all covered LGAs, with live achieved status. 'Strata Summary' = one row per LGA/population type - start HERE if you're deciding which LGA to prioritise this week; its 'Last Collection Date' is the most recent interview counted in that stratum (in an LGA shared with another partner, by either partner's team). 'Sampling Points' = every point, done or not. 'Available to Collect' = just what's still outstanding - a straight to-do list, but with far more rows than 'Strata Summary' since it's point-level. 'Cluster Summary' = one row per cluster (target/achieved/still needed) - the middle ground between the two. This sheet gives definitions and a per-LGA target-sample summary.").font = openpyxl.styles.Font(italic=True)
+    ws_readme.cell(row=r, column=1, value="Every GPS sampling point assigned to this partner, across all covered LGAs, with live achieved status. 'Strata Summary' = one row per LGA/population type - start HERE if you're deciding which LGA to prioritise this week; its 'Last Collection Date' is the most recent interview counted in that stratum (in an LGA shared with another partner, by either partner's team). 'Sampling Points' = every point, done or not. 'Available to Collect' = just what's still outstanding - a straight to-do list, but with far more rows than 'Strata Summary' since it's point-level. 'Cluster Summary' = one row per cluster (target/achieved/still needed) - the middle ground between the two. This sheet gives definitions and a per-LGA target-sample summary." + (spare_clusters.README_NOTE if spare_rows else "")).font = openpyxl.styles.Font(italic=True)
     r += 2
 
     # ---- headline block (2026-09-05, REVISED 2026-09-16 per Decision A):
@@ -1754,6 +1791,10 @@ def write_partner_workbook(partner_dir_path, partner_name, meta_rows, cluster_ro
         ws_cs.conditional_formatting.add(status_range, CellIsRule(operator="equal", formula=['"Not started"'], fill=openpyxl.styles.PatternFill("solid", fgColor="F8CBAD")))
         ws_cs.conditional_formatting.add(status_range, CellIsRule(operator="equal", formula=['"Inaccessible"'], fill=openpyxl.styles.PatternFill("solid", fgColor="D9D9D9")))
 
+    # ---- 2026-10-04: Spare Clusters - only when this partner has unused spares (see spare_clusters.py). ----
+    if spare_rows:
+        spare_clusters.add_spare_sheet(wb_out, spare_rows, METADATA_COLUMNS)
+
     # ---- Sheet 6 (2026-09-13): MSNA Light - a completely separate,
     # distinctly-coloured sheet for the government-negotiated, unverified
     # LGAs (Abadam/Nganzai/Guzamala as of this writing). Deliberately NOT
@@ -1829,6 +1870,7 @@ stats = Counter()
 partner_folders = set()
 partner_meta_rows = defaultdict(list)
 partner_cluster_rows = defaultdict(list)
+partner_spare_rows = defaultdict(list)  # 2026-10-04: unused spare clusters, "Spare Clusters" sheet only
 # 2026-09-13: separate MSNA Light tracking - never merged into the dicts
 # above. All 3 MSNA Light LGAs (Abadam/Nganzai/Guzamala) are Non-IDP only
 # (checked directly - no idp_ MSNA Light strata exist), so this only needs
@@ -1847,6 +1889,12 @@ for pcode, partners in partners_by_pcode.items():
     state_name, lga_name = v["adm1_name"], v["adm2_name"]
 
     rows = rows or []
+    # Unused spares leave the ordinary lists here (WORKING- and FULL-sourced alike).
+    spare_rows = [r for r in rows if r["cluster_id"] in UNUSED_SPARES]
+    spare_rows_full = [r for r in rows_full if r["cluster_id"] in UNUSED_SPARES]
+    if UNUSED_SPARES:
+        rows = [r for r in rows if r["cluster_id"] not in UNUSED_SPARES]
+        rows_full = [r for r in rows_full if r["cluster_id"] not in UNUSED_SPARES]
     non_idp_primary_rows = [r for r in rows if r["pop_type"] == "non_idp" and r["status"] == "primary"]
     non_idp_reserve_rows = [r for r in rows if r["pop_type"] == "non_idp" and r["status"] == "reserve"]
     non_idp_primary = [non_idp_placemark(r) for r in non_idp_primary_rows]
@@ -1906,6 +1954,20 @@ for pcode, partners in partners_by_pcode.items():
     non_idp_primary_rows_full_msna_light = [r for r in rows_full_msna_light if r["pop_type"] == "non_idp" and r["status"] == "primary"]
     non_idp_reserve_rows_full_msna_light = [r for r in rows_full_msna_light if r["pop_type"] == "non_idp" and r["status"] == "reserve"]
 
+    # ---- Unused spare clusters (2026-10-04): their own KML per population
+    # folder (WORKING-sourced, like every KML) and their own sheet (FULL-
+    # sourced, like Sampling Points). Empty when there is no register. --------
+    spare_non_idp = [spare_placemark(non_idp_placemark(r), r["cluster_id"]) for r in spare_rows if r["pop_type"] == "non_idp"]
+    spare_idp_by_cluster = {}
+    for r in spare_rows:
+        if r["pop_type"] == "idp":
+            spare_idp_by_cluster.setdefault(r["cluster_id"], r)
+    spare_idp = [spare_placemark(idp_primary_placemark(cid, r), cid) for cid, r in spare_idp_by_cluster.items()]
+    spare_idp_by_cluster_full = {}
+    for r in spare_rows_full:
+        if r["pop_type"] == "idp":
+            spare_idp_by_cluster_full.setdefault(r["cluster_id"], r)
+
     for partner in partners:
         partner_dir = safe_folder_name(partner)
         partner_root = os.path.join(OUT_ROOT, partner_dir)
@@ -1937,6 +1999,16 @@ for pcode, partners in partners_by_pcode.items():
         stats["msna_light_primary_pts"] += len(non_idp_primary_msna_light) if wrote_e else 0
         stats["msna_light_reserve_pts"] += len(non_idp_reserve_msna_light) if wrote_f else 0
 
+        # Spare clusters: a separate file per population folder; write_kml() removes the file when there are none.
+        wrote_s1 = write_kml(os.path.join(non_idp_kml_dir, spare_clusters.SPARE_KML),
+                             "SPARE clusters - Non-IDP (use only if a cluster can't be completed)", spare_non_idp,
+                             icon_href=ICON_SPARE)
+        wrote_s2 = write_kml(os.path.join(idp_kml_dir, spare_clusters.SPARE_KML),
+                             "SPARE clusters - IDP (use only if a cluster can't be completed)", spare_idp,
+                             icon_href=ICON_SPARE)
+        stats["spare_non_idp_pts"] += len(spare_non_idp) if wrote_s1 else 0
+        stats["spare_idp_pts"] += len(spare_idp) if wrote_s2 else 0
+
         # Cluster_guide/ subfolders created up front (even though the docx
         # files themselves are copied in later by build_cluster_factsheets.py)
         # so the folder skeleton is complete/consistent even for an LGA
@@ -1946,7 +2018,7 @@ for pcode, partners in partners_by_pcode.items():
         if wrote_c or wrote_d:
             os.makedirs(os.path.join(lga_dir, "IDP", "Cluster_guide"), exist_ok=True)
 
-        if wrote_a or wrote_b or wrote_c or wrote_d or wrote_e or wrote_f:
+        if wrote_a or wrote_b or wrote_c or wrote_d or wrote_e or wrote_f or wrote_s1 or wrote_s2:
             stats["lga_folders"] += 1
             map_src = os.path.join(LGA_MAPS_DIR, lga_map_filename(pcode, lga_name))
             if os.path.exists(map_src):
@@ -1985,6 +2057,16 @@ for pcode, partners in partners_by_pcode.items():
             cluster_rows.extend(non_idp_cluster_summary_rows(state_name, lga_name, non_idp_primary_rows_full, non_idp_reserve_rows_full))
         if idp_rows_by_cluster_full:
             cluster_rows.extend(idp_cluster_summary_row(state_name, lga_name, cid, r) for cid, r in idp_rows_by_cluster_full.items())
+
+        # Unused spare clusters: the "Spare Clusters" sheet only (same row builders as Sampling Points + rank).
+        spare_meta = partner_spare_rows[(partner_dir, partner)]
+        for r in spare_rows_full:
+            if r["pop_type"] == "non_idp":
+                spare_meta.append(dict(non_idp_metadata_row(partner, state_name, lga_name, r),
+                                       **{"Spare Rank": spare_clusters.spare_rank(SPARE_REGISTER, r["cluster_id"])}))
+        for cid, r in spare_idp_by_cluster_full.items():
+            spare_meta.append(dict(idp_primary_metadata_row(partner, state_name, lga_name, cid, r),
+                                   **{"Spare Rank": spare_clusters.spare_rank(SPARE_REGISTER, cid)}))
 
         # 2026-09-13: MSNA Light meta/cluster rows - completely separate
         # dicts, same FULL-sourced construction, Non-IDP only (see the note
@@ -2040,7 +2122,8 @@ for partner_dir, partner_name in sorted(all_partner_keys):
     cluster_rows_msna_light.sort(key=lambda r: (r["State"], r["LGA"], r["Population Type"], r["Cluster ID"]))
     try:
         write_partner_workbook(os.path.join(OUT_ROOT, partner_dir), partner_name, meta_rows, cluster_rows,
-                                meta_rows_msna_light=meta_rows_msna_light, cluster_rows_msna_light=cluster_rows_msna_light)
+                                meta_rows_msna_light=meta_rows_msna_light, cluster_rows_msna_light=cluster_rows_msna_light,
+                                spare_rows=partner_spare_rows.get((partner_dir, partner_name), []))
     except PermissionError:
         # File open/locked (e.g. in Excel) at run time - don't let one locked
         # partner file block every other partner's workbook from writing.
@@ -2055,6 +2138,9 @@ print(f"\nPartners: {len(partner_folders)}")
 print(f"Partner/State/LGA folders written: {stats['lga_folders']}")
 print(f"Non-IDP primary points: {stats['non_idp_primary_pts']}")
 print(f"Non-IDP reserve points: {stats['non_idp_reserve_pts']}")
+if SPARE_REGISTER:
+    print(f"Spare (unused) points: Non-IDP {stats['spare_non_idp_pts']}, IDP sites {stats['spare_idp_pts']} "
+          f"(in spare_clusters.kml + 'Spare Clusters' sheets only)")
 print(f"IDP Tier 1 primary points: {stats['idp_primary_pts']}")
 print(f"IDP Tier 2 backup points: {stats['idp_tier2_pts']}")
 print(f"MSNA Light primary points: {stats['msna_light_primary_pts']}")

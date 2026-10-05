@@ -1,0 +1,27 @@
+{
+ "guard_level": "strict",
+ "archive_leftover_package_files": false,
+ "max_leftover_files": 65,
+ "allowed_leftover_prefixes": [
+  "CARE\\Kebbi\\Argungu",
+  "CARE\\Kebbi\\Birnin Kebbi",
+  "CARE\\Kebbi\\Suru",
+  "FHI 360\\Borno\\Mafa",
+  "FHI 360\\Borno\\Mobbar",
+  "FHI 360\\FHI 360_sampling_points_summary.xlsx",
+  "IRC\\Katsina\\Batagarawa",
+  "IRC\\Katsina\\Jibia",
+  "IRC\\Kebbi\\Zuru",
+  "IRC\\Sokoto\\Tangaza",
+  "IRC\\Zamfara\\Tsafe",
+  "LHI\\Kebbi\\Zuru",
+  "LHI\\Sokoto\\Tangaza",
+  "Malteser\\Katsina\\Mashi",
+  "Solidarités\\Kebbi\\Gwandu",
+  "Solidarités\\Solidarités_sampling_points_summary.xlsx",
+  "Solidarités\\Zamfara\\Anka",
+  "Street Child of Nigeria\\Adamawa\\Madagali",
+  "Street Child of Nigeria\\Borno\\Monguno",
+  "Street Child of Nigeria\\Street Child of Nigeria_sampling_points_summary.xlsx"
+ ]
+}

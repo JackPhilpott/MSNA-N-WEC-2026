@@ -28,7 +28,9 @@
 # refreshed resampling/ accessibility impact workbook are for).
 # ==============================================================================
 import csv
+import os
 import pickle
+import sys
 
 import openpyxl
 from openpyxl.worksheet.table import Table, TableStyleInfo
@@ -36,7 +38,25 @@ from openpyxl.formatting.rule import FormulaRule
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 
-PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling"
+
+# Portable paths (4 Oct 2026): find 1_sampling/scripts/shared/msna_paths.py from
+# MSNA_WORKSPACE, this file's location or the working directory (see that module).
+def _msna_shared_dir():
+    for start in (os.environ.get("MSNA_WORKSPACE", "").strip(), os.path.dirname(os.path.abspath(__file__)), os.getcwd()):
+        d = os.path.abspath(start) if start else ""
+        while d:
+            cand = os.path.join(d, "1_sampling", "scripts", "shared")
+            if os.path.isfile(os.path.join(cand, "msna_paths.py")):
+                return cand
+            parent = os.path.dirname(d)
+            d = "" if parent == d else parent
+    raise SystemExit("Cannot find 1_sampling/scripts/shared/msna_paths.py - set MSNA_WORKSPACE.")
+
+
+sys.path.insert(0, _msna_shared_dir())
+import msna_paths  # noqa: E402
+
+PROJECT_DIR = msna_paths.sampling_dir()
 STATE_DIR = PROJECT_DIR + r"\output\data\data_collection"  # analysis_partner_coverage.py's own OUT_DIR
 OUT_DIR = PROJECT_DIR + r"\output\data\data_collection"
 OUT_PATH = OUT_DIR + r"\NGA_MSNA_2026_sampling_frame_workbook_v8.xlsx"

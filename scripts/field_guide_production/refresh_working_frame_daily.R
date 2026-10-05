@@ -112,8 +112,34 @@
 # ==============================================================================
 suppressMessages({ library(dplyr); library(readr) })
 
-PROJECT_DIR <- "c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/1_sampling"
-MONITORING_DIR <- "c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/2_monitoring"
+# Portable paths (4 Oct 2026): find 1_sampling/scripts/shared/msna_paths.R from
+# MSNA_WORKSPACE, this script's own location or the working directory (see that
+# file). Python is msna_python() (env MSNA_PYTHON, else a probed python3/python/
+# py that can import openpyxl) instead of a hardcoded "python3", which on a
+# Windows laptop without the Store Python is only an installer alias.
+local({
+  starts <- c(Sys.getenv("MSNA_WORKSPACE"),
+              sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)),
+              unlist(lapply(sys.frames(), function(f) f$ofile)), getwd())
+  helper <- NA_character_
+  for (s in starts[nzchar(starts)]) {
+    d <- normalizePath(s, winslash = "/", mustWork = FALSE)
+    while (is.na(helper)) {
+      h <- file.path(d, "1_sampling", "scripts", "shared", "msna_paths.R")
+      if (file.exists(h)) helper <- h
+      p <- dirname(d)
+      if (identical(p, d)) break
+      d <- p
+    }
+    if (!is.na(helper)) break
+  }
+  if (is.na(helper)) stop("Cannot find 1_sampling/scripts/shared/msna_paths.R - set MSNA_WORKSPACE.", call. = FALSE)
+  assign(".msna_paths_file", helper, envir = globalenv())
+  source(helper)
+})
+PROJECT_DIR <- msna_sampling_dir()
+MONITORING_DIR <- msna_monitoring_dir()
+PYTHON_EXE <- msna_python()
 setwd(PROJECT_DIR)
 source("scripts/shared/assert_plausible.R")
 # 2026-09-13: the achieved/accessibility/strata-aggregation logic below is
@@ -164,7 +190,7 @@ log_msg <- function(...) { m <- sprintf(...); cat(m, "\n"); log_lines <<- c(log_
 # genuinely partner-facing flip (Inaccessible -> Accessible reopens a
 # cluster into WORKING) is always visible, not a silent diff.
 resweep_result <- system2(
-  "python3",
+  PYTHON_EXE,
   args = shQuote("resampling/scripts/resweep_full_ward_accessible_status_2026-09-07.py"),
   stdout = TRUE, stderr = TRUE
 )
@@ -557,7 +583,7 @@ log_msg("\nPer-cluster status (%s): %d clusters - %s", CLUSTER_STATUS_CSV, nrow(
 # workbook script reads the FULL/WORKING/strata CSVs directly from disk
 # rather than taking them as in-memory objects.
 workbook_result <- system2(
-  "python3",
+  PYTHON_EXE,
   args = shQuote("scripts/partner_coverage/build_partner_coverage_workbook.py"),
   stdout = TRUE, stderr = TRUE
 )

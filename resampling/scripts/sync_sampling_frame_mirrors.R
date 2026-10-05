@@ -21,8 +21,33 @@
 # before the new ones land, matching this project's standing convention.
 #
 # Usage: Rscript sync_sampling_frame_mirrors.R
-PROJECT_DIR <- "c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/1_sampling"
-MONITORING_DIR <- "c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/2_monitoring"
+#
+# Portable paths (4 Oct 2026): find 1_sampling/scripts/shared/msna_paths.R from
+# MSNA_WORKSPACE, this script's own location or the working directory (see that
+# file). 2_monitoring/deploy_dashboard.R sources this script, so the setwd()
+# below stays exactly as before.
+local({
+  starts <- c(Sys.getenv("MSNA_WORKSPACE"),
+              sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)),
+              unlist(lapply(sys.frames(), function(f) f$ofile)), getwd())
+  helper <- NA_character_
+  for (s in starts[nzchar(starts)]) {
+    d <- normalizePath(s, winslash = "/", mustWork = FALSE)
+    while (is.na(helper)) {
+      h <- file.path(d, "1_sampling", "scripts", "shared", "msna_paths.R")
+      if (file.exists(h)) helper <- h
+      p <- dirname(d)
+      if (identical(p, d)) break
+      d <- p
+    }
+    if (!is.na(helper)) break
+  }
+  if (is.na(helper)) stop("Cannot find 1_sampling/scripts/shared/msna_paths.R - set MSNA_WORKSPACE.", call. = FALSE)
+  assign(".msna_paths_file", helper, envir = globalenv())
+  source(helper)
+})
+PROJECT_DIR <- msna_sampling_dir()
+MONITORING_DIR <- msna_monitoring_dir()
 DC_DIR <- file.path(PROJECT_DIR, "output", "data", "data_collection")
 setwd(PROJECT_DIR)
 suppressPackageStartupMessages(library(tools))
@@ -70,6 +95,11 @@ sync_sampling_frame_mirrors <- function() {
   changelog_file <- "_pipeline_changelog.csv"
   changelog_present <- file.exists(file.path(DC_DIR, changelog_file))
   sync_files <- if (changelog_present) c(src_files, changelog_file) else src_files
+  # 2026-10-04: the spare-cluster register (one row per spare cluster with its
+  # buffer_rank; see scripts/daily_update/README_daily_update.md) travels with the
+  # frame when it exists. Optional, like the changelog: never required, never blocks.
+  register_file <- "buffer_cluster_register.csv"
+  if (file.exists(file.path(DC_DIR, register_file))) sync_files <- c(sync_files, register_file)
 
   # 2026-10-02: never mirror a frame that has an OneDrive conflict copy next
   # to it. On 1 Oct this sync propagated a silently reverted frame - see
@@ -90,7 +120,7 @@ sync_sampling_frame_mirrors <- function() {
                       mirror_dir, paste(mirror_conflicts, collapse = ", ")),
               call. = FALSE, immediate. = TRUE)
     }
-    existing <- union(list.files(mirror_dir, pattern = "^(NGA_MSNA_2026_.*\\.csv|_frame_version\\.txt|_pipeline_changelog\\.csv)$", full.names = FALSE),
+    existing <- union(list.files(mirror_dir, pattern = "^(NGA_MSNA_2026_.*\\.csv|_frame_version\\.txt|_pipeline_changelog\\.csv|buffer_cluster_register\\.csv)$", full.names = FALSE),
                       mirror_conflicts)
     stale <- setdiff(existing, sync_files)
     if (length(stale) > 0) {

@@ -24,6 +24,31 @@
 
 suppressPackageStartupMessages(library(tools))
 
+# Portable paths (4 Oct 2026): this script reads relative paths, so run it from
+# 1_sampling wherever it was started. Finds 1_sampling/scripts/shared/msna_paths.R
+# from MSNA_WORKSPACE, this script's own location or the working directory.
+local({
+  starts <- c(Sys.getenv("MSNA_WORKSPACE"),
+              sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)),
+              unlist(lapply(sys.frames(), function(f) f$ofile)), getwd())
+  helper <- NA_character_
+  for (s in starts[nzchar(starts)]) {
+    d <- normalizePath(s, winslash = "/", mustWork = FALSE)
+    while (is.na(helper)) {
+      h <- file.path(d, "1_sampling", "scripts", "shared", "msna_paths.R")
+      if (file.exists(h)) helper <- h
+      p <- dirname(d)
+      if (identical(p, d)) break
+      d <- p
+    }
+    if (!is.na(helper)) break
+  }
+  if (is.na(helper)) stop("Cannot find 1_sampling/scripts/shared/msna_paths.R - set MSNA_WORKSPACE.", call. = FALSE)
+  assign(".msna_paths_file", helper, envir = globalenv())
+  source(helper)
+})
+setwd(msna_sampling_dir())
+
 DATA_COLLECTION_DIR <- "output/data/data_collection"
 
 # 2026-10-02: refuse to stamp while an OneDrive conflict copy sits next to
