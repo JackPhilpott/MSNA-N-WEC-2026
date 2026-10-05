@@ -21,6 +21,12 @@ import json
 import os
 from collections import Counter
 
+
+def _pkg_root():  # MSNA_PKG_ROOT, else the 02. MSNA package path (the separate 4 Oct sync folder is retired by the 5 Oct re-link)
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "scripts", "shared"))
+    import msna_paths
+    return msna_paths.pkg_root()
+
 RS = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 S1 = os.path.dirname(RS)
 CFG = os.path.join(S1, "scripts", "daily_update", "daily_update_config_reallocation_2026-10-04.json")
@@ -44,7 +50,7 @@ def md5(path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--root", default=os.environ.get("MSNA_PKG_ROOT", r"C:\Users\JackPHILPOTT\ACTED\IMPACT NGA - NGA MSNA 2026 Package"))
+    ap.add_argument("--root", default=_pkg_root())
     ap.add_argument("--out", default=os.path.join(RS, "output", "plan_e_2026-10-05"))
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)

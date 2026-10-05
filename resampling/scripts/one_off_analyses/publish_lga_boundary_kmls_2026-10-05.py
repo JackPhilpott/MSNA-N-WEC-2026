@@ -16,9 +16,15 @@ import os
 import shutil
 import sys
 
+
+def _pkg_root():  # MSNA_PKG_ROOT, else the 02. MSNA package path (the separate 4 Oct sync folder is retired by the 5 Oct re-link)
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "scripts", "shared"))
+    import msna_paths
+    return msna_paths.pkg_root()
+
 S1 = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 STAGING = os.path.join(S1, "resampling", "output", "lga_boundary_kml_staging_2026-10-05", "staging")
-ROOT = os.environ.get("MSNA_PKG_ROOT", r"C:\Users\JackPHILPOTT\ACTED\IMPACT NGA - NGA MSNA 2026 Package")
+ROOT = None  # resolved in main() via _pkg_root()
 ARCH = "_archived_superseded_2026-10-05"
 # partner: (verified staged md5, verified live md5 at staging time)
 FILES = {"CARE": ("8b3fccc56c6a53d83588d6c43a43df34", "e06676d9"), "FACT": ("d4b2271313346852ce1f3cdb7b9cc2f2", "920407ee"),
@@ -40,6 +46,8 @@ def main():
     g.add_argument("--execute", action="store_true")
     g.add_argument("--rollback", action="store_true")
     a = ap.parse_args()
+    global ROOT
+    ROOT = _pkg_root()
     if a.rollback:
         for p in FILES:
             _, live, arch = paths(p)

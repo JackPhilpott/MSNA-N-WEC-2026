@@ -14,6 +14,12 @@ import re
 import sys
 from collections import defaultdict
 
+
+def _pkg_root():  # MSNA_PKG_ROOT, else the 02. MSNA package path (the separate 4 Oct sync folder is retired by the 5 Oct re-link)
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "scripts", "shared"))
+    import msna_paths
+    return msna_paths.pkg_root()
+
 S1 = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 PLACEMARK = re.compile(r"<Placemark[^>]*>\s*<name>(.*?)</name>\s*<description>State: (.*?)&#10;.*?</description>\s*"
                        r"<styleUrl>#(lgaCoveredStyle|lgaContextStyle)</styleUrl>", re.S)
@@ -32,7 +38,7 @@ def covered(path):
 
 def main():
     staging = sys.argv[1]
-    live = sys.argv[2] if len(sys.argv) > 2 else r"C:\Users\JackPHILPOTT\ACTED\IMPACT NGA - NGA MSNA 2026 Package"
+    live = sys.argv[2] if len(sys.argv) > 2 else _pkg_root()
     frame = defaultdict(dict)
     with open(os.path.join(S1, "output", "data", "data_collection", "NGA_MSNA_2026_strata_level_sampling_frame_v14_FULL.csv"),
               encoding="utf-8-sig", newline="") as f:

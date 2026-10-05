@@ -17,6 +17,12 @@ import os
 import stat
 import sys
 
+
+def _pkg_root():  # MSNA_PKG_ROOT, else the 02. MSNA package path (the separate 4 Oct sync folder is retired by the 5 Oct re-link)
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "scripts", "shared"))
+    import msna_paths
+    return msna_paths.pkg_root()
+
 RECALL = 0x400000 | 0x1000
 
 
@@ -34,7 +40,7 @@ def cloud_only(path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--root", default=os.environ.get("MSNA_PKG_ROOT", r"C:\Users\JackPHILPOTT\ACTED\IMPACT NGA - NGA MSNA 2026 Package"))
+    ap.add_argument("--root", default=_pkg_root())
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--list")
     g.add_argument("--rollback")
