@@ -55,10 +55,12 @@ def main():
         w = csv.DictWriter(f, fieldnames=spare_clusters.REGISTER_COLUMNS)
         w.writeheader()
         w.writerows(rows)
-    reg = spare_clusters.load_register(REG)  # stops on missing columns / duplicates
+    reg = spare_clusters.load_register(S1)  # takes the sampling folder; stops on missing columns / duplicates
+    if len(reg) != len(rows):
+        raise SystemExit(f"STOP: load_register read {len(reg)} spare(s) back from {REG}, {len(rows)} written")
     print(f"register: {len(rows)} spare cluster(s) in {len(drawn)} strata "
           f"(Non-IDP {sum(r['pop_type'] == 'non_idp' for r in rows)}, IDP {sum(r['pop_type'] == 'idp' for r in rows)}); "
-          f"validated by load_register ({len(reg) if hasattr(reg, '__len__') else 'ok'}) -> {REG}")
+          f"validated by load_register ({len(reg)} read back) -> {REG}")
 
 
 if __name__ == "__main__":
