@@ -18,6 +18,14 @@ OUT <- file.path("resampling", "output", "analysis_building_vs_worldpop_2026-10-
 STRATA <- c(Damboa = "non_idp_NG008007", Dandume = "non_idp_NG021008", Dikwa = "non_idp_NG008008", Magumeri = "non_idp_NG008020",
             Malumfashi = "non_idp_NG021025", Matazu = "non_idp_NG021028", Yauri = "non_idp_NG022020",
             `Kala/Balge` = "non_idp_NG008015", Funtua = "non_idp_NG021014")
+# 2026-10-09 (#28): optional args <out_dir> <lga=strata_id> ... override OUT and STRATA (defaults = the 5 Oct run)
+args <- commandArgs(trailingOnly = TRUE)
+if (length(args) >= 2) {
+  OUT <- args[1]
+  kv <- strsplit(args[-1], "=", fixed = TRUE)
+  STRATA <- setNames(vapply(kv, `[`, "", 2), vapply(kv, `[`, "", 1))
+}
+dir.create(OUT, showWarnings = FALSE, recursive = TRUE)
 
 full <- read_csv(file.path(DC, "NGA_MSNA_2026_stage2_sampling_frame_v14_FULL.csv"), col_types = cols(.default = "c"), show_col_types = FALSE)
 subs <- read_csv(file.path(MON, "real_submissions.csv"), col_types = cols(.default = "c"), show_col_types = FALSE)
