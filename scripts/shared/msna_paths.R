@@ -90,3 +90,32 @@ msna_python <- function() {
   stop(sprintf("No Python that can import openpyxl was found (tried: %s). Set MSNA_PYTHON to a python.exe.",
                paste(unlist(cands), collapse = ", ")), call. = FALSE)
 }
+
+# ------------------------------------------------------------------ frame version (proposal #25, 9 Oct)
+# Same rule as msna_paths.py: the version is read off output/data/data_collection - exactly one stage2 WORKING
+# frame, with every file of its family present - else STOP (a half-done bump or a sync caught midway).
+MSNA_FRAME_FAMILY <- c(
+  stage2_FULL = "NGA_MSNA_2026_stage2_sampling_frame_%s_FULL.csv",
+  stage2_WORKING = "NGA_MSNA_2026_stage2_sampling_frame_%s_WORKING.csv",
+  strata_FULL = "NGA_MSNA_2026_strata_level_sampling_frame_%s_FULL.csv",
+  strata_WORKING = "NGA_MSNA_2026_strata_level_sampling_frame_%s_WORKING.csv",
+  cluster_status = "NGA_MSNA_2026_cluster_status_%s.csv"
+)
+
+msna_data_collection_dir <- function() file.path(msna_sampling_dir(), "output", "data", "data_collection")
+
+msna_frame_version <- function(dc = msna_data_collection_dir()) {
+  f <- list.files(dc, pattern = "^NGA_MSNA_2026_stage2_sampling_frame_v[0-9]+_WORKING\\.csv$")
+  found <- sort(unique(sub("^NGA_MSNA_2026_stage2_sampling_frame_(v[0-9]+)_WORKING\\.csv$", "\\1", f)))
+  if (length(found) != 1) {
+    stop(sprintf("frame version: expected exactly one stage2 WORKING frame in %s, found %s - a version bump is half done or still syncing; wait, or finish/roll back the bump.",
+                 dc, if (length(found)) paste(found, collapse = ", ") else "none"), call. = FALSE)
+  }
+  missing <- sprintf(MSNA_FRAME_FAMILY, found)[!file.exists(file.path(dc, sprintf(MSNA_FRAME_FAMILY, found)))]
+  if (length(missing)) stop(sprintf("frame version %s: missing %s in %s", found, paste(missing, collapse = ", "), dc), call. = FALSE)
+  found
+}
+
+msna_frame_file <- function(kind, dc = msna_data_collection_dir()) {
+  file.path(dc, sprintf(MSNA_FRAME_FAMILY[[kind]], msna_frame_version(dc)))
+}

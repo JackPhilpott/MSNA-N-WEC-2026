@@ -58,7 +58,27 @@ from datetime import date, datetime
 
 import openpyxl
 
-PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling"
+# Portable paths (9 Oct 2026, #17): find 1_sampling/scripts/shared/msna_paths.py from MSNA_WORKSPACE, this file's
+# location or the working directory, so a sandbox copy never reads or writes the live workspace.
+import os  # noqa: E402
+import sys  # noqa: E402
+
+
+def _msna_shared_dir():
+    for start in (os.environ.get("MSNA_WORKSPACE", "").strip(), os.path.dirname(os.path.abspath(__file__)), os.getcwd()):
+        d = os.path.abspath(start) if start else ""
+        while d:
+            cand = os.path.join(d, "1_sampling", "scripts", "shared")
+            if os.path.isfile(os.path.join(cand, "msna_paths.py")):
+                return cand
+            parent = os.path.dirname(d)
+            d = "" if parent == d else parent
+    raise SystemExit("Cannot find 1_sampling/scripts/shared/msna_paths.py - set MSNA_WORKSPACE.")
+
+
+sys.path.insert(0, _msna_shared_dir())
+import msna_paths  # noqa: E402
+PROJECT_DIR = msna_paths.sampling_dir()
 # FULL, not WORKING (2026-09-01 fix - was WORKING right after the v2->v4
 # path bump, which is circular for this specific script): build_universe()
 # below defines the ward universe as "every ward with >=1 cluster in this
@@ -70,8 +90,8 @@ PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N
 # FULL keeps every designed cluster regardless of current accessibility;
 # filtered below to coverage_status=="covered" & exclusion_reason=="none"
 # so population-floor/certainty-excluded strata still don't reappear.
-STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v14_FULL.csv"
-STRATA_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v14_FULL.csv"
+STAGE2_CSV = msna_paths.frame_file("stage2_FULL")
+STRATA_CSV = msna_paths.frame_file("strata_FULL")
 LOG_CSV = PROJECT_DIR + r"\resampling\output\resampling_requests_log.csv"
 GIS_WARD_UNIVERSE_CSV = PROJECT_DIR + r"\resampling\output\gis\accessible_area_lga_ward_portions.csv"
 RETURNED_DIR = PROJECT_DIR + r"\resampling\input\accessibility_reports_returned"

@@ -25,6 +25,8 @@ suppressMessages({
 })
 
 output_dir <- here::here("output")
+assign(".msna_paths_file", here::here("scripts", "shared", "msna_paths.R"), envir = globalenv())  # 9 Oct 2026 (#25)
+source(.msna_paths_file)  # msna_frame_file() / msna_frame_version(): the frame version is read off the files
 maps_out_dir <- here::here(output_dir, "maps", "lga_summary")
 dir.create(maps_out_dir, recursive = TRUE, showWarnings = FALSE)
 
@@ -65,7 +67,7 @@ nga_wards <- sf::st_read(
 # 2026-09-01 and predates the v7-v11 resampling rounds entirely. Repointed
 # to the v11 consolidated build (scripts/one_off_analyses/build_consolidated_
 # selected_clusters_2026-09-21.R).
-selected_clusters <- readRDS(here::here("output", "gis", "selected_clusters_v14_current.rds"))
+selected_clusters <- readRDS(here::here("output", "gis", sprintf("selected_clusters_%s_current.rds", msna_frame_version())))
 
 hex_polygons <- hex_access %>%
   st_make_valid() %>%
@@ -74,7 +76,7 @@ hex_polygons <- hex_access %>%
   distinct(uuid_hex, .keep_all = TRUE) %>%
   select(uuid_hex)
 
-full_strata <- read_csv(here::here(output_dir, "data", "data_collection", "NGA_MSNA_2026_strata_level_sampling_frame_v14_FULL.csv"), show_col_types = FALSE)
+full_strata <- read_csv(msna_frame_file("strata_FULL"), show_col_types = FALSE)
 working_pairs <- full_strata %>%
   filter(coverage_status == "covered", exclusion_reason == "none") %>%
   distinct(adm2_pcode, pop_type)

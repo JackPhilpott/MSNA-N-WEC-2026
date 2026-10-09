@@ -71,11 +71,16 @@ import msna_paths  # noqa: E402
 
 EXIT_OK, EXIT_BLOCKED, EXIT_ERROR = 0, 1, 2
 FRAME_REL = os.path.join("1_sampling", "output", "data", "data_collection")
-FULL_CSV = "NGA_MSNA_2026_stage2_sampling_frame_v14_FULL.csv"
-WORKING_CSV = "NGA_MSNA_2026_stage2_sampling_frame_v14_WORKING.csv"
-STRATA_FULL_CSV = "NGA_MSNA_2026_strata_level_sampling_frame_v14_FULL.csv"
-STRATA_WORKING_CSV = "NGA_MSNA_2026_strata_level_sampling_frame_v14_WORKING.csv"
-CLUSTER_STATUS_CSV = "NGA_MSNA_2026_cluster_status_v14.csv"
+# 9 Oct 2026 (#25): the frame version is read off the files in data_collection (msna_paths.frame_version(): exactly one
+# stage2 WORKING version with its whole family, else stop). An error here is raised as a preflight ERROR, so the run
+# still writes its summary.
+try:
+    FRAME_VERSION, FRAME_VERSION_ERROR = msna_paths.frame_version(), None
+except SystemExit as _e:
+    FRAME_VERSION, FRAME_VERSION_ERROR = "v_unknown", str(_e)
+FULL_CSV, WORKING_CSV, STRATA_FULL_CSV, STRATA_WORKING_CSV, CLUSTER_STATUS_CSV = (
+    msna_paths.FRAME_FAMILY[k].format(v=FRAME_VERSION)
+    for k in ("stage2_FULL", "stage2_WORKING", "strata_FULL", "strata_WORKING", "cluster_status"))
 MIRRORED = [FULL_CSV, WORKING_CSV, STRATA_FULL_CSV, STRATA_WORKING_CSV, "_frame_version.txt"]
 # Columns that legitimately move with new submissions; everything else must hold still all week.
 STRATA_SUBMISSION_COLS = {"achieved_sample", "achieved_clusters", "realized_moe_pct"}
@@ -99,7 +104,7 @@ FINGERPRINT_INPUTS = {
 }
 R05_OUTPUTS = ["strata_representativity_status.csv", "target_sample_representativity_last_run.csv",
                "NGA_MSNA_2026_accessibility_impact_workbook.xlsx",
-               "NGA_MSNA_2026_stage2_sampling_frame_v14_WORKING_with_accessibility.csv"]
+               f"NGA_MSNA_2026_stage2_sampling_frame_{FRAME_VERSION}_WORKING_with_accessibility.csv"]
 
 PRESETS = {
     "strict": {"working_change_rule": "explained", "max_unexplained_working_rows": 0, "full_must_be_unchanged": True,
@@ -334,6 +339,9 @@ def load_snapshot(path):
 # ------------------------------------------------------------------ steps
 def preflight(run):
     run.log("== preflight")
+    if FRAME_VERSION_ERROR:
+        raise RunError(FRAME_VERSION_ERROR)
+    run.info("Frame version", f"{FRAME_VERSION} (read off the files in {FRAME_REL})")
     run.check("Python can import openpyxl", _can_import("openpyxl"), sys.executable)
     try:
         run.rscript = msna_paths.rscript_exe()

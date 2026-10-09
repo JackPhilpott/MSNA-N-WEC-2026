@@ -15,7 +15,7 @@
 # only via the full build_partner_dc_packages.py when the WORKING roster
 # itself actually changes, followed by an announced email (Jack's call each
 # time, never automatic). This is exactly why this script never loads
-# WORKING (NGA_MSNA_2026_stage2_sampling_frame_v14_WORKING.csv) at all -
+# WORKING (NGA_MSNA_2026_stage2_sampling_frame_<version>_WORKING.csv) at all -
 # there is nothing in its own output that WORKING could change.
 #
 # Deliberately a standalone duplicate of build_partner_dc_packages.py's
@@ -117,7 +117,7 @@ if os.path.exists(_LOCKED_FALLBACK_COPY):
         f"{_copy_age_s / 60:.0f}-minute-old fallback copy instead: {_LOCKED_FALLBACK_COPY}"
     )
     COVERAGE_XLSX = _LOCKED_FALLBACK_COPY
-STAGE2_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v14_FULL.csv"
+STAGE2_FULL_CSV = msna_paths.frame_file("stage2_FULL")
 # Canonical (not the dashboard_app/ bundled mirror - see
 # build_partner_dc_packages.py's 2026-09-08 fix note for the identical bug
 # this avoids from the start).
@@ -394,7 +394,7 @@ assert_plausible("rows of partner-reported-inaccessible / dropped clusters NOT t
 # note for the full reasoning. Kept in sync by hand, per this project's
 # standalone-script convention.
 # ---------------------------------------------------------------------------
-STRATA_LEVEL_V9_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v14_FULL.csv"
+STRATA_LEVEL_V9_FULL_CSV = msna_paths.frame_file("strata_FULL")
 TARGET_SAMPLE_REPRESENTATIVITY_CSV = PROJECT_DIR + r"\resampling\output\target_sample_representativity_last_run.csv"
 
 with open(STRATA_LEVEL_V9_FULL_CSV, encoding="utf-8") as f:

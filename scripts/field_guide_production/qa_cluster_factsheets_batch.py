@@ -24,8 +24,28 @@ from collections import defaultdict
 
 from docx import Document
 
-PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling"
-STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v14_WORKING.csv"
+# Portable paths (9 Oct 2026, #17): find 1_sampling/scripts/shared/msna_paths.py from MSNA_WORKSPACE, this file's
+# location or the working directory, so a sandbox copy never reads or writes the live workspace.
+import os  # noqa: E402
+import sys  # noqa: E402
+
+
+def _msna_shared_dir():
+    for start in (os.environ.get("MSNA_WORKSPACE", "").strip(), os.path.dirname(os.path.abspath(__file__)), os.getcwd()):
+        d = os.path.abspath(start) if start else ""
+        while d:
+            cand = os.path.join(d, "1_sampling", "scripts", "shared")
+            if os.path.isfile(os.path.join(cand, "msna_paths.py")):
+                return cand
+            parent = os.path.dirname(d)
+            d = "" if parent == d else parent
+    raise SystemExit("Cannot find 1_sampling/scripts/shared/msna_paths.py - set MSNA_WORKSPACE.")
+
+
+sys.path.insert(0, _msna_shared_dir())
+import msna_paths  # noqa: E402
+PROJECT_DIR = msna_paths.sampling_dir()
+STAGE2_CSV = msna_paths.frame_file("stage2_WORKING")
 CLUSTER_MAPS_DIR = PROJECT_DIR + r"\output\maps\cluster_map_examples_v3"
 LGA_MAPS_DIR = PROJECT_DIR + r"\output\maps\cluster_lga_context_v1"
 BUILD_LOG_CSV = PROJECT_DIR + r"\output\maps\_production_build_log.csv"

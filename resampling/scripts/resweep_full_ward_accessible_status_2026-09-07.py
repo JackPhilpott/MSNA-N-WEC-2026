@@ -81,6 +81,8 @@ import msna_paths  # noqa: E402
 
 PROJECT_DIR = msna_paths.sampling_dir()
 SF_DIR = os.path.join(PROJECT_DIR, "output", "data", "data_collection")
+# Historical one-off (7 Sep), pinned to v14 on purpose (9 Oct v17 bump): the v14 file is in
+# output/data/data_collection/_archive/2026-10-09_pre_v17_bump/.
 FULL_CSV = os.path.join(SF_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v14_FULL.csv")
 MASTER_WARD_CSV = os.path.join(PROJECT_DIR, "resampling", "output", "master_accessibility_status_ward_level.csv")
 ARCHIVE_DIR = os.path.join(SF_DIR, "_archive", f"{date.today().isoformat()}_pre_full_ward_accessible_resweep")

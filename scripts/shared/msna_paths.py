@@ -118,3 +118,42 @@ def rscript_exe():
     if cands:
         return max(cands, key=_version_key)
     raise SystemExit("Rscript not found. Install R or set MSNA_RSCRIPT to Rscript.exe.")
+
+
+# ------------------------------------------------------------------ frame version (proposal #25, 9 Oct)
+# The frame version is not a setting: it is read off the files in output/data/data_collection. Exactly one version
+# of the stage2 WORKING frame may be there, and every file of that version's family must be next to it. Anything
+# else (a half-done bump, an OneDrive sync caught midway with v14 and v17 side by side) stops the reader loudly
+# instead of letting it pick one. So the code can land before the files are bumped, and follows the bump by itself.
+FRAME_FAMILY = {
+    "stage2_FULL": "NGA_MSNA_2026_stage2_sampling_frame_{v}_FULL.csv",
+    "stage2_WORKING": "NGA_MSNA_2026_stage2_sampling_frame_{v}_WORKING.csv",
+    "strata_FULL": "NGA_MSNA_2026_strata_level_sampling_frame_{v}_FULL.csv",
+    "strata_WORKING": "NGA_MSNA_2026_strata_level_sampling_frame_{v}_WORKING.csv",
+    "cluster_status": "NGA_MSNA_2026_cluster_status_{v}.csv",
+}
+
+
+def data_collection_dir():
+    return os.path.join(sampling_dir(), "output", "data", "data_collection")
+
+
+def frame_version(dc=None):
+    """'v14', 'v17', ... - the one version present in data_collection (or dc)."""
+    dc = dc or data_collection_dir()
+    found = sorted({m.group(1) for f in os.listdir(dc)
+                    for m in [re.fullmatch(r"NGA_MSNA_2026_stage2_sampling_frame_(v\d+)_WORKING\.csv", f)] if m})
+    if len(found) != 1:
+        raise SystemExit(f"frame version: expected exactly one stage2 WORKING frame in {dc}, found {found or 'none'} "
+                         f"- a version bump is half done or still syncing; wait, or finish/roll back the bump.")
+    v = found[0]
+    missing = [t.format(v=v) for t in FRAME_FAMILY.values() if not os.path.isfile(os.path.join(dc, t.format(v=v)))]
+    if missing:
+        raise SystemExit(f"frame version {v}: missing {missing} in {dc}")
+    return v
+
+
+def frame_file(kind, dc=None):
+    """Full path of one frame-family file, e.g. frame_file('stage2_WORKING')."""
+    dc = dc or data_collection_dir()
+    return os.path.join(dc, FRAME_FAMILY[kind].format(v=frame_version(dc)))

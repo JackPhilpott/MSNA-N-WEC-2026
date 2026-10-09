@@ -29,7 +29,7 @@
 # specific LGA+Ward combination, so there's no free-floating ward-name join
 # anywhere that could cross-contaminate another partner's area.
 #
-# Reads: output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v14_WORKING.csv
+# Reads: output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_<version>_WORKING.csv (msna_paths.frame_file)
 # - the same per-household delivered frame build_partner_dc_packages.py reads,
 # which already carries a resolved `partners_covering` column (comma-separated
 # for multi-partner LGAs, e.g. "DRC, IRC, LHI") and per-row ward attribution
@@ -82,9 +82,29 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 DATE_REPORTED_MIN = date(2026, 7, 1)
 DATE_REPORTED_FORMAT = "dd-mmm-yyyy"  # unambiguous regardless of the partner's locale (e.g. "27-Aug-2026")
 
-PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling"
-STAGE2_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v14_WORKING.csv"
-STAGE2_FULL_CSV = PROJECT_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v14_FULL.csv"
+# Portable paths (9 Oct 2026, #17): find 1_sampling/scripts/shared/msna_paths.py from MSNA_WORKSPACE, this file's
+# location or the working directory, so a sandbox copy never reads or writes the live workspace.
+import os  # noqa: E402
+import sys  # noqa: E402
+
+
+def _msna_shared_dir():
+    for start in (os.environ.get("MSNA_WORKSPACE", "").strip(), os.path.dirname(os.path.abspath(__file__)), os.getcwd()):
+        d = os.path.abspath(start) if start else ""
+        while d:
+            cand = os.path.join(d, "1_sampling", "scripts", "shared")
+            if os.path.isfile(os.path.join(cand, "msna_paths.py")):
+                return cand
+            parent = os.path.dirname(d)
+            d = "" if parent == d else parent
+    raise SystemExit("Cannot find 1_sampling/scripts/shared/msna_paths.py - set MSNA_WORKSPACE.")
+
+
+sys.path.insert(0, _msna_shared_dir())
+import msna_paths  # noqa: E402
+PROJECT_DIR = msna_paths.sampling_dir()
+STAGE2_CSV = msna_paths.frame_file("stage2_WORKING")
+STAGE2_FULL_CSV = msna_paths.frame_file("stage2_FULL")
 GIS_WARD_UNIVERSE_CSV = PROJECT_DIR + r"\resampling\output\gis\accessible_area_lga_ward_portions.csv"
 OUT_DIR = PROJECT_DIR + r"\resampling\input\accessibility_reports_generated"
 REQUESTS_LOG_CSV = PROJECT_DIR + r"\resampling\output\resampling_requests_log.csv"

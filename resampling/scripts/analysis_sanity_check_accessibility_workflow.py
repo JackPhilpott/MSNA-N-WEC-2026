@@ -16,9 +16,29 @@ from collections import defaultdict
 
 import openpyxl
 
-SAMPLING_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling"
-STRATA_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_strata_level_sampling_frame_v14_WORKING.csv"
-HOUSEHOLD_CSV = SAMPLING_DIR + r"\output\data\data_collection\NGA_MSNA_2026_stage2_sampling_frame_v14_WORKING.csv"
+# Portable paths (9 Oct 2026, #17): find 1_sampling/scripts/shared/msna_paths.py from MSNA_WORKSPACE, this file's
+# location or the working directory, so a sandbox copy never reads or writes the live workspace.
+import os  # noqa: E402
+import sys  # noqa: E402
+
+
+def _msna_shared_dir():
+    for start in (os.environ.get("MSNA_WORKSPACE", "").strip(), os.path.dirname(os.path.abspath(__file__)), os.getcwd()):
+        d = os.path.abspath(start) if start else ""
+        while d:
+            cand = os.path.join(d, "1_sampling", "scripts", "shared")
+            if os.path.isfile(os.path.join(cand, "msna_paths.py")):
+                return cand
+            parent = os.path.dirname(d)
+            d = "" if parent == d else parent
+    raise SystemExit("Cannot find 1_sampling/scripts/shared/msna_paths.py - set MSNA_WORKSPACE.")
+
+
+sys.path.insert(0, _msna_shared_dir())
+import msna_paths  # noqa: E402
+SAMPLING_DIR = msna_paths.sampling_dir()
+STRATA_CSV = msna_paths.frame_file("strata_WORKING")
+HOUSEHOLD_CSV = msna_paths.frame_file("stage2_WORKING")
 LOG_CSV = SAMPLING_DIR + r"\resampling\output\resampling_requests_log.csv"
 MASTER_WARD_CSV = SAMPLING_DIR + r"\resampling\output\master_accessibility_status_ward_level.csv"
 GIS_WARD_CSV = SAMPLING_DIR + r"\resampling\output\gis\accessible_area_lga_ward_portions.csv"

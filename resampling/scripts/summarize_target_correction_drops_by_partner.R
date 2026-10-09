@@ -6,12 +6,34 @@
 #
 # Usage: Rscript summarize_target_correction_drops_by_partner.R
 # ==============================================================================
-PROJECT_DIR <- "c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/1_sampling"
+# Portable paths (9 Oct 2026, #17): find 1_sampling/scripts/shared/msna_paths.R from MSNA_WORKSPACE, this script's
+# own location or the working directory, so a sandbox copy never reads or writes the live workspace.
+local({
+  starts <- c(Sys.getenv("MSNA_WORKSPACE"),
+              sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)),
+              unlist(lapply(sys.frames(), function(f) f$ofile)), getwd())
+  helper <- NA_character_
+  for (s in starts[nzchar(starts)]) {
+    d <- normalizePath(s, winslash = "/", mustWork = FALSE)
+    while (is.na(helper)) {
+      h <- file.path(d, "1_sampling", "scripts", "shared", "msna_paths.R")
+      if (file.exists(h)) helper <- h
+      p <- dirname(d)
+      if (identical(p, d)) break
+      d <- p
+    }
+    if (!is.na(helper)) break
+  }
+  if (is.na(helper)) stop("Cannot find 1_sampling/scripts/shared/msna_paths.R - set MSNA_WORKSPACE.", call. = FALSE)
+  assign(".msna_paths_file", helper, envir = globalenv())
+  source(helper)
+})
+PROJECT_DIR <- msna_sampling_dir()
 setwd(PROJECT_DIR)
 suppressMessages({ library(dplyr); library(readr); library(tidyr) })
 
 drops <- read_csv("resampling/output/target_correction_dropped_clusters.csv", show_col_types = FALSE)
-strata <- read_csv("output/data/data_collection/NGA_MSNA_2026_strata_level_sampling_frame_v14_FULL.csv",
+strata <- read_csv(msna_frame_file("strata_FULL"),
                     show_col_types = FALSE, col_types = cols(.default = "c")) %>%
   distinct(strata_id, adm1_name, adm2_name, partners_covering)
 

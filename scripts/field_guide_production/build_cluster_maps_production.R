@@ -40,6 +40,8 @@ suppressMessages({
 mycrs <- 31028
 
 output_dir <- here::here("output")
+assign(".msna_paths_file", here::here("scripts", "shared", "msna_paths.R"), envir = globalenv())  # 9 Oct 2026 (#25)
+source(.msna_paths_file)  # msna_frame_file() / msna_frame_version(): the frame version is read off the files
 maps_out_dir <- here::here(output_dir, "maps", "cluster_map_examples_v3")
 dir.create(maps_out_dir, recursive = TRUE, showWarnings = FALSE)
 
@@ -151,7 +153,7 @@ file.remove("temp_boundaries_mapex.R")
 # existed - only _v8_ did, from 09-14). Rebuilt properly for v11 by
 # scripts/one_off_analyses/build_consolidated_selected_clusters_2026-09-21.R
 # BEFORE this line was repointed. Any future bump must rebuild, not rename.
-selected_clusters <- readRDS(here::here("output", "gis", "selected_clusters_v14_current.rds"))
+selected_clusters <- readRDS(here::here("output", "gis", sprintf("selected_clusters_%s_current.rds", msna_frame_version())))
 
 # hex_polygons: canonical hex geometry, keyed by uuid_hex. Two known gaps in
 # hex_access alone, found while running this batch (2026-08-12) - both
@@ -187,7 +189,7 @@ selected_clusters_hex <- selected_clusters %>%
 missing_uuid_hex <- setdiff(selected_clusters_hex$uuid_hex, hex_access_dedup$uuid_hex)
 hex_polygons <- bind_rows(hex_access_dedup, selected_clusters_hex %>% filter(uuid_hex %in% missing_uuid_hex))
 if (length(missing_uuid_hex) > 0) {
-  cat(sprintf("hex_polygons: supplemented %d uuid_hex value(s) missing from hex_access, from selected_clusters_v14_current.rds.\n", length(missing_uuid_hex)))
+  cat(sprintf("hex_polygons: supplemented %d uuid_hex value(s) missing from hex_access, from the current selected_clusters RDS.\n", length(missing_uuid_hex)))
 }
 
 iom_idp_wgs84 <- st_transform(iom_idp_df, 4326)
@@ -210,7 +212,7 @@ fn_end <- fn_start - 1 + which(grepl("^\\}$", lines2[fn_start:length(lines2)]))[
 eval(parse(text = paste(lines2[fn_start:fn_end], collapse = "\n")))
 
 stage2 <- read_csv(
-  here::here(output_dir, "data", "data_collection", "NGA_MSNA_2026_stage2_sampling_frame_v14_WORKING.csv"),
+  msna_frame_file("stage2_WORKING"),
   show_col_types = FALSE
 )
 backup_pts <- read_csv(

@@ -104,7 +104,29 @@ library(dplyr)
 library(exactextractr)
 library(readr)
 
-PROJECT_DIR <- "c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/1_sampling"
+# Portable paths (9 Oct 2026, #17): find 1_sampling/scripts/shared/msna_paths.R from MSNA_WORKSPACE, this script's
+# own location or the working directory, so a sandbox copy never reads or writes the live workspace.
+local({
+  starts <- c(Sys.getenv("MSNA_WORKSPACE"),
+              sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)),
+              unlist(lapply(sys.frames(), function(f) f$ofile)), getwd())
+  helper <- NA_character_
+  for (s in starts[nzchar(starts)]) {
+    d <- normalizePath(s, winslash = "/", mustWork = FALSE)
+    while (is.na(helper)) {
+      h <- file.path(d, "1_sampling", "scripts", "shared", "msna_paths.R")
+      if (file.exists(h)) helper <- h
+      p <- dirname(d)
+      if (identical(p, d)) break
+      d <- p
+    }
+    if (!is.na(helper)) break
+  }
+  if (is.na(helper)) stop("Cannot find 1_sampling/scripts/shared/msna_paths.R - set MSNA_WORKSPACE.", call. = FALSE)
+  assign(".msna_paths_file", helper, envir = globalenv())
+  source(helper)
+})
+PROJECT_DIR <- msna_sampling_dir()
 setwd(PROJECT_DIR)
 
 mycrs <- 31028  # same projected CRS 01_sampling_pipeline_main.R uses throughout
@@ -119,7 +141,7 @@ mycrs <- 31028  # same projected CRS 01_sampling_pipeline_main.R uses throughout
 # same scope 04_build_master_accessibility_status.py now uses - keeps
 # population-floor/certainty-excluded LGAs (e.g. Dandume/Faskari) visible,
 # since this is a status picture, not a "still needs resampling" list.
-WORKING_CSV <- "output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v14_FULL.csv"
+WORKING_CSV <- msna_frame_file("stage2_FULL")
 MASTER_WARD_CSV <- "resampling/output/master_accessibility_status_ward_level.csv"
 ADMIN2_SHP <- "input_data/boundaries/nga_admin_boundaries/nga_admin2.shp"
 WARDS_SHP <- "input_data/boundaries/GRID3_NGA_Ward_Boundaries_v1/grid3_nga_boundary_vaccwards.shp"

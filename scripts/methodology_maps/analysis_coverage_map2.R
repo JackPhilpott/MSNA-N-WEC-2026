@@ -78,6 +78,8 @@ suppressMessages({
 })
 
 output_dir   <- here::here("output")
+assign(".msna_paths_file", here::here("scripts", "shared", "msna_paths.R"), envir = globalenv())  # 9 Oct 2026 (#25)
+source(.msna_paths_file)  # msna_frame_file() / msna_frame_version(): the frame version is read off the files
 analysis_dir <- here::here(output_dir, "maps")
 dir.create(analysis_dir, recursive = TRUE, showWarnings = FALSE)
 
@@ -141,7 +143,7 @@ hex_polygons <- hex_access %>%
 # LGA-level coverage/exclusion classification (2 categories only)
 # ---------------------------------------------------------------------------
 coverage_summary <- read_csv(here::here(output_dir, "data", "data_collection", "NGA_MSNA_2026_coverage_summary_v2.csv"), show_col_types = FALSE)
-full_strata <- read_csv(here::here(output_dir, "data", "data_collection", "NGA_MSNA_2026_strata_level_sampling_frame_v14_FULL.csv"), show_col_types = FALSE)
+full_strata <- read_csv(msna_frame_file("strata_FULL"), show_col_types = FALSE)
 
 lga_certainty_excluded <- full_strata %>%
   group_by(adm2_pcode) %>%

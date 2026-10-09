@@ -33,14 +33,39 @@
 # =====================================================================================================
 suppressMessages({ library(dplyr); library(sf); library(readr) })
 sf_use_s2(FALSE)
-setwd("c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/1_sampling")
+# Portable paths (9 Oct 2026, #17): find 1_sampling/scripts/shared/msna_paths.R from MSNA_WORKSPACE, this script's
+# own location or the working directory, so a sandbox copy never reads or writes the live workspace.
+local({
+  starts <- c(Sys.getenv("MSNA_WORKSPACE"),
+              sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)),
+              unlist(lapply(sys.frames(), function(f) f$ofile)), getwd())
+  helper <- NA_character_
+  for (s in starts[nzchar(starts)]) {
+    d <- normalizePath(s, winslash = "/", mustWork = FALSE)
+    while (is.na(helper)) {
+      h <- file.path(d, "1_sampling", "scripts", "shared", "msna_paths.R")
+      if (file.exists(h)) helper <- h
+      p <- dirname(d)
+      if (identical(p, d)) break
+      d <- p
+    }
+    if (!is.na(helper)) break
+  }
+  if (is.na(helper)) stop("Cannot find 1_sampling/scripts/shared/msna_paths.R - set MSNA_WORKSPACE.", call. = FALSE)
+  assign(".msna_paths_file", helper, envir = globalenv())
+  source(helper)
+})
+setwd(msna_sampling_dir())
 args <- commandArgs(trailingOnly = TRUE)
 SUBS_DIR <- args[1]; R1_STRATA <- args[2]; OUT <- args[3]
 dir.create(OUT, showWarnings = FALSE, recursive = TRUE)
 CAP_K <- 4
 chr <- cols(.default = col_character())
 
-full <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v14_FULL.csv", col_types = chr)
+# 9 Oct 2026 (Jack: Round 1 weights stay pinned to v14). Since the v17 bump the v14 file lives in the archive below.
+# It is the frame as of the bump, not the 2 Oct frame these FINAL weights were built from (b3738d0): a re-run
+# would not reproduce them.
+full <- read_csv("output/data/data_collection/_archive/2026-10-09_pre_v17_bump/NGA_MSNA_2026_stage2_sampling_frame_v14_FULL.csv", col_types = chr)
 r1 <- read_csv(R1_STRATA, show_col_types = FALSE) %>%
   transmute(strata_id, State, LGA, pop = `Pop type`, label = `Round 1 label`, N_acc = `Accessible households`, basis = `Accessible-population basis`)
 included <- r1$strata_id[r1$label != "Dropped"]

@@ -11,7 +11,29 @@
 # BEFORE this specific partner's merge, and the caller knows the right
 # archive label for that.
 # ==============================================================================
-PROJECT_DIR <- "c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/1_sampling"
+# Portable paths (9 Oct 2026, #17): find 1_sampling/scripts/shared/msna_paths.R from MSNA_WORKSPACE, this script's
+# own location or the working directory, so a sandbox copy never reads or writes the live workspace.
+local({
+  starts <- c(Sys.getenv("MSNA_WORKSPACE"),
+              sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)),
+              unlist(lapply(sys.frames(), function(f) f$ofile)), getwd())
+  helper <- NA_character_
+  for (s in starts[nzchar(starts)]) {
+    d <- normalizePath(s, winslash = "/", mustWork = FALSE)
+    while (is.na(helper)) {
+      h <- file.path(d, "1_sampling", "scripts", "shared", "msna_paths.R")
+      if (file.exists(h)) helper <- h
+      p <- dirname(d)
+      if (identical(p, d)) break
+      d <- p
+    }
+    if (!is.na(helper)) break
+  }
+  if (is.na(helper)) stop("Cannot find 1_sampling/scripts/shared/msna_paths.R - set MSNA_WORKSPACE.", call. = FALSE)
+  assign(".msna_paths_file", helper, envir = globalenv())
+  source(helper)
+})
+PROJECT_DIR <- msna_sampling_dir()
 setwd(PROJECT_DIR)
 suppressMessages({ library(dplyr); library(readr); library(tibble) })
 source("scripts/shared/assert_fresh.R")
@@ -27,7 +49,7 @@ source("scripts/shared/frame_status.R")
 # header - a pure-logging audit trail of when WORKING materially changes.
 source("scripts/shared/log_pipeline_change.R")
 MASTER_WARD_CSV <- "resampling/output/master_accessibility_status_ward_level.csv"
-CLUSTER_STATUS_CSV <- "output/data/data_collection/NGA_MSNA_2026_cluster_status_v14.csv"
+CLUSTER_STATUS_CSV <- msna_frame_file("cluster_status")
 
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) < 4) stop("Usage: Rscript merge_partner_resample_batch.R <PartnerName> <staging_dir> <shortfalls_csv> <shortfalls_idp_csv>")
@@ -59,10 +81,10 @@ stop_if_onedrive_conflict_copies(
   list.files(DC_DIR, pattern = "^(NGA_MSNA_2026_.*\\.csv|_pipeline_changelog\\.csv|_frame_version\\.txt)$"),
   sprintf("merge_partner_resample_batch.R (%s)", PARTNER)
 )
-full_hh    <- read_csv(file.path(DC_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v14_FULL.csv"), show_col_types = FALSE)
-working_hh <- read_csv(file.path(DC_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v14_WORKING.csv"), show_col_types = FALSE)
-full_sl    <- read_csv(file.path(DC_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v14_FULL.csv"), show_col_types = FALSE)
-working_sl <- read_csv(file.path(DC_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v14_WORKING.csv"), show_col_types = FALSE)
+full_hh    <- read_csv(msna_frame_file("stage2_FULL", DC_DIR), show_col_types = FALSE)
+working_hh <- read_csv(msna_frame_file("stage2_WORKING", DC_DIR), show_col_types = FALSE)
+full_sl    <- read_csv(msna_frame_file("strata_FULL", DC_DIR), show_col_types = FALSE)
+working_sl <- read_csv(msna_frame_file("strata_WORKING", DC_DIR), show_col_types = FALSE)
 
 live_survey_ids <- union(full_hh$survey_id, working_hh$survey_id)
 live_cluster_ids <- union(full_hh$cluster_id, working_hh$cluster_id)
@@ -681,10 +703,10 @@ assert_plausible("WORKING rows in a currently-Inaccessible ward", n_working_in_i
                   context = "must always be exactly 0 - this is the 2026-09-07 incident's core invariant")
 
 # ---- Write ----
-write_csv(full_hh_new, file.path(DC_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v14_FULL.csv"))
-write_csv(working_hh_new, file.path(DC_DIR, "NGA_MSNA_2026_stage2_sampling_frame_v14_WORKING.csv"))
-write_csv(full_sl_new, file.path(DC_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v14_FULL.csv"))
-write_csv(working_sl_new, file.path(DC_DIR, "NGA_MSNA_2026_strata_level_sampling_frame_v14_WORKING.csv"))
+write_csv(full_hh_new, msna_frame_file("stage2_FULL", DC_DIR))
+write_csv(working_hh_new, msna_frame_file("stage2_WORKING", DC_DIR))
+write_csv(full_sl_new, msna_frame_file("strata_FULL", DC_DIR))
+write_csv(working_sl_new, msna_frame_file("strata_WORKING", DC_DIR))
 log_msg("Written: FULL + WORKING household-level and strata-level CSVs in %s.", DC_DIR)
 
 # 2026-09-14: changelog entry - a real merge always represents a real event

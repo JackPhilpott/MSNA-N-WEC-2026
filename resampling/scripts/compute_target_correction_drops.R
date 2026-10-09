@@ -8,7 +8,7 @@
 # (not silently decided): dropping for CAPACITY reasons (stratum needs
 # fewer clusters than it has) is a genuinely different kind of exclusion
 # from the existing 4-value completion-status taxonomy
-# (NGA_MSNA_2026_cluster_status_v14.csv, all 4 values are accessibility/
+# (NGA_MSNA_2026_cluster_status_<version>.csv, all 4 values are accessibility/
 # completion-driven) - none of them mean "still accessible, still
 # incomplete, but no longer needed." Rather than force this into that
 # taxonomy or invent a 5th status value there (which would muddy a function
@@ -19,7 +19,7 @@
 # exclusion list that refresh_working_frame_daily.R additionally excludes
 # from WORKING, without touching the cluster-status function's own
 # accessibility-only semantics. Candidate pool for dropping is exactly
-# NGA_MSNA_2026_cluster_status_v14.csv's "not_started_other" status - the
+# NGA_MSNA_2026_cluster_status_<version>.csv's "not_started_other" status - the
 # ONLY one of the 4 that means "currently accessible, actively assigned,
 # not yet fully done" (the other 3 are either already-excluded-for-
 # accessibility or already-permanently-completed, neither of which this
@@ -93,7 +93,29 @@
 # 05 first, straight after refresh_working_frame_daily.R, so the guard can
 # pass.
 # ==============================================================================
-PROJECT_DIR <- "c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/1_sampling"
+# Portable paths (9 Oct 2026, #17): find 1_sampling/scripts/shared/msna_paths.R from MSNA_WORKSPACE, this script's
+# own location or the working directory, so a sandbox copy never reads or writes the live workspace.
+local({
+  starts <- c(Sys.getenv("MSNA_WORKSPACE"),
+              sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)),
+              unlist(lapply(sys.frames(), function(f) f$ofile)), getwd())
+  helper <- NA_character_
+  for (s in starts[nzchar(starts)]) {
+    d <- normalizePath(s, winslash = "/", mustWork = FALSE)
+    while (is.na(helper)) {
+      h <- file.path(d, "1_sampling", "scripts", "shared", "msna_paths.R")
+      if (file.exists(h)) helper <- h
+      p <- dirname(d)
+      if (identical(p, d)) break
+      d <- p
+    }
+    if (!is.na(helper)) break
+  }
+  if (is.na(helper)) stop("Cannot find 1_sampling/scripts/shared/msna_paths.R - set MSNA_WORKSPACE.", call. = FALSE)
+  assign(".msna_paths_file", helper, envir = globalenv())
+  source(helper)
+})
+PROJECT_DIR <- msna_sampling_dir()
 setwd(PROJECT_DIR)
 suppressMessages({ library(dplyr); library(readr); library(stringr); library(tidyr) })
 source("scripts/shared/frame_status.R")  # realized_moe_unequal() - same Kish formula as 05; never re-copied here
@@ -110,10 +132,10 @@ DROP_CEILING_MOE_PCT <- 9.5   # Jack, 2026-09-21 - see header; the representativ
 MOE_MATCH_TOLERANCE <- 0.02   # the representativity record rounds to 2 dp
 REPRESENTATIVITY_CSV <- "resampling/output/strata_representativity_status.csv"
 
-CLUSTER_STATUS_CSV <- "output/data/data_collection/NGA_MSNA_2026_cluster_status_v14.csv"
+CLUSTER_STATUS_CSV <- msna_frame_file("cluster_status")
 TARGET_REPR_CSV <- "resampling/output/target_sample_representativity_last_run.csv"
-STRATA_CSV <- "output/data/data_collection/NGA_MSNA_2026_strata_level_sampling_frame_v14_FULL.csv"
-HOUSEHOLD_CSV <- "output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v14_FULL.csv"
+STRATA_CSV <- msna_frame_file("strata_FULL")
+HOUSEHOLD_CSV <- msna_frame_file("stage2_FULL")
 OUT_CSV <- "resampling/output/target_correction_dropped_clusters.csv"
 REPORT_CSV <- "resampling/output/target_correction_drop_rule_report.csv"
 

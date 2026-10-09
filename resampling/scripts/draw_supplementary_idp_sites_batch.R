@@ -21,7 +21,29 @@
 #
 # Usage: Rscript draw_supplementary_idp_sites_batch.R <shortfalls_idp_csv> <staging_dir> <seed_base>
 # ==============================================================================
-PROJECT_DIR <- "c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/1_sampling"
+# Portable paths (9 Oct 2026, #17): find 1_sampling/scripts/shared/msna_paths.R from MSNA_WORKSPACE, this script's
+# own location or the working directory, so a sandbox copy never reads or writes the live workspace.
+local({
+  starts <- c(Sys.getenv("MSNA_WORKSPACE"),
+              sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)),
+              unlist(lapply(sys.frames(), function(f) f$ofile)), getwd())
+  helper <- NA_character_
+  for (s in starts[nzchar(starts)]) {
+    d <- normalizePath(s, winslash = "/", mustWork = FALSE)
+    while (is.na(helper)) {
+      h <- file.path(d, "1_sampling", "scripts", "shared", "msna_paths.R")
+      if (file.exists(h)) helper <- h
+      p <- dirname(d)
+      if (identical(p, d)) break
+      d <- p
+    }
+    if (!is.na(helper)) break
+  }
+  if (is.na(helper)) stop("Cannot find 1_sampling/scripts/shared/msna_paths.R - set MSNA_WORKSPACE.", call. = FALSE)
+  assign(".msna_paths_file", helper, envir = globalenv())
+  source(helper)
+})
+PROJECT_DIR <- msna_sampling_dir()
 setwd(PROJECT_DIR)
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) < 3) stop("Usage: Rscript draw_supplementary_idp_sites_batch.R <shortfalls_idp_csv> <staging_dir> <seed_base>")
@@ -83,7 +105,7 @@ shortfalls_idp_raw <- read_csv(SHORTFALLS_IDP_CSV, show_col_types = FALSE)
 # assert_fresh() would catch) can otherwise waste a real draw on a stratum
 # that's since left the sampling universe entirely.
 strata_frame_current_idp <- read_csv(
-  "output/data/data_collection/NGA_MSNA_2026_strata_level_sampling_frame_v14_WORKING.csv",
+  msna_frame_file("strata_WORKING"),
   show_col_types = FALSE, col_types = cols(.default = "c")
 )
 still_covered_strata_ids_idp <- strata_frame_current_idp$strata_id
@@ -123,7 +145,7 @@ log_msg("%d stratum/strata in shortfalls, %d total households needed.", nrow(sho
 # uses the same site-identity logic as select_stage2_idp_sites()'s own
 # 30m dedup radius - a live cluster's GPS point within 30m of a candidate
 # site is the same physical site already fielded.
-full <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v14_FULL.csv", show_col_types = FALSE, col_types = cols(.default = "c")) %>%
+full <- read_csv(msna_frame_file("stage2_FULL"), show_col_types = FALSE, col_types = cols(.default = "c")) %>%
   filter(pop_type == "idp") %>%
   mutate(latitude = as.numeric(latitude), longitude = as.numeric(longitude)) %>%
   distinct(cluster_id, latitude, longitude)
