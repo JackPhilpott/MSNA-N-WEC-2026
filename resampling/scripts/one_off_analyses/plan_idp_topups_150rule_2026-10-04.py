@@ -73,12 +73,22 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--max-share", type=float, default=None,
                     help="optional: a site's new target may not exceed this share of its households (e.g. 0.5)")
+    ap.add_argument("--out", default=None, help="optional: output folder (default: the 4 Oct folder)")  # 2026-10-09 (#28)
     args = ap.parse_args()
     suffix = f"_maxshare{int(round(args.max_share * 100))}" if args.max_share else ""
+    global OUT_DIR
+    OUT_DIR = os.path.abspath(args.out) if args.out else OUT_DIR
     os.makedirs(OUT_DIR, exist_ok=True)
     m = load_module(os.path.join(RS, "scripts", "05_build_accessibility_impact_workbook.py"), "m05")
     rev = load_module(os.path.join(REV_DIR, "build_representativity_review.py"), "rev")
     L = rev.load_state(m)
+    # 2026-10-09: since 4-5 Oct 05 leaves UNUSED spare clusters out of every projection (05 l.1155: spare_clusters.py,
+    # canonical rule); the 27 Sep review engine predates that and still counted all 319 - the 163 strata holding one
+    # failed the reproduction check on MoE alone. Drop them here exactly as 05 does, before the check.
+    import spare_clusters
+    unused = spare_clusters.unused_spare_ids(spare_clusters.load_register(S), L["real_cluster"])
+    L["by_strata"] = {k: [c for c in v if c["cluster_id"] not in unused] for k, v in L["by_strata"].items()}
+    print(f"unused spare clusters left out (as 05 does): {len(unused)}")
     status = [r for r in rev.rd(os.path.join(RS, "output", "strata_representativity_status.csv"))
               if r.get("Completion bucket") != "(d) Fully dropped / excluded"]
     strata, bad, extra = rev.build_strata(m, L, status)
