@@ -1,0 +1,2 @@
+# 9 Oct 2026: shell scripts keep LF on Windows checkouts (core.autocrlf=true would give them CRLF, and bash fails on CR)
+*.sh text eol=lf
