@@ -15,17 +15,25 @@
 # planned capacity (covered, accessible, not an unused spare; compute_strata_achieved) and the hex still holds >= 12
 # accessible unclaimed buildings per step. Planned MoE uses the same design-capacity basis as realized_moe_pct.
 # Usage (from 1_sampling): Rscript resampling/scripts/one_off_analyses/build_nonidp_depth_topup_2026-10-05.R <seed>
+#   [<label> <out_dir> <lga=strata_id> ...]   (12 Oct: today's strata, staging label and output folder)
 # ==============================================================================
 args <- commandArgs(trailingOnly = TRUE)
 SEED <- as.integer(if (length(args) >= 1) args[1] else 2026100701)
 LABEL <- "2026-10-05_nonidp_depth"
 OUT <- file.path("resampling", "output", "nonidp_depth_2026-10-05")
-dir.create(OUT, recursive = TRUE, showWarnings = FALSE)
-log_con <- file(file.path(OUT, "build_log.txt"), open = "wt")
-log_msg <- function(...) { m <- sprintf(...); cat(m, "\n"); cat(m, "\n", file = log_con) }
 STRATA <- c(Magumeri = "non_idp_NG008020", Malumfashi = "non_idp_NG021025", Dandume = "non_idp_NG021008",
             Dikwa = "non_idp_NG008008", Yauri = "non_idp_NG022020", Damboa = "non_idp_NG008007",
             Funtua = "non_idp_NG021014")          # Funtua: staged probe only (Jack decides from the result)
+# 2026-10-12: optional <label> <out_dir> <lga=strata_id> ... after the seed override LABEL, OUT and STRATA (defaults = 5 Oct)
+if (length(args) >= 4) {
+  LABEL <- args[2]
+  OUT <- args[3]
+  kv <- strsplit(args[-(1:3)], "=", fixed = TRUE)
+  STRATA <- setNames(vapply(kv, `[`, "", 2), vapply(kv, `[`, "", 1))
+}
+dir.create(OUT, recursive = TRUE, showWarnings = FALSE)
+log_con <- file(file.path(OUT, "build_log.txt"), open = "wt")
+log_msg <- function(...) { m <- sprintf(...); cat(m, "\n"); cat(m, "\n", file = log_con) }
 TARGETS <- c(9.25, 10); CAP_HH <- 150; STEP <- 6L; MIN_ACCESSIBLE_BUILDINGS <- 6L
 
 # ---- Stage A: the draw's own environment (pipeline prefix + stage-2 functions + GRID3 wards) ----
