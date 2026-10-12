@@ -144,6 +144,8 @@ Replace "with replacement clusters already identified and readied … full exten
 - **Accessible Area** (update): the ToR says the Admin-3 inaccessibility exclusion is North-East only. During fieldwork, partner-reported ward-level accessibility was applied in all three regions, and cluster-level reports too (section 3.2 of this brief). Border buffers: 20 km Niger border in the North-East; 5 km for all other border segments, including the Niger border in the North-West.
 - **Cluster (PSU)** (update): a hexagon for Non-IDP; for IDP, a hexagon until 2 Sep and an individual DTM site from 2 Sep.
 - **Accessible population:** the stratum's households × the share of its population living in wards reported accessible. It is the denominator of every margin of error and the calibration total of the weights.
+  - As implemented, that share is computed from WorldPop gridded population for both groups. For IDP strata it is the WorldPop population of the ward portions that contain a DTM site, not DTM site households.
+  - A fix using DTM households for IDP strata is being tested **[Jack to confirm whether it applies]**.
 - **Achieved interview:** completed, matched to a sampled point, and not a settled (confirmed) deletion. Pending flags do not remove an interview.
 - **Round 1 / Round 2** (section 3.7 of this brief).
 - **Representativity categories:** (a) Representative: MoE ≤ 10%. (b) Indicative: MoE > 10% with at least 20 interviews; usable with caution. (c) Dropped: fewer than 20 interviews. (d) Not assessed.

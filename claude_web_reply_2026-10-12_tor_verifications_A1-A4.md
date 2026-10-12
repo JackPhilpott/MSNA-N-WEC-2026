@@ -125,8 +125,10 @@ Design facts only, taken from the sampling files and code. Figures are copied ex
   % accessible = 100 × (population in the ward portions reported Accessible) / (population in all ward portions of the LGA, for that population group)
 
 - It's computed per LGA × population group on the GIS layer of LGA-by-ward portions:
-  - population = WorldPop for Non-IDP and DTM for IDP;
+  - **population = WorldPop gridded population for BOTH groups.** For IDP strata the share is the WorldPop population of the ward portions that contain at least one DTM site. It is **not** weighted by DTM site households;
   - accessibility = the partner-reported ward status.
+  - *Correction (12 Oct evening):* an earlier version of this reply said "DTM for IDP". The code uses WorldPop for IDP too (`analysis_accessible_area_layer.R`, line 200).
+  - A fix that weights IDP strata by DTM site households is being tested. Whether it is applied, and how the ToR should describe this, is **[Jack to confirm]**. Until then, describe the rule as implemented.
 - A standing recheck (from 8 Sep) applies the same 10% floor to every covered stratum and every stratum dropped for this reason. It flags "new exclusion candidates" and "reinstatement candidates" for a decision by the MSNA lead; nothing is applied automatically.
 
 ---
