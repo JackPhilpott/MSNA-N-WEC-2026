@@ -150,12 +150,15 @@ spot <- list()
 for (s in seg) {
   ln <- st_union(s$line)
   poly <- st_intersection(st_buffer(ln, s$d), s$clip) %>% st_make_valid() %>% st_collection_extract("POLYGON") %>% st_union()
-  edge <- st_cast(st_cast(st_boundary(poly), "MULTILINESTRING"), "LINESTRING")
-  pts <- st_sf(geometry = st_cast(st_line_sample(edge, density = 1 / 250), "POINT"))   # four points per km of edge
+  # vertices of the strip's boundary, densified to <= 250 m (st_line_sample(density=) under-fills one long ring)
+  pts <- st_sf(geometry = st_cast(st_cast(st_segmentize(st_boundary(poly), 250), "MULTIPOINT"), "POINT"))
   pd <- as.numeric(st_distance(pts, ln))
   inner <- pts[abs(pd - s$d) < 5, ]   # the buffer's own offset edge (its arcs are chords, so a few metres short at most)
   if (nrow(inner) < 5) { say("  ", s$name, ": fewer than 5 inner-edge points found (", nrow(inner), ")"); next }
-  pick <- inner[round(seq(1, nrow(inner), length.out = 5)), ]
+  xy <- st_coordinates(inner)
+  ax <- if (diff(range(xy[, 1])) >= diff(range(xy[, 2]))) 1 else 2   # spread the 5 points along the border's main axis
+  ord <- order(xy[, ax])
+  pick <- inner[ord[round(quantile(seq_along(ord), c(0.1, 0.3, 0.5, 0.7, 0.9)))], ]
   g <- as.numeric(st_distance(st_transform(pick, 4326), st_transform(st_sf(geometry = ln), 4326)))
   p <- as.numeric(st_distance(pick, ln))
   ll <- st_coordinates(st_transform(pick, 4326))
@@ -268,8 +271,9 @@ label_layers <- function() list(
                   fontface = "bold", bg.color = "white", bg.r = 0.18, seed = 2, alpha = 0.85))
 
 # map2's hand-built legend panel (absolute-cm rows), plus an "outline" swatch for variant (b)'s flagged hexes
+# sizes a notch smaller than map2's (4 exclusion rows now, not 2), so the panel stays clear of the North-Central states
 build_manual_legend_panel <- function(sections, swatch_cm = 0.4, title_size = 15, section_title_size = 10, item_size = 9, row_gap_cm = 0.12,
-                                      section_gap_cm = 0.24, title_gap_cm = 0.2,   # a notch smaller than map2: 4 exclusion rows now, not 2 swatch_label_gap_cm = 0.18, fig_width_in = 9, fig_height_in = 8.5,
+                                      section_gap_cm = 0.24, title_gap_cm = 0.2, swatch_label_gap_cm = 0.18, fig_width_in = 9, fig_height_in = 8.5,
                                       margin_cm = c(t = 0.4, r = 0.5, b = 0.35, l = 0.45)) {
   all_labels <- unlist(lapply(sections, function(s) c(if (!is.null(s$title)) s$title, sapply(s$rows, `[[`, "label"))))
   fs <- unlist(lapply(sections, function(s) c(if (!is.null(s$title)) section_title_size, rep(item_size, length(s$rows)))))
