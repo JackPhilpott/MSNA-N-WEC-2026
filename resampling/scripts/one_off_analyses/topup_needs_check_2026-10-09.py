@@ -96,6 +96,12 @@ def latest_draws():
 
 
 def main():
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--out", default=None, help="optional: output folder (default: the 9 Oct folder)")  # 2026-10-12
+    a = ap.parse_args()
+    global OUT
+    OUT = os.path.abspath(a.out) if a.out else OUT
     os.makedirs(OUT, exist_ok=True)
     status = {r["Strata ID"]: r for r in rd(os.path.join(RS, "output", "strata_representativity_status.csv"))}
     t05 = datetime.datetime.fromtimestamp(os.path.getmtime(os.path.join(RS, "output", "strata_representativity_status.csv")))
