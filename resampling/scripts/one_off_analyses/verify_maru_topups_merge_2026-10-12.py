@@ -9,7 +9,7 @@
 #   WORKING vs the snapshot taken right before the merges (after the accessibility chain's routine refresh):
 #     added rows <= staged rows; removed 0; changed rows only the depth columns of depth clusters
 #   new rows: partners_covering == their stratum's; ward_accessible_status Accessible
-# Usage (from 1_sampling): py resampling/scripts/one_off_analyses/verify_maru_topups_merge_2026-10-12.py <label> <archive dir> <WORKING snapshot>
+# Usage (from 1_sampling): py resampling/scripts/one_off_analyses/verify_maru_topups_merge_2026-10-12.py <label[,label2]> <archive dir> <WORKING snapshot>
 # ==============================================================================
 import csv
 import glob
@@ -33,7 +33,8 @@ def rd(p):
 def main():
     label, fa, snap = sys.argv[1], os.path.abspath(sys.argv[2]), os.path.abspath(sys.argv[3])
     staged, depth = set(), set()
-    for d in glob.glob(os.path.join(RS, "output", "resample_runs", "*", label)):
+    dirs = [d for lb in label.split(",") for d in glob.glob(os.path.join(RS, "output", "resample_runs", "*", lb))]  # several labels: a,b
+    for d in dirs:
         for fn in ("new_households.csv", "new_households_idp_sitelevel.csv",
                    "existing_cluster_household_additions_non_idp.csv", "existing_cluster_household_additions_idp.csv"):
             p = os.path.join(d, fn)
@@ -57,11 +58,13 @@ def main():
             if not cols:
                 continue
             x = new[k]
-            if cols == {"ward_accessible_status"} and kind == "stage2_FULL" and x["adm1_name"] == "Zamfara" and x["adm2_name"] == "Maru" \
-                    and x["ward_accessible_status"] == "Inaccessible" and master.get(("Zamfara", "Maru", x["adm3_name"])) == "Inaccessible":
+            maru_flip = "ward_accessible_status" in cols and kind == "stage2_FULL" and x["adm1_name"] == "Zamfara" and x["adm2_name"] == "Maru" \
+                and x["ward_accessible_status"] == "Inaccessible" and master.get(("Zamfara", "Maru", x["adm3_name"])) == "Inaccessible"
+            rest = cols - {"ward_accessible_status"} if maru_flip else cols
+            if maru_flip and not rest:
                 why["Maru ward now Inaccessible"] += 1
-            elif x["cluster_id"] in depth and cols <= DEPTH_COLS:
-                why["depth cluster: " + "+".join(sorted(cols))] += 1
+            elif x["cluster_id"] in depth and rest <= DEPTH_COLS:  # a depth cluster's row may also sit in a ward that just closed
+                why[("Maru ward now Inaccessible + " if maru_flip else "") + "depth cluster: " + "+".join(sorted(rest))] += 1
             else:
                 bad.append((k, sorted(cols)))
         exact = kind == "stage2_FULL"
