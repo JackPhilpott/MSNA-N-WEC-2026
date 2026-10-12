@@ -24,7 +24,24 @@ import openpyxl
 from openpyxl.utils import get_column_letter, range_boundaries
 from openpyxl.worksheet.datavalidation import DataValidation
 
-PROJECT_DIR = r"c:\Users\JackPHILPOTT\ACTED\IMPACT NGA - 02. MSNA\4. Data\MSNA N-WEC 2026\1_sampling\resampling"
+# Portable paths (12 Oct 2026, for the Maru change): find 1_sampling/scripts/shared/msna_paths.py from MSNA_WORKSPACE,
+# this file's location or the working directory, so a scratch copy never reads or writes the live workspace.
+def _msna_shared_dir():
+    for start in (os.environ.get("MSNA_WORKSPACE", "").strip(), os.path.dirname(os.path.abspath(__file__)), os.getcwd()):
+        d = os.path.abspath(start) if start else ""
+        while d:
+            cand = os.path.join(d, "1_sampling", "scripts", "shared")
+            if os.path.isfile(os.path.join(cand, "msna_paths.py")):
+                return cand
+            parent = os.path.dirname(d)
+            d = "" if parent == d else parent
+    raise SystemExit("Cannot find 1_sampling/scripts/shared/msna_paths.py - set MSNA_WORKSPACE.")
+
+
+sys.path.insert(0, _msna_shared_dir())
+import msna_paths  # noqa: E402
+
+PROJECT_DIR = os.path.join(msna_paths.sampling_dir(), "resampling")
 RETURNED = PROJECT_DIR + r"\input\accessibility_reports_returned"
 ARCHIVE = RETURNED + r"\_archive"
 MASTER = PROJECT_DIR + r"\output\master_accessibility_status_ward_level.csv"
@@ -89,7 +106,7 @@ def main():
     ap.add_argument("--execute", action="store_true")
     a = ap.parse_args()
     main_path = RETURNED + rf"\{a.partner}_accessibility_report.xlsx"
-    backup = ARCHIVE + rf"\{a.partner}_accessibility_report_pre_{a.tag}_2026-09-26.xlsx"
+    backup = ARCHIVE + rf"\{a.partner}_accessibility_report_pre_{a.tag}_{datetime.now():%Y-%m-%d}.xlsx"  # run date (was fixed to 26 Sep)
     tmp = main_path.replace(".xlsx", f"_tmp_{a.tag}.xlsx")
     plan = list(csv.DictReader(open(a.plan, encoding="utf-8-sig", newline="")))
     if not os.path.exists(backup):
