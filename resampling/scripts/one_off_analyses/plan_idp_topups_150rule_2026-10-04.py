@@ -85,8 +85,9 @@ def main():
     # 2026-10-09: since 4-5 Oct 05 leaves UNUSED spare clusters out of every projection (05 l.1155: spare_clusters.py,
     # canonical rule); the 27 Sep review engine predates that and still counted all 319 - the 163 strata holding one
     # failed the reproduction check on MoE alone. Drop them here exactly as 05 does, before the check.
+    import msna_paths  # 2026-10-12 (#17): the frame's file names come from the version on the files
     import spare_clusters
-    unused = spare_clusters.unused_spare_ids(spare_clusters.load_register(S), L["real_cluster"])
+    unused =spare_clusters.unused_spare_ids(spare_clusters.load_register(S), L["real_cluster"])
     L["by_strata"] = {k: [c for c in v if c["cluster_id"] not in unused] for k, v in L["by_strata"].items()}
     print(f"unused spare clusters left out (as 05 does): {len(unused)}")
     status = [r for r in rev.rd(os.path.join(RS, "output", "strata_representativity_status.csv"))
@@ -96,7 +97,7 @@ def main():
     if bad or extra:
         raise SystemExit("STOP: the review engine does not reproduce 05's verdicts - not safe")
     hh = {}
-    with open(os.path.join(S, "output", "data", "data_collection", "NGA_MSNA_2026_stage2_sampling_frame_v14_FULL.csv"),
+    with open(msna_paths.frame_file("stage2_FULL", os.path.join(S, "output", "data", "data_collection")),
               encoding="utf-8-sig", newline="") as f:
         for r in csv.DictReader(f):
             if r["cluster_id"] not in hh:

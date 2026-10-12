@@ -17,11 +17,33 @@ args <- commandArgs(trailingOnly = TRUE)
 if (length(args) < 2) stop("Usage: Rscript build_idp_topup_from_plan_2026-10-04.R <plan_by_cluster.csv> <label>")
 PLAN_CSV <- normalizePath(args[1], winslash = "/", mustWork = TRUE)
 LABEL <- args[2]
-PROJECT_DIR <- "c:/Users/JackPHILPOTT/ACTED/IMPACT NGA - 02. MSNA/4. Data/MSNA N-WEC 2026/1_sampling"
+# Portable paths (12 Oct 2026, #17): find 1_sampling/scripts/shared/msna_paths.R from MSNA_WORKSPACE, this script's
+# own location or the working directory; the frame file names come from the version on the files (msna_frame_file).
+local({
+  starts <- c(Sys.getenv("MSNA_WORKSPACE"),
+              sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)),
+              unlist(lapply(sys.frames(), function(f) f$ofile)), getwd())
+  helper <- NA_character_
+  for (s in starts[nzchar(starts)]) {
+    d <- normalizePath(s, winslash = "/", mustWork = FALSE)
+    while (is.na(helper)) {
+      h <- file.path(d, "1_sampling", "scripts", "shared", "msna_paths.R")
+      if (file.exists(h)) helper <- h
+      p <- dirname(d)
+      if (identical(p, d)) break
+      d <- p
+    }
+    if (!is.na(helper)) break
+  }
+  if (is.na(helper)) stop("Cannot find 1_sampling/scripts/shared/msna_paths.R - set MSNA_WORKSPACE.", call. = FALSE)
+  assign(".msna_paths_file", helper, envir = globalenv())
+  source(helper)
+})
+PROJECT_DIR <- msna_sampling_dir()
 setwd(PROJECT_DIR)
 suppressMessages({ library(dplyr); library(readr); library(purrr) })
-working <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v14_WORKING.csv", show_col_types = FALSE)
-full <- read_csv("output/data/data_collection/NGA_MSNA_2026_stage2_sampling_frame_v14_FULL.csv", show_col_types = FALSE)
+working <- read_csv(msna_frame_file("stage2_WORKING"), show_col_types = FALSE)
+full <- read_csv(msna_frame_file("stage2_FULL"), show_col_types = FALSE)
 plan_all <- read_csv(PLAN_CSV, show_col_types = FALSE, col_types = cols(.default = "c")) %>%
   mutate(increase = as.integer(increase), folder = trimws(sub(",.*$", "", partner)))
 stopifnot("plan has rows" = nrow(plan_all) > 0, "every increase is a positive integer" = all(plan_all$increase > 0),

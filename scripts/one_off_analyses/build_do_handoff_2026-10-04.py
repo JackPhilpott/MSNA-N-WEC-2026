@@ -2,8 +2,8 @@
 # 2026-10-04: the DO hand-off for the new KoBo tool version, built AFTER tonight's final frame run. Same file set as the
 # 25-27 Sep hand-offs (Jack: "we updated the WORKING frame and give to the DO to upload and new version of the tool"),
 # and only that:
-#   <out>/NGA_MSNA_2026_stage2_sampling_frame_v14_WORKING.csv        58 columns (as the DO received on 27 Sep)
-#   <out>/NGA_MSNA_2026_strata_level_sampling_frame_v14_WORKING.csv  31 columns
+#   <out>/NGA_MSNA_2026_stage2_sampling_frame_<dest-version>_WORKING.csv        58 columns (as the DO received on 27 Sep)
+#   <out>/NGA_MSNA_2026_strata_level_sampling_frame_<dest-version>_WORKING.csv  31 columns
 #   <out>/_frame_version.txt                                          the stamp of the two files
 #   <out>/ALT_no_audit_cols_56_29/   same two files without
 #        original_partner_covering + coverage_reallocated_on (the 25 Sep fallback)
@@ -25,11 +25,17 @@ import sys
 import zipfile
 from collections import Counter
 
-DC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "output", "data", "data_collection")
-S2, ST, STAMP = ("NGA_MSNA_2026_stage2_sampling_frame_v14_WORKING.csv", "NGA_MSNA_2026_strata_level_sampling_frame_v14_WORKING.csv",
+S1 = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+DC = os.path.join(S1, "output", "data", "data_collection")
+sys.path.insert(0, os.path.join(S1, "scripts", "shared"))
+import msna_paths  # noqa: E402
+# 2026-10-12 (#17): the internal names come from the version on the files (msna_paths), no longer a hard-coded v14
+V = msna_paths.frame_version(DC)
+S2, ST, STAMP = (msna_paths.FRAME_FAMILY["stage2_WORKING"].format(v=V), msna_paths.FRAME_FAMILY["strata_WORKING"].format(v=V),
                  "_frame_version.txt")
 AUDIT = ("original_partner_covering", "coverage_reallocated_on")
-BASELINE = os.path.join(DC, "_archive", "2026-10-04_daily_update_2026-10-04_222328", S2)
+# the night of 4 Oct's own starting point, archived under its v14 name
+BASELINE = os.path.join(DC, "_archive", "2026-10-04_daily_update_2026-10-04_222328", "NGA_MSNA_2026_stage2_sampling_frame_v14_WORKING.csv")
 
 
 def md5(p):
@@ -65,11 +71,11 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--changes", required=True)
     ap.add_argument("--baseline-working", default=BASELINE)
-    ap.add_argument("--dest-version", default="v14", help="DO-facing frame version in the hand-off file names (e.g. v15)")
+    ap.add_argument("--dest-version", default=V, help="DO-facing frame version in the hand-off file names (default: the internal one)")
     ap.add_argument("--label", default="", help="DO-facing label, e.g. 'pre-spares'")
     a = ap.parse_args()
     dv = a.dest_version
-    dname = lambda f: f.replace("_v14_", f"_{dv}_")
+    dname = lambda f: f.replace(f"_{V}_", f"_{dv}_")
     out = os.path.abspath(a.out)
     if os.path.exists(out) or os.path.exists(out + ".zip"):
         sys.exit(f"STOP: {out} (or its zip) already exists - choose a new name")
@@ -107,15 +113,15 @@ def main():
         f"# Sampling frame {dv}{(' (' + a.label + ')') if a.label else ''} for the new KoBo tool version (WORKING), night of 4 Oct 2026", "",
         "A read-only copy of the live frame after tonight's final run. Nothing here has been uploaded anywhere.",
         *([f"**Version note:** for the DO this frame is **{dv}**{(' (' + a.label + ')') if a.label else ''}. Inside our workspace the same files",
-           "are still named `_v14_` (no internal rename tonight); their content is byte-identical to the files here, see the",
-           "mapping below. The DO's daily runs are unaffected: they keep reading the `_v14_` files.", ""] if dv != "v14" else []),
+           f"are still named `_{V}_` (no internal rename tonight); their content is byte-identical to the files here, see the",
+           f"mapping below. The DO's daily runs are unaffected: they keep reading the `_{V}_` files.", ""] if dv != V else []),
         "Hand over the two files in this folder (58 / 31 columns, the same schema the DO received on 27 Sep). Use the",
         "`ALT_...` folder only if the tool build rejects the 2 audit columns (`original_partner_covering`,",
         "`coverage_reallocated_on`).", "",
         "## Files (md5 also in `MD5.txt`)", "| file | content | columns | md5 |", "|---|---|---|---|", *facts, "",
         f"Tonight's starting point: {len(r0):,} WORKING rows ({a.baseline_working.split(os.sep + '_archive' + os.sep)[-1]}).", "",
         *(["## Mapping to the internal files (byte-identical)", "| hand-off file | internal file | md5 |", "|---|---|---|", *mapping, ""]
-          if dv != "v14" else []),
+          if dv != V else []),
         "## WORKING rows by `partners_covering`, where the count changed tonight",
         "| partners_covering | start of the night | now | change |", "|---|---|---|---|", *delta, "",
         "## What changed tonight", changes, ""])

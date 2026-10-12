@@ -42,11 +42,12 @@ building_data_dir <- file.path("C:/Users/JackPHILPOTT/Personal - Documents/GIS",
 nga_wards <- sf::st_read(here::here("input_data", "boundaries", "GRID3_NGA_Ward_Boundaries_v1", "grid3_nga_boundary_vaccwards.shp"), quiet = TRUE)
 source("scripts/shared/frame_status.R")
 source("scripts/shared/spare_clusters.R")
+source("scripts/shared/msna_paths.R")  # 2026-10-12 (#17): the frame's file names come from the version on the files
 
 # ---- planned capacity (as realized_moe_pct) ----
 DC <- "output/data/data_collection"; MON <- file.path("..", "2_monitoring", "data")
-full <- read_csv(file.path(DC, "NGA_MSNA_2026_stage2_sampling_frame_v14_FULL.csv"), col_types = cols(.default = "c"), show_col_types = FALSE)
-sl <- read_csv(file.path(DC, "NGA_MSNA_2026_strata_level_sampling_frame_v14_WORKING.csv"), col_types = cols(.default = "c"), show_col_types = FALSE)
+full <- read_csv(msna_frame_file("stage2_FULL", DC), col_types = cols(.default = "c"), show_col_types = FALSE)
+sl <- read_csv(msna_frame_file("strata_WORKING", DC), col_types = cols(.default = "c"), show_col_types = FALSE)
 subs <- read_csv(file.path(MON, "real_submissions.csv"), col_types = cols(.default = "c"), show_col_types = FALSE)
 ov <- read_csv(file.path(MON, "CONFIRMED_DELETIONS_OVERLAY.csv"), col_types = cols(.default = "c"), show_col_types = FALSE)
 unused <- unused_spare_ids(load_spare_register(path = file.path(DC, SPARE_REGISTER_NAME)), achieved_by_cluster(subs, deletion_excluded_uuids(ov)))

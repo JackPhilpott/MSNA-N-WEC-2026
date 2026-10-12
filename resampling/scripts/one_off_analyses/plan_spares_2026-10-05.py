@@ -13,20 +13,23 @@
 # ==============================================================================
 import csv
 import os
+import sys
 from collections import Counter, defaultdict
 
 RS = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DC = os.path.join(os.path.dirname(RS), "output", "data", "data_collection")
+sys.path.insert(0, os.path.join(os.path.dirname(RS), "scripts", "shared"))
+import msna_paths  # noqa: E402  (2026-10-12, #17: the frame's file names come from the version on the files)
 OUT = os.path.join(RS, "output", "spares_2026-10-05")
 PER_STRATUM = 2
 
 
 def main():
     os.makedirs(OUT, exist_ok=True)
-    with open(os.path.join(DC, "NGA_MSNA_2026_strata_level_sampling_frame_v14_WORKING.csv"), encoding="utf-8-sig", newline="") as f:
+    with open(msna_paths.frame_file("strata_WORKING", DC), encoding="utf-8-sig", newline="") as f:
         strata = list(csv.DictReader(f))
     todo, light = Counter(), set()
-    with open(os.path.join(DC, "NGA_MSNA_2026_stage2_sampling_frame_v14_WORKING.csv"), encoding="utf-8-sig", newline="") as f:
+    with open(msna_paths.frame_file("stage2_WORKING", DC), encoding="utf-8-sig", newline="") as f:
         for r in csv.DictReader(f):
             if r["status"] == "primary":
                 todo[r["strata_id"]] += 1

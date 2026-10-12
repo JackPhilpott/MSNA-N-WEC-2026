@@ -114,7 +114,7 @@ def main():
     reg = spare_clusters.load_register(S1)
     unused = spare_clusters.unused_spare_ids(reg, ach_c)
     rem, rem_sp, res, todo_cl = Counter(), Counter(), Counter(), defaultdict(set)
-    for r in rd(os.path.join(DC, "NGA_MSNA_2026_stage2_sampling_frame_v14_WORKING.csv")):
+    for r in rd(msna_paths.frame_file("stage2_WORKING", DC)):
         if r["status"] != "primary":
             if r["status"] == "reserve" and r["cluster_id"] not in unused:
                 res[r["strata_id"]] += 1
@@ -125,7 +125,7 @@ def main():
             rem[r["strata_id"]] += 1
             todo_cl[r["strata_id"]].add(r["cluster_id"])
     draws, full_tests = latest_draws()
-    method = {r["strata_id"]: r["sampling_method"] for r in rd(os.path.join(DC, "NGA_MSNA_2026_strata_level_sampling_frame_v14_WORKING.csv"))}
+    method = {r["strata_id"]: r["sampling_method"] for r in rd(msna_paths.frame_file("strata_WORKING", DC))}
     rows = []
     for sid, s in status.items():
         verdict = s["Representativity (10% MoE threshold)"]

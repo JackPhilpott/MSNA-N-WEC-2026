@@ -12,6 +12,7 @@
 suppressPackageStartupMessages({ library(dplyr); library(readr) })
 source("scripts/shared/frame_status.R")
 source("scripts/shared/spare_clusters.R")
+source("scripts/shared/msna_paths.R")  # 2026-10-12 (#17): the frame's file names come from the version on the files
 DC <- "output/data/data_collection"
 MON <- file.path("..", "2_monitoring", "data")
 OUT <- file.path("resampling", "output", "analysis_building_vs_worldpop_2026-10-05")
@@ -27,13 +28,13 @@ if (length(args) >= 2) {
 }
 dir.create(OUT, showWarnings = FALSE, recursive = TRUE)
 
-full <- read_csv(file.path(DC, "NGA_MSNA_2026_stage2_sampling_frame_v14_FULL.csv"), col_types = cols(.default = "c"), show_col_types = FALSE)
+full <- read_csv(msna_frame_file("stage2_FULL", DC), col_types = cols(.default = "c"), show_col_types = FALSE)
 subs <- read_csv(file.path(MON, "real_submissions.csv"), col_types = cols(.default = "c"), show_col_types = FALSE)
 ov <- read_csv(file.path(MON, "CONFIRMED_DELETIONS_OVERLAY.csv"), col_types = cols(.default = "c"), show_col_types = FALSE)
 unused <- unused_spare_ids(load_spare_register(path = file.path(DC, SPARE_REGISTER_NAME)), achieved_by_cluster(subs, deletion_excluded_uuids(ov)))
 acc <- compute_cluster_accessibility(full, 4)
 res <- compute_strata_achieved(full, compute_achieved_lookup(subs, ov), acc, filter_ward_accessible = TRUE, exclude_cluster_ids = unused)
-sl <- read_csv(file.path(DC, "NGA_MSNA_2026_strata_level_sampling_frame_v14_WORKING.csv"), col_types = cols(.default = "c"), show_col_types = FALSE)
+sl <- read_csv(msna_frame_file("strata_WORKING", DC), col_types = cols(.default = "c"), show_col_types = FALSE)
 
 # unclaimed accessible buildings per hex: the 5 Oct spares check wins over the 4 Oct top-up check
 pv_files <- c(Sys.glob("resampling/output/resample_runs/*/2026-10-04_nonidp_topup_150rule/pool_validation_by_hex.csv"),

@@ -30,9 +30,13 @@ S1 = os.path.dirname(RS)
 DC = os.path.join(S1, "output", "data", "data_collection")
 RUNS = os.path.join(S1, "output", "daily_update_runs")
 V17 = os.path.join(RS, "output", "do_handoff_v17_post_depth_2026-10-06")
-S2, ST, REG = ("NGA_MSNA_2026_stage2_sampling_frame_v14_WORKING.csv", "NGA_MSNA_2026_strata_level_sampling_frame_v14_WORKING.csv",
-               "buffer_cluster_register.csv")
-FULL = "NGA_MSNA_2026_stage2_sampling_frame_v14_FULL.csv"
+sys.path.insert(0, os.path.join(S1, "scripts", "shared"))
+import msna_paths  # noqa: E402
+# 2026-10-12 (#17): the live names come from the version on the files (msna_paths); the 6 Oct hand-off keeps its _v17_ names
+V_LIVE = msna_paths.frame_version(DC)
+S2, ST, FULL = (msna_paths.FRAME_FAMILY[k].format(v=V_LIVE) for k in ("stage2_WORKING", "strata_WORKING", "stage2_FULL"))
+S2_V17, ST_V17 = (msna_paths.FRAME_FAMILY[k].format(v="v17") for k in ("stage2_WORKING", "strata_WORKING"))
+REG = "buffer_cluster_register.csv"
 V17_FULL_MD5, V17_REG_MD5, V17_WORKING_MD5 = "23c20392da92b55025c222e8224068f1", "7721a420715f7e51126df7f978c5149e", "070a24ec6ea122fe28872f11b4219c9d"
 ACHIEVED_COLS = {"achieved_clusters", "achieved_sample", "realized_moe_pct"}
 
@@ -80,8 +84,8 @@ def main():
         sys.exit(f"STOP: Phase 2 has not left a published frame (latest run {latest.get('run_id')}: {latest.get('status')})")
 
     # 2. only achieved removals since the 6 Oct v17
-    base = {r["survey_id"]: r for r in rows(os.path.join(V17, S2.replace("_v14_", "_v17_")))}
-    if md5(os.path.join(V17, S2.replace("_v14_", "_v17_"))) != V17_WORKING_MD5:
+    base = {r["survey_id"]: r for r in rows(os.path.join(V17, S2_V17))}
+    if md5(os.path.join(V17, S2_V17)) != V17_WORKING_MD5:
         sys.exit("STOP: the 6 Oct v17 hand-off WORKING is not 070a24ec")
     now = {r["survey_id"]: r for r in rows(live[S2])}
     added, removed = set(now) - set(base), set(base) - set(now)
@@ -89,7 +93,7 @@ def main():
     runs = accepted_refreshes_since_v17()
     removed_by_runs = sum(s["frame"]["removed"] for s in runs)
     unexplained = sum(s["frame"].get("unexplained", 0) for s in runs) + sum(s["frame"].get("added", 0) for s in runs)
-    sb = {r["strata_id"]: r for r in rows(os.path.join(V17, ST.replace("_v14_", "_v17_")))}
+    sb = {r["strata_id"]: r for r in rows(os.path.join(V17, ST_V17))}
     sn = {r["strata_id"]: r for r in rows(live[ST])}
     moved = {c for k in sb if k in sn for c in sn[k] if sn[k][c] != sb[k].get(c)}
     checks = [
@@ -124,7 +128,7 @@ def main():
             *[f"| {s['run_id']} | {s['frame']['removed']:,} |" for s in runs]]) + "\n")
     try:
         p = subprocess.run([sys.executable, os.path.join(S1, "scripts", "one_off_analyses", "build_do_handoff_2026-10-04.py"),
-                            "--out", out, "--changes", tmp, "--baseline-working", os.path.join(V17, S2.replace("_v14_", "_v17_")),
+                            "--out", out, "--changes", tmp, "--baseline-working", os.path.join(V17, S2_V17),
                             "--dest-version", "v17", "--label", "final"], capture_output=True, text=True, encoding="utf-8")
     finally:
         os.remove(tmp)
@@ -138,10 +142,10 @@ def main():
         ("for the new KoBo tool version (WORKING), night of 4 Oct 2026", "for the new KoBo tool version (WORKING), 9 Oct 2026"),
         ("A read-only copy of the live frame after tonight's final run.",
          f"A read-only copy of the live frame after today's frame refresh and partner publish (run {latest.get('run_id')})."),
-        ("(no internal rename tonight)", "(no internal rename yet)"),
+        *([("(no internal rename tonight)", "(no internal rename yet)")] if V_LIVE != "v17" else []),  # no version note when the names match
         ("Tonight's starting point:", "Starting point (the 6 Oct v17 hand-off):"),
-        (os.path.join(V17, S2.replace("_v14_", "_v17_")),
-         "1_sampling/resampling/output/do_handoff_v17_post_depth_2026-10-06/" + S2.replace("_v14_", "_v17_")),
+        (os.path.join(V17, S2_V17),
+         "1_sampling/resampling/output/do_handoff_v17_post_depth_2026-10-06/" + S2_V17),
         ("where the count changed tonight", "where the count changed since the 6 Oct v17"),
         ("| start of the night |", "| 6 Oct v17 |"),
         ("## What changed tonight", "## What changed since the 6 Oct v17"),
