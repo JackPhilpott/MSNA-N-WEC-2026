@@ -891,6 +891,14 @@ def write_last_run_targets(new_targets):
             w.writerow({"strata_id": strata_id, **vals})
 
 
+# 2026-10-13 (#44 S1): clusters Task 5 dropped as excess capacity (compute_target_correction_drops.R) keep status
+# "not_started_other" by design (frame_status.R), so build_cluster_level() credited none of the real interviews
+# some of them already had - see n_primary_ceiling_contribution below.
+TARGET_CORRECTION_DROPS_CSV = SAMPLING_DIR + r"\resampling\output\target_correction_dropped_clusters.csv"
+TARGET_CORRECTION_DROPS = ({r["cluster_id"] for r in csv.DictReader(open(TARGET_CORRECTION_DROPS_CSV, encoding="utf-8-sig"))}
+                           if os.path.exists(TARGET_CORRECTION_DROPS_CSV) else set())
+
+
 def build_cluster_level(household_rows, provenance_lookup, cluster_status_lookup, real_achieved_by_cluster):
     """One row per cluster_id: strata_id, pop_type, any_accessible (bool -
     at least one PRIMARY household accessible), all_accessible (bool - every
@@ -986,9 +994,14 @@ def build_cluster_level(household_rows, provenance_lookup, cluster_status_lookup
         # elsewhere in this file, so this ceiling formula now agrees with
         # every other "real achieved" figure in the workbook instead of
         # quietly disagreeing with them.
+        # 2026-10-13 (#44 S1): also for a Task 5-dropped cluster - its real interviews were collected before the drop
+        # and must count, same reasoning as partially_completed_access_lost above (Zurmi IDP: 8 interviews at the two
+        # dropped sites decide its certainty treatment). Deliberately NOT for every status: crediting over-collection at
+        # active clusters raises the Kish cluster-size penalty (Talata Mafara Non-IDP would read 9.71 -> 10.80) - a
+        # separate question, not this fix.
         n_primary_ceiling_contribution = (
             max(n_primary_accessible, real_achieved_by_cluster.get(cid, 0))
-            if cs["status"] in ("completed", "partially_completed_access_lost")
+            if cs["status"] in ("completed", "partially_completed_access_lost") or cid in TARGET_CORRECTION_DROPS
             else n_primary_accessible
         )
         # 2026-08-29: capacity ceiling for the resampling decision - EVERY

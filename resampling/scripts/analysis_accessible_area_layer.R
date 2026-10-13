@@ -150,6 +150,9 @@ ACCESSIBLE_HEX_RDS <- "input_data/boundaries/nga_hexagons/accessible_hex.rds"
 PENDING_ADHOC_PROPOSALS_CSV <- "resampling/input/ad_hoc_reports/pending_adhoc_proposals.csv"
 IOM_NCNW_CSV <- "input_data/population/iom/IMPACT_IOM_DTM_NCNW_R18.csv"
 IOM_NE_CSV <- "input_data/population/iom/IMPACT_IOM_NGA_R51_NE.csv"
+# 2026-10-13 (#44): the IDP rows' pop_total comes from this frame's DTM households (pop_hh) - see the block after
+# build_pop_type_layer() below.
+IDP_SITE_FRAME_RDS <- "input_data/population/sampling_frame/idp_site_level_psu_frame_2026-09-02.rds"
 
 GIS_OUT_DIR <- "resampling/output/gis"
 dir.create(GIS_OUT_DIR, showWarnings = FALSE, recursive = TRUE)
@@ -233,6 +236,37 @@ build_pop_type_layer <- function(base, eligible_mask, pop_type_label, covered_pc
 }
 non_idp_layer <- build_pop_type_layer(dissolved_proj, non_idp_eligible, "Non-IDP", covered_pcodes_non_idp)
 idp_layer <- build_pop_type_layer(dissolved_proj, idp_eligible, "IDP", covered_pcodes_idp)
+
+# ---- 2026-10-13 (#44, Jack): IDP rows carry IOM DTM households, not WorldPop people -------------------------------------
+# Project rule: WorldPop for Non-IDP, IOM DTM for IDP. Until 13 Oct every row - IDP rows included - kept the WorldPop sum
+# extracted above, and DTM only decided which portions are IDP-eligible, so 05's IDP accessible share (load_lga_area_pop_
+# fractions) was the share of WorldPop *people* living in accessible wards, applied to a DTM household total. Each site of
+# the IDP site-level PSU frame (the IDP draw's own universe; the IDP strata's N_hh is summed from the same pop_hh) now
+# counts in ONE IDP portion - one in its own LGA where overlapping GRID3 wards put it in several - and each IDP portion's
+# pop_total is the sum of its sites' DTM households. Ward grain, as before: the cluster accessibility overlay is applied by
+# 05 to clusters, not here. Verified 12-13 Oct (resampling/output/dtm_share_fix_sandbox_2026-10-12): in all 149 covered IDP
+# LGAs the resulting share equals the site frame's own per-site accessible_status share; no site lands in another LGA's
+# portion; the sites in no IDP portion are all in LGAs with no IDP stratum.
+dtm_sites <- readRDS(IDP_SITE_FRAME_RDS) %>% st_transform(mycrs)
+n_sites_all <- nrow(dtm_sites)
+dtm_sites <- dtm_sites[!st_is_empty(dtm_sites), ]
+dtm_hit <- st_intersects(dtm_sites, idp_layer)
+dtm_pick <- mapply(function(ix, own) {
+  if (!length(ix)) return(NA_integer_)
+  m <- ix[idp_layer$adm2_pcode[ix] == own]
+  if (length(m)) m[1] else ix[1]
+}, dtm_hit, dtm_sites$adm2_pcode)
+dtm_hh <- suppressWarnings(as.numeric(dtm_sites$pop_hh))
+n_cross_lga <- sum(!is.na(dtm_pick) & idp_layer$adm2_pcode[dtm_pick] != dtm_sites$adm2_pcode, na.rm = TRUE)
+n_unplaced_covered <- sum(is.na(dtm_pick) & dtm_sites$adm2_pcode %in% covered_pcodes_idp)
+cat(sprintf("DTM households: %d sites in the IDP site frame | no coordinates: %d | in no IDP portion: %d (of which in a covered IDP LGA: %d) | placed in another LGA's portion: %d | pop_hh missing: %d\n",
+            n_sites_all, n_sites_all - nrow(dtm_sites), sum(is.na(dtm_pick)), n_unplaced_covered, n_cross_lga, sum(is.na(dtm_hh))))
+if (n_unplaced_covered > 0 || n_cross_lga > 0) {
+  cat("WARNING: DTM sites of covered IDP LGAs outside their own LGA's IDP portions - check them before trusting the IDP shares\n")
+}
+idp_layer$pop_total <- vapply(seq_len(nrow(idp_layer)), function(i) sum(dtm_hh[which(dtm_pick == i)], na.rm = TRUE), numeric(1))
+cat(sprintf("DTM households: IDP portions %d | with DTM households > 0: %d | DTM households placed: %.0f\n",
+            nrow(idp_layer), sum(idp_layer$pop_total > 0), sum(idp_layer$pop_total)))
 final_layer <- rbind(non_idp_layer, idp_layer)
 
 cat(sprintf("Final layer rows: %d (%d Non-IDP, %d IDP)\n", nrow(final_layer), nrow(non_idp_layer), nrow(idp_layer)))
@@ -355,9 +389,10 @@ cat(sprintf("\nWrote %d LGA-ward-portion x pop_type rows to %s\n", nrow(final_la
 for (pt in c("Non-IDP", "IDP")) {
   sub <- final_layer %>% filter(pop_type == pt)
   inacc <- sub %>% filter(accessible_status == "Inaccessible")
-  cat(sprintf("%s: %d portions | area: %.0f km2 total, %.1f%% inaccessible | population: %.0f total, %.1f%% inaccessible\n",
+  cat(sprintf("%s: %d portions | area: %.0f km2 total, %.1f%% inaccessible | %s: %.0f total, %.1f%% inaccessible\n",
               pt, nrow(sub), sum(sub$area_km2),
               100 * sum(inacc$area_km2) / sum(sub$area_km2),
+              if (pt == "IDP") "DTM households" else "WorldPop population",
               sum(sub$pop_total),
               100 * sum(inacc$pop_total) / sum(sub$pop_total)))
 }
