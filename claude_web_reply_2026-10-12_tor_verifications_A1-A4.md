@@ -158,7 +158,7 @@ Design facts only, taken from the sampling files and code. Figures are copied ex
 - **Map cluster counts reconcile exactly** with the A3 table by region (3,428 / 17,999 / 13,560 / 31,559).
 - Mobbar's two re-admitted wards are visible and not excluded. The legends match what's drawn.
 
-**Two design facts the ToR text should reflect (verified from the design geometry):**
+**Two design facts the ToR text should reflect (verified from the design geometry).** Jack's decision (12 Oct): describe both **as applied** (option a). Use the suggested wording below, and describe the Admin-3 exclusion as the one ward actually excluded.
 1. **The buffer distances were applied in EPSG:31028**, a projection whose zone lies far west of Nigeria, so on the ground they are shorter than stated. Geodesic spot checks, 5 per segment:
    - Niger border, North East: 17.75–18.27 km (rule 20 km);
    - Niger border, North-West: 4.62–4.76 km (rule 5 km);

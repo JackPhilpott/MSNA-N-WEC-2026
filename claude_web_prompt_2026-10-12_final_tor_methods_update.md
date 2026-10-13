@@ -25,7 +25,10 @@ The methodology also changed during fieldwork, in documented and dated decisions
    - **Round 1:** everything submitted by 30 Sep. It has been cleaned and analysed, and its representativity summary has gone to the IPC/CH process.
    - **Round 2:** cumulative, from the first interview to the end of collection (end date [Jack to confirm]).
    - Each round has its own representativity rule (section 6).
-2. **Round 1 analysis covers only part of the design.** It covers the North-East (Adamawa, Borno, Yobe) and North-West (Katsina, Sokoto, Zamfara, plus Kaduna's two design LGAs, Jema'a and Zaria, with no Kaduna state figure). Kebbi and all North-Central states were collected but are outside the Round 1 analysis.
+2. **Round 1 analysis covers only part of the design: 7 states.** North-East: Adamawa, Borno, Yobe. North-West: Katsina, Kebbi, Sokoto, Zamfara.
+   - Kebbi was left out on 2 Oct and **later reinstated** (Jack, 12 Oct). The 5 Oct IPC/CH representativity summary predates the reinstatement and does not include Kebbi.
+   - Kaduna's two design LGAs (Jema'a, Zaria) had LGA-level figures in that summary **[Jack to confirm whether they stay in Round 1]**.
+   - All North-Central states were collected but are outside the Round 1 analysis.
 3. **Accessibility was managed throughout fieldwork, in every region.**
    - Partners reported access at ward and cluster level; inaccessible sample points were replaced from the stratum's accessible remainder.
    - 19 strata in 12 LGAs were dropped when their accessible population fell below the threshold.
@@ -90,7 +93,7 @@ The methodology also changed during fieldwork, in documented and dated decisions
 | **Round 1, strata** (in coverage) | (a) Representative **185** / (b) Indicative **48** / (c) Dropped **15** / (d) Not assessed **21** | Round 1 rule; summary v2 |
 | **Round 1, LGAs** (138 in coverage) | (a) **96** / (b) **29** / (c) **1** / (d) **12** | same |
 | **Round 1, states**: MoE (% of households represented) | Adamawa 2.43% (82.2%); Borno 2.85% (66.8%); Katsina 1.84% (58.9%); Sokoto 2.26% (61.7%); Yobe 2.71% (73.3%); Zamfara 3.06% (50.2%). All six are (a). Kaduna: LGA figures only (2 of 23 LGAs, 9.5% of its households) | same |
-| Not part of Round 1 (category d) | Benue, Nasarawa, Plateau, Kebbi (collected, outside Round 1 coverage); Kano, Kogi, Niger (no partner coverage, no data) | same |
+| Not part of Round 1 (category d) | In the 5 Oct summary: Benue, Nasarawa, Plateau, Kebbi (collected, outside Round 1 coverage); Kano, Kogi, Niger (no partner coverage, no data). **Kebbi has since been reinstated to Round 1** (see section 1); a corrected summary may be re-issued (decision pending on 13 Oct) | same |
 | Round 2 / strict rule, current status (327 strata assessed) | 88 Representative now (strict, on real interviews); 189 Representative at full completion; 28 only Indicative at full completion; 22 excluded | strict rule, 9 Oct |
 | Strict vs simplified rule on the same Round 1 data | 84 vs 216 Representative strata (all states, monitoring basis) | Round 1 guide, 2 Oct |
 
@@ -335,7 +338,7 @@ See ToR section 3.6 above (reallocations, exits).
 ### 3.9 Limitations to add (section 3.8 / A1.4)
 1. **Estimates represent the accessible population** of each stratum. Round 1 states represent 50–82% of their households (section 2.3).
 2. **Round 1 has reduced coverage:**
-   - no Round 1 estimates for Kebbi or the North-Central states, although data exist;
+   - no Round 1 estimates for the North-Central states, although data exist (Kebbi was reinstated to Round 1 after first being left out);
    - Kaduna is reported for 2 LGAs only, which hold 9.5% of its households.
 3. **Access changed during fieldwork:** replacements came from each stratum's accessible remainder, and 19 strata were dropped.
 4. **Partner changes mid-fieldwork:** reallocations moved LGAs between teams, so team effects within an LGA are possible.
@@ -405,7 +408,8 @@ Decided (no ToR change needed): Ngala Non-IDP gets no depth top-up and is report
 
 ## 6. Accuracy guardrails
 
-- **Never describe Round 1 as covering all 11 states.** Round 1 analysis is the North-East and North-West excluding Kebbi; Kaduna has LGA figures only.
+- **Never describe Round 1 as covering all 11 states.** Round 1 analysis is 7 states: North-East (Adamawa, Borno, Yobe) and North-West (Katsina, Kebbi, Sokoto, Zamfara). Kebbi was reinstated after first being left out. Kaduna's two LGAs: **[Jack to confirm]**.
+- **The IDP accessible share issue (13 Oct decision pending).** Don't describe the IDP accessible population as DTM-based until Jack decides; as implemented, it is WorldPop-based (section 3.2).
 - **Don't mix the bases:**
   - 25,447 (Round 1 achieved) and 21,705 (in coverage) are monitoring counts of 2 Oct;
   - 21,428 and 20,858 come from the final cleaned dataset, the basis of the IPC/CH summary.
