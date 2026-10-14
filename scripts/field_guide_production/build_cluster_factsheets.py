@@ -457,6 +457,27 @@ if _only_pcodes:
     clusters = {cid: rows for cid, rows in clusters.items() if rows[0]["adm2_pcode"] in _keep_pcodes}
     print(f"BUILD_DC_ONLY_PCODES set - scoped to {len(clusters)} cluster(s) in {sorted(_keep_pcodes)}.")
 
+# 2026-10-14: opt-in incremental mode - build only clusters whose factsheet is absent from at least one partner folder it
+# belongs in (the routine top-up after a guide sweep; a full rebuild re-writes and re-syncs every guide). Same folder logic
+# as distribute_to_partner_folders(). Unset = every cluster, exactly as before.
+if os.environ.get("BUILD_DC_ONLY_MISSING") == "1":
+    def _missing_in_a_partner_folder(cid, rows):
+        pcode, lga_name = rows[0]["adm2_pcode"], rows[0]["adm2_name"]
+        state_name = master_lgas.get(pcode, {}).get("adm1_name", "")
+        pop_folder = "Non_IDP" if rows[0]["pop_type"] == "non_idp" else "IDP"
+        # A guide is also stale if it is older than either of its cluster's map PNGs: fit_picture() leaves a map section
+        # empty when the PNG does not exist yet, so a guide built before its maps were rendered is rebuilt once they are.
+        maps = [os.path.join(EXAMPLE_CLUSTER_MAPS_DIR, f"{cid}.png"), os.path.join(LGA_CONTEXT_MAPS_DIR, f"{cid}.png")]
+        newest_map = max((os.path.getmtime(m) for m in maps if os.path.exists(m)), default=0)
+        for partner in partners_by_pcode.get(pcode, []):
+            lga_dir = os.path.join(OUT_ROOT, safe_folder_name(partner), safe_folder_name(state_name), safe_folder_name(lga_name))
+            guide = os.path.join(lga_dir, pop_folder, "Cluster_guide", f"{cid}_factsheet.docx")
+            if os.path.isdir(lga_dir) and (not os.path.isfile(guide) or os.path.getmtime(guide) < newest_map):
+                return True
+        return False
+    clusters = {cid: rows for cid, rows in clusters.items() if _missing_in_a_partner_folder(cid, rows)}
+    print(f"BUILD_DC_ONLY_MISSING set - {len(clusters)} cluster(s) lack a factsheet in at least one of their partner folders.")
+
 print(f"  {len(clusters)} distinct clusters")
 
 os.makedirs(TEMP_DIR, exist_ok=True)

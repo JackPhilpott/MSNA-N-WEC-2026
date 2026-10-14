@@ -882,6 +882,14 @@ render_example_map <- function(cid) {
 
 all_cluster_ids <- cluster_meta$cluster_id
 cat("\n", length(all_cluster_ids), "clusters total.\n")
+# 2026-10-14: opt-in scope for a targeted refresh - MAPS_ONLY_PCODES = comma-separated adm2 pcodes (taken from the cluster
+# ID, e.g. non_idp_NG037010_supp31 -> NG037010). Unset = every cluster, exactly as before.
+only_pcodes <- trimws(strsplit(Sys.getenv("MAPS_ONLY_PCODES"), ",")[[1]])
+only_pcodes <- only_pcodes[nzchar(only_pcodes)]
+if (length(only_pcodes) > 0) {
+  all_cluster_ids <- all_cluster_ids[sub("^(non_idp|idp)_(NG[0-9]{6})_.*$", "\\2", all_cluster_ids) %in% only_pcodes]
+  cat("MAPS_ONLY_PCODES set - scoped to", length(all_cluster_ids), "cluster(s) in", paste(only_pcodes, collapse = ", "), "\n")
+}
 
 # ==============================================================================
 # LGA-context annex map - one per cluster, zoomed to the LGA extent the
