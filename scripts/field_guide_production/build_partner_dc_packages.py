@@ -1027,7 +1027,10 @@ def idp_tier2_metadata_row(partner, state_name, lga_name, cluster_id, r, backup_
         "Latitude": backup_row["backup_gps_lat"], "Longitude": backup_row["backup_gps_lon"],
         "IOM Site Name": r["iom_site_name"], "IOM Site Type": r["iom_site_type"],
         "Notes": backup_row["extent_source_note"],
-        "Collection Status": "Backup - only if Tier 1 infeasible",
+        # 2026-10-14 (Jack, INTERSOS Maru): a backup point of a cluster whose ward is now inaccessible is itself not to be
+        # visited - it read "Backup - only if Tier 1 infeasible" (Dan Tasha Pri. Sch. Camp, Dangulbi). Same test as the
+        # cluster's own row; kept identical in refresh_partner_workbooks_daily.py.
+        "Collection Status": "Inaccessible" if _row_effectively_inaccessible(r) else "Backup - only if Tier 1 infeasible",
     }
 
 
